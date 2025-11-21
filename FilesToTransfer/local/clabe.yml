@@ -1,0 +1,25 @@
+# In order to get picked up, move this file to the root of the project or ./local
+
+data_dir: C:/Data
+allow_dirty: false
+skip_hardware_validation: false
+
+watchdog:
+  project_name: "Cognitive flexibility in patch foraging"
+  destination: '\\allen\\aind\\stage\\vr-foraging\\data'
+  delete_modalities_source_after_success: true
+  job_type: "vr_foraging"
+  transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
+  s3_bucket: "default"
+  schedule_time: "17:00:00"
+
+default_behavior_picker:
+  config_library_dir: '\\allen\aind\scratch\AindBehavior.db\AindVrForaging'
+
+curriculum:
+  script: "curriculum run"
+
+dataverse:
+  tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
+  client_id: "df37356e-3316-484a-b732-319b6b4ad464"
+  org: "org5d93e08d"
