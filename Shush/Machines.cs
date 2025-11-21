@@ -41,17 +41,17 @@ public class MachineDeployer
 {
     MachineInfo machine;
     Secrets secrets;
-    SemVersion version;
+    string tag;
     ILogger logger;
 
     string boxId;
     string remotePath;
 
-    public MachineDeployer(string boxId, MachineInfo machine, Secrets secrets, SemVersion version, ILogger logger, string remotePath)
+    public MachineDeployer(string boxId, MachineInfo machine, Secrets secrets, string tag, ILogger logger, string remotePath)
     {
         this.machine = machine;
         this.secrets = secrets;
-        this.version = version;
+        this.tag = tag;
         this.logger = logger;
         this.boxId = boxId;
         this.remotePath = remotePath;
@@ -71,7 +71,7 @@ public class MachineDeployer
                     "git fetch --all --tags --prune",
                     "git clean -fd",
                     "git reset --hard",
-                    "git checkout " + "tags/v" + version.ToString(),
+                    "git checkout " + "tags/" + tag,
                 };
                 ExecuteCommand(sshClient, shellCommand);
 

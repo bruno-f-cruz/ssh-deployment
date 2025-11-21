@@ -1,31 +1,40 @@
 ﻿using Microsoft.Extensions.Logging;
-using Renci.SshNet;
-using Semver;
 using System.CommandLine;
 
-using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
-ILogger logger = factory.CreateLogger("Shush");
+var tag = new Option<string>(
+    aliases: new[] { "--tag", "-t" },
+    description: "Semantic version of the repository to deploy")
+{ IsRequired = true };
 
-if (args.Length != 1)
+var repoPathOption = new Option<string>(
+    aliases: new[] { "--repository-path", "-r" },
+    description: "Remote repository path")
+{ IsRequired = true };
+
+var rootCommand = new RootCommand("SSH Deployment Tool")
 {
-    throw new ArgumentException("Expected one argument with the semantic version of the repository to deploy.");
-}
+    tag,
+    repoPathOption
+};
 
-var version = args[0];
-const string remotePath = "C:/git/Aind.Behavior.VrForaging";
+rootCommand.SetHandler(async (string tag, string remotePath) =>
+{
+    using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+    ILogger logger = factory.CreateLogger("Shush");
 
-var semVersion = SemVersion.Parse(version);
-logger.LogInformation("Starting deployment for version {Version}.", semVersion);
+    logger.LogInformation("Starting deployment for tag {tag}.", tag);
 
-var machines = await MachineManager.GetComputers();
-machines = machines.Where(kv => kv.Key.Contains("FRG.0")).ToDictionary(kv => kv.Key, kv => kv.Value);
-var secrets = Secrets.Load();
+    var machines = await MachineManager.GetComputers();
+    machines = machines.Where(kv => kv.Key.Contains("FRG.0")).ToDictionary(kv => kv.Key, kv => kv.Value);
+    var secrets = Secrets.Load();
 
-await Parallel.ForEachAsync(machines, async (kv, cancellationToken) =>
+    await Parallel.ForEachAsync(machines, async (kv, cancellationToken) =>
     {
-        var deployer = new MachineDeployer(kv.Key, kv.Value, secrets, semVersion, logger, remotePath);
+        var deployer = new MachineDeployer(kv.Key, kv.Value, secrets, tag, logger, remotePath);
         deployer.Deploy(cancellationToken);
-    }
-);
+    });
+}, tag, repoPathOption);
+
+return await rootCommand.InvokeAsync(args);
 
 
