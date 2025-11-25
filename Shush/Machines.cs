@@ -57,7 +57,7 @@ public class MachineDeployer
         this.remotePath = remotePath;
     }
 
-    public async void Deploy(CancellationToken cancellationToken)
+    public async Task Deploy(CancellationToken cancellationToken)
     {
         logger.LogInformation("Found machine {Machine} with rig ID {RigId} and hostname {Hostname}.", boxId, machine.rig_id, machine.hostname);
         using (var sshClient = new SshClient(machine.hostname, secrets.Username, secrets.Password))
@@ -65,7 +65,6 @@ public class MachineDeployer
             using (var scpClient = new ScpClient(machine.hostname, secrets.Username, secrets.Password))
             {
                 await sshClient.ConnectAsync(cancellationToken);
-
                 string[] shellCommand = {
                     "cd " + remotePath,
                     "git fetch --all --tags --prune",

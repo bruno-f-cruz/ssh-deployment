@@ -25,13 +25,20 @@ rootCommand.SetHandler(async (string tag, string remotePath) =>
     logger.LogInformation("Starting deployment for tag {tag}.", tag);
 
     var machines = await MachineManager.GetComputers();
-    machines = machines.Where(kv => kv.Key.Contains("FRG.0")).ToDictionary(kv => kv.Key, kv => kv.Value);
     var secrets = Secrets.Load();
 
     await Parallel.ForEachAsync(machines, async (kv, cancellationToken) =>
     {
-        var deployer = new MachineDeployer(kv.Key, kv.Value, secrets, tag, logger, remotePath);
-        deployer.Deploy(cancellationToken);
+        try
+        {
+            var deployer = new MachineDeployer(kv.Key, kv.Value, secrets, tag, logger, remotePath);
+            await deployer.Deploy(cancellationToken);
+            logger.LogInformation("Successfully deployed to machine {Machine}.", kv.Key);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error deploying to machine {Machine}.", kv.Key);
+        }
     });
 }, tag, repoPathOption);
 
