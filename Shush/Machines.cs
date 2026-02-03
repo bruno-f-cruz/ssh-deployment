@@ -11,11 +11,11 @@ public class MachineManager
 
     private readonly static List<string> Include = new List<string>
     {
-        "FRG.4",
-        "FRG.5",
-        "FRG.12",
-        "FRG.13",
-        "FRG.0-A"
+        //"FRG.4",
+        //"FRG.5",
+        //"FRG.12",
+        //"FRG.13",
+        "FRG.0"
     };
 
     public async static Task<Dictionary<string, MachineInfo>> GetComputers(string url = "http://mpe-computers/v2.0")
@@ -57,6 +57,17 @@ public class MachineDeployer
         this.remotePath = remotePath;
     }
 
+    public async Task RunCommand(string[] command, CancellationToken cancellationToken)
+    {
+        using (var sshClient = new SshClient(machine.hostname, secrets.Username, secrets.Password))
+        {
+            await sshClient.ConnectAsync(cancellationToken);
+            logger.LogInformation("Running command on machine {Machine}: {Command}", boxId, string.Join(" ", command));
+            ExecuteCommand(sshClient, command);
+            sshClient.Disconnect();
+        }
+    }
+
     public async Task Deploy(CancellationToken cancellationToken)
     {
         logger.LogInformation("Found machine {Machine} with rig ID {RigId} and hostname {Hostname}.", boxId, machine.rig_id, machine.hostname);
@@ -71,6 +82,7 @@ public class MachineDeployer
                     "git clean -fd",
                     "git reset --hard",
                     "git checkout " + "tags/" + tag,
+                    "& .\\scripts\\deploy.cmd",
                 };
                 ExecuteCommand(sshClient, shellCommand);
 
@@ -94,6 +106,7 @@ public class MachineDeployer
                     scpClient.Upload(new FileInfo(file.FullName), remoteFilePath);
 
                 }
+
                 scpClient.Disconnect();
             }
             sshClient.Disconnect();
@@ -106,7 +119,7 @@ public class MachineDeployer
         string psCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"{escaped}\"";
 
         var cmd = client.CreateCommand(psCommand);
-        cmd.CommandTimeout = TimeSpan.FromMinutes(2);
+        cmd.CommandTimeout = TimeSpan.FromSeconds(60);
 
         string result = cmd.Execute();
         string error = cmd.Error;
@@ -120,6 +133,7 @@ public class MachineDeployer
                 cmd.ExitStatus,
                 error
             );
+            throw new Exception($"SSH command failed with exit code {cmd.ExitStatus}: {error}");
         }
         else
         {

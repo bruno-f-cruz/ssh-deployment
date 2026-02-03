@@ -19,7 +19,7 @@ var rootCommand = new RootCommand("SSH Deployment Tool")
 
 rootCommand.SetHandler(async (string tag, string remotePath) =>
 {
-    using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+    using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
     ILogger logger = factory.CreateLogger("Shush");
 
     logger.LogInformation("Starting deployment for tag {tag}.", tag);
