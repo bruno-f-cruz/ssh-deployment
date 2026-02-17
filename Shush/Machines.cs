@@ -11,10 +11,10 @@ public class MachineManager
 
     private readonly static List<string> Include = new List<string>
     {
-        //"FRG.4",
-        //"FRG.5",
-        //"FRG.12",
-        //"FRG.13",
+        "FRG.4",
+        "FRG.5",
+        "FRG.12",
+        "FRG.13",
         "FRG.0"
     };
 
@@ -119,7 +119,7 @@ public class MachineDeployer
         string psCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"{escaped}\"";
 
         var cmd = client.CreateCommand(psCommand);
-        cmd.CommandTimeout = TimeSpan.FromSeconds(60);
+        cmd.CommandTimeout = TimeSpan.FromMinutes(10);
 
         string result = cmd.Execute();
         string error = cmd.Error;
