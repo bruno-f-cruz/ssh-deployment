@@ -21,8 +21,13 @@ var rootCommand = new RootCommand("SSH Deployment Tool")
 
 rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
 {
+    var logFile = $"deploy_{DateTime.Now:yyyyMMdd_HHmmss}.log";
+
     await using var services = new ServiceCollection()
-        .AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Debug))
+        .AddLogging(b => b
+            .ClearProviders()
+            .AddProvider(new Shush.FileLoggerProvider(logFile))
+            .SetMinimumLevel(LogLevel.Debug))
         .BuildServiceProvider();
 
     var loggerFactory = services.GetRequiredService<ILoggerFactory>();
@@ -43,20 +48,32 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
     if (recipe is null)
     {
         var available = string.Join(", ", recipes.Select(r => $"'{r.Name}'"));
-        logger.LogError("Recipe '{RecipeName}' not found. Available recipes: {Available}", recipeName, available);
+        Console.Error.WriteLine($"Recipe '{recipeName}' not found. Available recipes: {available}");
         Environment.Exit(1);
         return;
     }
 
-    logger.LogInformation("Using recipe '{Recipe}'.", recipe.Name);
-
     var machines = await MachineLoader.LoadAsync(machinesPath);
-    logger.LogInformation("Loaded {Count} machine(s) from '{Path}'.", machines.Count, machinesPath);
 
     var secrets = Secrets.Load();
 
-    var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory);
-    await runner.RunAsync();
+    Console.WriteLine($"Recipe '{recipe.Name}' — {machines.Count} machine(s)  [log: {logFile}]");
+    Console.WriteLine();
+
+    var display = new Shush.DeploymentDisplay(machines.Keys.ToList());
+
+    var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory, display);
+
+    try
+    {
+        await runner.RunAsync();
+    }
+    catch (Exception ex) when (ex is AggregateException or OperationCanceledException)
+    {
+        logger.LogError(ex, "One or more deployments failed.");
+    }
+
+    display.PrintSummary();
 
 }, recipeOption, machinesOption);
 

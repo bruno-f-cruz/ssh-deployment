@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Shush;
 
 namespace Shush.Recipe;
 
@@ -9,18 +10,21 @@ public class RecipeRunner
     private readonly Secrets _secrets;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RecipeRunner> _logger;
+    private readonly DeploymentDisplay? _display;
 
     public RecipeRunner(
         IRecipe recipe,
         Dictionary<string, MachineInfo> machines,
         Secrets secrets,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        DeploymentDisplay? display = null)
     {
         _recipe = recipe;
         _machines = machines;
         _secrets = secrets;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<RecipeRunner>();
+        _display = display;
     }
 
     public Task RunAsync(CancellationToken ct = default)
@@ -44,10 +48,12 @@ public class RecipeRunner
                 {
                     await step.ExecuteAsync(context, cancellationToken);
                     _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
+                    _display?.ReportStep(boxId, success: true, stepName);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, stepName);
+                    _display?.ReportStep(boxId, success: false, stepName);
                     throw;
                 }
             }

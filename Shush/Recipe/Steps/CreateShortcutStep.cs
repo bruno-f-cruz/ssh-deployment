@@ -18,7 +18,7 @@ public class CreateShortcutStep : IRecipeStep
         var shortcutPath = $@"{_shortcutDirectory}\{_shortName}.lnk";
         string[] commands =
         [
-            $@"powershell -Command ""$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{shortcutPath}'); $s.TargetPath = '{_cmdPath}'; $s.Save()""",
+            $"$sh = New-Object -ComObject WScript.Shell; $sc = $sh.CreateShortcut('{shortcutPath}'); $sc.TargetPath = '{_cmdPath}'; $sc.Save()",
         ];
 
         return context.RunCommandsAsync(commands, cancellationToken);
