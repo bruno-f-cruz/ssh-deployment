@@ -10,7 +10,10 @@ public class GitCloneStep : IRecipeStep
     {
         _repositoryUrl = repositoryUrl;
 
-        var repoName = Path.GetFileNameWithoutExtension(repositoryUrl.TrimEnd('/').Split('/').Last());
+        var lastSegment = repositoryUrl.TrimEnd('/').Split('/').Last();
+        var repoName = lastSegment.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+            ? lastSegment[..^4]
+            : lastSegment;
         ClonedPath = $"{rootPath.TrimEnd('/', '\\')}\\{repoName}";
     }
 
