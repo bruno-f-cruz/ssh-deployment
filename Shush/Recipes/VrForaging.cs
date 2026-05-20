@@ -19,8 +19,12 @@ public class VrForagingRecipe : IRecipe
             [
                 clone,
                 new GitCheckoutStep(clone.ClonedPath, tag: TAG),
-                new RunScriptStep(new[] { ".\\scripts\\deploy.cmd" }, workingDirectory: clone.ClonedPath),
-                new CreateShortcutStep(cmdPath: $"{clone.ClonedPath}\\scripts\\launcher.cmd", shortcutDirectory: @"C:\Users\Public\Desktop", shortName: "VrForaging"),
+                new RunScriptStep(new[] { "$ErrorActionPreference = 'Stop'", "$ProgressPreference = 'SilentlyContinue'", ".\\scripts\\deploy.ps1" }, workingDirectory: clone.ClonedPath),
+                new CreateBatchFileStep(
+                    @"C:\Users\Public\Desktop\VrForaging.cmd",
+                    $"cd /d {clone.ClonedPath}",
+                    $"uv run .\\scripts\\aind.py",
+                    "pause"),
                 new CopyFilesStep(sourceDirectory: "./FilesToTransfer", remoteBaseDirectory: clone.ClonedPath),
             ];
         }
