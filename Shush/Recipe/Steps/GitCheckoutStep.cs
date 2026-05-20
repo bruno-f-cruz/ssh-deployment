@@ -2,12 +2,12 @@ namespace Shush.Recipe.Steps;
 
 public class GitCheckoutStep : IRecipeStep
 {
-    private readonly string _remotePath;
+    private readonly string _path;
     private readonly string _tag;
 
-    public GitCheckoutStep(string remotePath, string tag)
+    public GitCheckoutStep(string path, string tag)
     {
-        _remotePath = remotePath;
+        _path = path;
         _tag = tag;
     }
 
@@ -15,7 +15,7 @@ public class GitCheckoutStep : IRecipeStep
     {
         string[] commands =
         [
-            $"cd {_remotePath}",
+            $"cd {_path}",
             "git fetch --all --tags --prune",
             "git clean -fd",
             "git reset --hard",

@@ -1,6 +1,5 @@
 # In order to get picked up, move this file to the root of the project or ./local
 
-data_dir: C:/Data
 allow_dirty: false
 skip_hardware_validation: false
 
@@ -12,13 +11,6 @@ watchdog:
   transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
   s3_bucket: "default"
   schedule_time: "18:00:00"
-
-default_behavior_picker:
-  config_library_dir: '\\allen\aind\scratch\AindBehavior.db\AindVrForaging'
-
-curriculum:
-  script: "curriculum run"
-  project_directory: '.\src\aind_behavior_vr_foraging\curricula\aind.Behavior.VrForaging.Curricula'
 
 dataverse:
   tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
