@@ -94,6 +94,25 @@ public class MachineContext : IAsyncDisposable
         _scpClient.Upload(localFile, remotePath);
     }
 
+    public async Task UploadContentAsync(string content, string remotePath, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        string remoteDir = (Path.GetDirectoryName(remotePath) ?? string.Empty).Replace('\\', '/');
+
+        if (!string.IsNullOrEmpty(remoteDir))
+        {
+            await RunCommandsAsync(
+                [$"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path '{remoteDir}'\""],
+                ct);
+        }
+
+        _logger.LogDebug("[{BoxId}] Uploading content -> {RemotePath}.", BoxId, remotePath);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        using var stream = new MemoryStream(bytes);
+        _scpClient.Upload(stream, remotePath);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _logger.LogInformation("[{BoxId}] Disconnecting clients.", BoxId);

@@ -25,8 +25,20 @@ public class VrForagingRecipe : IRecipe
                     $"cd /d {clone.ClonedPath}",
                     $"uv run .\\scripts\\aind.py",
                     "pause"),
-                new CopyFilesStep(sourceDirectory: "./FilesToTransfer", remoteBaseDirectory: clone.ClonedPath),
+                new TemplatedCopyFilesStep(
+                    sourceDirectory: "./FilesToTransfer",
+                    remoteBaseDirectory: clone.ClonedPath,
+                    variables: new()
+                    {
+                        ["schedule_time"] = RandomTime(fromMinutes: 17 * 60 + 50, toMinutes: 18 * 60 + 10),
+                    }),
             ];
         }
+    }
+
+    private static string RandomTime(int fromMinutes, int toMinutes)
+    {
+        var minutes = Random.Shared.Next(fromMinutes, toMinutes + 1);
+        return $"{minutes / 60:D2}:{minutes % 60:D2}";
     }
 }
