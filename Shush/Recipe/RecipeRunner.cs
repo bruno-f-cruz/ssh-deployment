@@ -43,6 +43,7 @@ public class RecipeRunner
 
                 var stepName = step.GetType().Name;
                 _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, stepName);
+                _display?.ReportStepStart(boxId, stepName);
 
                 try
                 {

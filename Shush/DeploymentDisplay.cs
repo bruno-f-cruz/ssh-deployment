@@ -2,23 +2,35 @@ namespace Shush;
 
 public sealed class DeploymentDisplay
 {
+    private const int DotsColumnWidth = 20;
+    private const string Esc = "\x1B";
+
     private readonly object _lock = new();
-    private readonly Dictionary<string, int> _rowIndex = new();
+    private readonly List<string> _boxIds;
     private readonly Dictionary<string, List<(bool Success, string StepName)>> _steps = new();
-    private readonly int _labelWidth;
-    private readonly int _startRow;
+    private readonly Dictionary<string, string> _currentStep = new();
+    private readonly int _col1Width;
 
     public DeploymentDisplay(IReadOnlyList<string> boxIds)
     {
-        _labelWidth = boxIds.Max(id => id.Length) + 2;
-        _startRow = Console.CursorTop;
+        _boxIds = [.. boxIds];
+        _col1Width = boxIds.Max(id => id.Length) + 2;
 
-        for (int i = 0; i < boxIds.Count; i++)
+        foreach (var id in boxIds)
         {
-            var id = boxIds[i];
-            _rowIndex[id] = i;
             _steps[id] = [];
-            Console.WriteLine(id.PadRight(_labelWidth));
+            _currentStep[id] = string.Empty;
+            Console.WriteLine(RenderRow(id));
+        }
+        // cursor is now _boxIds.Count lines below the first row
+    }
+
+    public void ReportStepStart(string boxId, string stepName)
+    {
+        lock (_lock)
+        {
+            _currentStep[boxId] = stepName;
+            RedrawRow(boxId);
         }
     }
 
@@ -26,8 +38,9 @@ public sealed class DeploymentDisplay
     {
         lock (_lock)
         {
+            _currentStep[boxId] = string.Empty;
             _steps[boxId].Add((success, stepName));
-            Redraw(boxId);
+            RedrawRow(boxId);
         }
     }
 
@@ -55,19 +68,33 @@ public sealed class DeploymentDisplay
         Console.ResetColor();
     }
 
-    private void Redraw(string boxId)
+    private void RedrawRow(string boxId)
     {
-        var savedTop = Console.CursorTop;
-        var savedLeft = Console.CursorLeft;
+        var linesUp = _boxIds.Count - _boxIds.IndexOf(boxId);
 
-        Console.SetCursorPosition(_labelWidth, _startRow + _rowIndex[boxId]);
+        Console.Write($"{Esc}[{linesUp}A\r");  // move up, go to start of line
+
+        Console.ResetColor();
+        Console.Write(boxId.PadRight(_col1Width));
+        Console.Write("| ");
+
         foreach (var (success, _) in _steps[boxId])
         {
             Console.ForegroundColor = success ? ConsoleColor.Green : ConsoleColor.Red;
             Console.Write(success ? "." : "F");
         }
         Console.ResetColor();
+        Console.Write(new string(' ', Math.Max(0, DotsColumnWidth - _steps[boxId].Count)));
 
-        Console.SetCursorPosition(savedLeft, savedTop);
+        Console.Write(" | ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(_currentStep[boxId]);
+        Console.ResetColor();
+        Console.Write($"{Esc}[K");             // erase to end of line
+
+        Console.Write($"{Esc}[{linesUp}B\r"); // move back down
     }
+
+    private string RenderRow(string boxId) =>
+        $"{boxId.PadRight(_col1Width)}| {"".PadRight(DotsColumnWidth)} | ";
 }
