@@ -1,16 +1,15 @@
 machines:
   - FRG.0-A
-  # - FRG.4-A
-  # - FRG.4-B
-  # - FRG.4-C
-  # - FRG.4-D
-  # - FRG.5-A
-  # - FRG.5-B
-  # - FRG.12-A
-  # - FRG.12-B
-  # - FRG.12-C
-  # - FRG.12-D
-  # - FRG.13-A
-  # - FRG.13-B
-  # - FRG.13-C
-  # - FRG.13-D
+  - FRG.4-A
+  - FRG.4-B
+  - FRG.4-C
+  - FRG.4-D
+  - FRG.12-A
+  - FRG.12-B
+  - FRG.12-C
+  - FRG.12-D
+  - FRG.13-A
+  - FRG.13-B
+  - FRG.13-C
+  - FRG.13-D
+

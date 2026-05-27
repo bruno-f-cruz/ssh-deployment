@@ -16,10 +16,11 @@ public class GitCheckoutStep : IRecipeStep
         string[] commands =
         [
             $"cd {_path}",
-            "git fetch --all --tags --prune",
+            "git fetch --all --tags --prune --force",
             "git clean -fd",
             "git reset --hard",
             $"git checkout tags/{_tag}",
+            "git submodule update --init --recursive",
         ];
 
         return context.RunCommandsAsync(commands, cancellationToken);
