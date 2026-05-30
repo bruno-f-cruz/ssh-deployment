@@ -8,7 +8,7 @@ public class VrForagingRecipe : IRecipe
     public string Name => "VrForaging";
 
     const string LOCAL_REPO_NAME = "Aind.Behavior.VrForaging";
-    const string TAG = "v1.0.0rc6";
+    const string TAG = "v1.0.0";
 
     public IEnumerable<IRecipeStep> Steps
     {
