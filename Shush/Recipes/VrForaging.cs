@@ -18,8 +18,7 @@ public class VrForagingRecipe : IRecipe
             return
             [
                 clone,
-                new DeleteDirectoryStep($"{clone.ClonedPath}\\bonsai"),
-                new GitCheckoutStep(clone.ClonedPath, tag: TAG),
+                new GitCheckoutStep(clone.ClonedPath, tag: TAG, cleanExceptions: [".cache_manager.json"]),
                 new RunScriptStep(new[] { "$ErrorActionPreference = 'Stop'", "$ProgressPreference = 'SilentlyContinue'", ".\\scripts\\deploy.ps1" }, workingDirectory: clone.ClonedPath),
                 new CreateBatchFileStep(
                     @"C:\Users\Public\Desktop\VrForaging.cmd",

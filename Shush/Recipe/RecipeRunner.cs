@@ -27,39 +27,65 @@ public class RecipeRunner
         _display = display;
     }
 
-    public Task RunAsync(CancellationToken ct = default)
+    public async Task RunAsync(CancellationToken ct = default)
     {
-        return Parallel.ForEachAsync(_machines, ct, async (kv, cancellationToken) =>
+        var failures = new System.Collections.Concurrent.ConcurrentDictionary<string, Exception>();
+
+        await Parallel.ForEachAsync(_machines, ct, async (kv, cancellationToken) =>
         {
             var (boxId, machineInfo) = (kv.Key, kv.Value);
 
             _logger.LogInformation("[{BoxId}] Starting recipe '{Recipe}'.", boxId, _recipe.Name);
 
-            await using var context = await MachineContext.ConnectAsync(boxId, machineInfo, _secrets, _loggerFactory, cancellationToken);
-
-            foreach (var step in _recipe.Steps)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                await using var context = await MachineContext.ConnectAsync(boxId, machineInfo, _secrets, _loggerFactory, cancellationToken);
 
-                var stepName = step.GetType().Name;
-                _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, stepName);
-                _display?.ReportStepStart(boxId, stepName);
+                foreach (var step in _recipe.Steps)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                try
-                {
-                    await step.ExecuteAsync(context, cancellationToken);
-                    _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
-                    _display?.ReportStep(boxId, success: true, stepName);
+                    var stepName = step.GetType().Name;
+                    _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, stepName);
+                    _display?.ReportStepStart(boxId, stepName);
+
+                    try
+                    {
+                        await step.ExecuteAsync(context, cancellationToken);
+                        _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
+                        _display?.ReportStep(boxId, success: true, stepName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, stepName);
+                        _display?.ReportStep(boxId, success: false, stepName);
+                        throw;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, stepName);
-                    _display?.ReportStep(boxId, success: false, stepName);
-                    throw;
-                }
+
+                _logger.LogInformation("[{BoxId}] Recipe '{Recipe}' finished.", boxId, _recipe.Name);
             }
-
-            _logger.LogInformation("[{BoxId}] Recipe '{Recipe}' finished.", boxId, _recipe.Name);
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failures[boxId] = ex;
+            }
         });
+
+        if (!failures.IsEmpty)
+        {
+            var summary = string.Join(", ", failures.Keys);
+            _logger.LogError("Recipe failed on {Count} machine(s): {Machines}", failures.Count, summary);
+            foreach (var (boxId, ex) in failures)
+            {
+                _logger.LogError(ex, "[{BoxId}] Failure details.", boxId);
+            }
+            throw new AggregateException(
+                $"Recipe '{_recipe.Name}' failed on {failures.Count} machine(s): {summary}",
+                failures.Values);
+        }
     }
 }
