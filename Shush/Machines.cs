@@ -34,7 +34,7 @@ public static class MachineLoader
 
     private static async Task<Dictionary<string, MachineInfo>> FetchRegistryAsync()
     {
-        using var http = new HttpClient();
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var json = await http.GetStringAsync(RegistryUrl);
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         var doc = JsonSerializer.Deserialize<JsonDocument>(json, options)!;
