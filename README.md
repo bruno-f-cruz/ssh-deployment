@@ -82,4 +82,6 @@ new TemplatedCopyFilesStep(
     })
 ```
 
+For stricter API validators, `schedule_time` is emitted as `HH:mm:ss` (for example, `17:58:00`).
+
 Values are computed at `Steps` evaluation time, so each machine receives its own resolved copy.

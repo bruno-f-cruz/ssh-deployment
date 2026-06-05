@@ -39,6 +39,6 @@ public class VrForagingRecipe : IRecipe
     private static string RandomTime(int fromMinutes, int toMinutes)
     {
         var minutes = Random.Shared.Next(fromMinutes, toMinutes + 1);
-        return $"{minutes / 60:D2}:{minutes % 60:D2}";
+        return $"{minutes / 60:D2}:{minutes % 60:D2}:00";
     }
 }
