@@ -28,6 +28,7 @@ public class GitCheckoutStep : IRecipeStep
         string[] commands =
         [
             $"Set-Location '{EscapeSingleQuotedPowerShellString(_path)}'",
+            $"git config --global --add safe.directory '{EscapeSingleQuotedPowerShellString(_path)}'",
             "git fetch --all --tags --prune --force",
             "git reset --hard",
             cleanCommand,
