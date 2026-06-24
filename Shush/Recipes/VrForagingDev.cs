@@ -44,7 +44,7 @@ dataverse:
                     $"cd /d {clone.ClonedPath}",
                     $"uv run .\\scripts\\aind.py",
                     "pause"),
-                new WriteFileStep(CLABE_FILE, "./local/clabe.yml"),
+                new WriteFileStep(CLABE_FILE, $"{clone.ClonedPath}/local/clabe.yml"),
             ];
         }
     }
