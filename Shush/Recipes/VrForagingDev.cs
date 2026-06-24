@@ -6,7 +6,7 @@ namespace Shush.Recipes;
 public class VrForagingDevRecipe : IRecipe
 {
     public string Name => "VrForagingDev";
-    const string TAG = "v1.1.1rc1";
+    const string TAG = "v1.1.1rc2";
 
     const string CLABE_FILE = """
 # In order to get picked up, move this file to the root of the project or ./local
@@ -21,7 +21,7 @@ watchdog:
   job_type: "vr_foraging_v2"
   transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
   s3_bucket: "default"
-  schedule_time: "{{ schedule_time }}"
+  schedule_time: 18:00:00
 
 dataverse:
   tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
