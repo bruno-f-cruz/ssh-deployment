@@ -8,7 +8,7 @@ public class VrForagingRecipe : IRecipe
     public string Name => "VrForaging";
 
     const string LOCAL_REPO_NAME = "Aind.Behavior.VrForaging";
-    const string TAG = "v1.1.0";
+    const string TAG = "v1.1.2";
 
     public IEnumerable<IRecipeStep> Steps
     {
@@ -18,13 +18,12 @@ public class VrForagingRecipe : IRecipe
             return
             [
                 clone,
-                new GitCheckoutStep(clone.ClonedPath, tag: TAG, cleanExceptions: [".cache_manager.json"]),
+                new GitCheckoutStep(clone.ClonedPath, reference: TAG, cleanExceptions: [".cache_manager.json"]),
                 new RunScriptStep(new[] { "$ErrorActionPreference = 'Stop'", "$ProgressPreference = 'SilentlyContinue'", ".\\scripts\\deploy.ps1" }, workingDirectory: clone.ClonedPath),
                 new CreateBatchFileStep(
                     @"C:\Users\Public\Desktop\VrForaging.cmd",
                     $"cd /d {clone.ClonedPath}",
-                    $"uv run .\\scripts\\aind.py",
-                    "pause"),
+                    $"uv run .\\scripts\\aind.py"),
                 new TemplatedCopyFilesStep(
                     sourceDirectory: "./FilesToTransfer",
                     remoteBaseDirectory: clone.ClonedPath,

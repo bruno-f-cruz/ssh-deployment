@@ -6,7 +6,7 @@ namespace Shush.Recipes;
 public class VrForagingDevRecipe : IRecipe
 {
     public string Name => "VrForagingDev";
-    const string TAG = "v1.1.1rc2";
+    const string TAG = "75cfab6";
 
     const string CLABE_FILE = """
 # In order to get picked up, move this file to the root of the project or ./local
@@ -37,13 +37,12 @@ dataverse:
             return
             [
                 clone,
-                new GitCheckoutStep(clone.ClonedPath, tag: TAG, cleanExceptions: [".cache_manager.json"]),
+                new GitCheckoutStep(clone.ClonedPath, reference: TAG, cleanExceptions: [".cache_manager.json"]),
                 new RunScriptStep(new[] { "$ErrorActionPreference = 'Stop'", "$ProgressPreference = 'SilentlyContinue'", ".\\scripts\\deploy.ps1" }, workingDirectory: clone.ClonedPath),
                 new CreateBatchFileStep(
                     @"C:\Users\Public\Desktop\DEV-VrForaging.cmd",
                     $"cd /d {clone.ClonedPath}",
-                    $"uv run .\\scripts\\aind.py",
-                    "pause"),
+                    $"uv run .\\scripts\\aind.py"),
                 new WriteFileStep(CLABE_FILE, $"{clone.ClonedPath}/local/clabe.yml"),
             ];
         }

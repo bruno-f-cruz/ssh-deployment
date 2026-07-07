@@ -61,7 +61,7 @@ public interface IRecipe
 | Step | Description |
 |---|---|
 | `GitCloneStep(url, rootPath)` | Clones a repository under `rootPath`. Skips if the folder already exists. Exposes `ClonedPath`. |
-| `GitCheckoutStep(remotePath, tag)` | Fetches, cleans, and checks out the given tag. |
+| `GitCheckoutStep(remotePath, reference)` | Fetches, cleans, and checks out the given tag, branch, or commit. |
 | `RunScriptStep(commands[], workingDirectory?)` | Runs PowerShell commands, optionally changing directory first. |
 | `CopyFilesStep(sourceDirectory, remoteBaseDirectory)` | Uploads a local folder tree to the remote machine via SCP. |
 | `TemplatedCopyFilesStep(sourceDirectory, remoteBaseDirectory, variables)` | Same as `CopyFilesStep` but resolves `{{ key }}` tokens in file content before uploading. Throws if a token has no matching variable. |

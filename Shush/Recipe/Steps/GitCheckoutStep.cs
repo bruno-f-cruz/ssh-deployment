@@ -3,13 +3,13 @@ namespace Shush.Recipe.Steps;
 public class GitCheckoutStep : IRecipeStep
 {
     private readonly string _path;
-    private readonly string _tag;
+    private readonly string _reference;
     private readonly IReadOnlyList<string> _cleanExceptions;
 
-    public GitCheckoutStep(string path, string tag, IEnumerable<string>? cleanExceptions = null)
+    public GitCheckoutStep(string path, string reference, IEnumerable<string>? cleanExceptions = null)
     {
         _path = path;
-        _tag = tag;
+        _reference = reference;
         _cleanExceptions = cleanExceptions?.ToArray() ?? [];
     }
 
@@ -32,7 +32,7 @@ public class GitCheckoutStep : IRecipeStep
             "git fetch --all --tags --prune --force",
             "git reset --hard",
             cleanCommand,
-            $"git checkout -f tags/{_tag}",
+            $"git checkout -f '{EscapeSingleQuotedPowerShellString(_reference)}'",
             "git submodule sync --recursive",
             "git submodule foreach --recursive git clean -ffdx",
             "git submodule foreach --recursive git reset --hard",
