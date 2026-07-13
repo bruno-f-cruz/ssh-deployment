@@ -41,6 +41,12 @@ public static class MachineLoader
         return registry.GetValueOrDefault(name);
     }
 
+    public static async Task<List<string>> GetAllNamesAsync()
+    {
+        var registry = await GetRegistryAsync();
+        return registry.Keys.OrderBy(name => name).ToList();
+    }
+
     private static async Task<Dictionary<string, MachineInfo>> GetRegistryAsync()
     {
         if (_cachedRegistry is not null && DateTime.UtcNow - _cachedAt < RegistryCacheDuration)

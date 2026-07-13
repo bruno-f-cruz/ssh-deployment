@@ -93,8 +93,14 @@
                     <h2 id="machines-heading">Machines</h2>
                     <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
                         <label for="machine-name" class="visually-hidden">Machine name</label>
-                        <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off"
+                        <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off" list="machine-options"
                                @bind="_newMachineName" @bind:event="oninput" />
+                        <datalist id="machine-options">
+                            @foreach (var name in _availableMachineNames.Except(_machines.Select(m => m.Name)))
+                            {
+                                <option value="@name" />
+                            }
+                        </datalist>
                         <button type="submit" class="btn btn--secondary">Add</button>
                         <label class="btn btn--ghost file-btn">
                             Load from YAML
@@ -213,6 +219,7 @@
     private IRecipe? _selectedRecipe;
     private List<RecipeProperty> _properties = [];
     private List<MachineRow> _machines = [];
+    private List<string> _availableMachineNames = [];
     private string _newMachineName = string.Empty;
     private readonly Dictionary<string, string> _collectionInputs = new();
     private readonly HashSet<string> _expanded = new();
@@ -238,9 +245,18 @@
         }
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _recipes = RecipeCatalog.Discover();
+
+        try
+        {
+            _availableMachineNames = await Registry.GetAllNamesAsync();
+        }
+        catch (Exception)
+        {
+            // Registry unreachable — autocomplete just has no suggestions, add-by-name still works.
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

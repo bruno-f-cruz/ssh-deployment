@@ -11,4 +11,6 @@ public sealed class MachineRegistryService
     }
 
     public List<string> ParseYaml(string yamlContent) => MachineLoader.ParseNames(yamlContent);
+
+    public Task<List<string>> GetAllNamesAsync() => MachineLoader.GetAllNamesAsync();
 }
