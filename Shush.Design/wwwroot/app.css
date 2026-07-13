@@ -147,6 +147,24 @@ body {
     font-style: italic;
 }
 
+.alert {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 1px solid var(--danger);
+    background: var(--danger-bg);
+    color: var(--danger);
+    border-radius: var(--radius);
+    padding: .75rem 1rem;
+    font-size: .9rem;
+}
+
+    .alert .btn--icon {
+        color: inherit;
+        flex-shrink: 0;
+    }
+
 /* ---------- Cards ---------- */
 
 .card {

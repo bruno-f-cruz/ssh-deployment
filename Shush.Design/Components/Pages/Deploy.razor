@@ -26,6 +26,14 @@
         </div>
     </header>
 
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert--error" role="alert">
+            <span>@_errorMessage</span>
+            <button type="button" class="btn btn--icon" @onclick="() => _errorMessage = null" aria-label="Dismiss error">&#10005;</button>
+        </div>
+    }
+
     @if (_selectedRecipe is null)
     {
         <p class="empty-state">Select a recipe above to get started.</p>
@@ -225,6 +233,7 @@
     private readonly HashSet<string> _expanded = new();
     private BlazorDeploymentProgress? _progress;
     private bool _deploying;
+    private string? _errorMessage;
 
     private bool CanDeploy => _selectedRecipe is not null && !_deploying && _machines.Any(m => m.Status == RowStatus.Ready);
 
@@ -281,6 +290,7 @@
 
     private async Task OnRecipeSelected(ChangeEventArgs e)
     {
+        _errorMessage = null;
         var name = e.Value?.ToString();
         _selectedRecipe = _recipes.FirstOrDefault(r => r.Name == name);
         _properties = _selectedRecipe is null ? [] : RecipeFormBinder.GetSettableProperties(_selectedRecipe);
@@ -300,8 +310,15 @@
             property?.SetValueFromString(_selectedRecipe, propertyValue.Value);
         }
 
-        foreach (var machineName in state.Machines)
-            _machines.Add(await Registry.ResolveAsync(machineName));
+        try
+        {
+            foreach (var machineName in state.Machines)
+                _machines.Add(await Registry.ResolveAsync(machineName));
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Couldn't reload saved machines from the registry: {ex.Message}";
+        }
     }
 
     private void OnPropertyChanged(RecipeProperty property, ChangeEventArgs e)
@@ -334,12 +351,20 @@
 
     private async Task AddMachine()
     {
+        _errorMessage = null;
         var name = _newMachineName.Trim();
         if (string.IsNullOrEmpty(name) || _machines.Any(m => m.Name == name)) return;
 
-        _machines.Add(await Registry.ResolveAsync(name));
-        _newMachineName = string.Empty;
-        SaveState();
+        try
+        {
+            _machines.Add(await Registry.ResolveAsync(name));
+            _newMachineName = string.Empty;
+            SaveState();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
+        }
     }
 
     private void RemoveMachine(MachineRow machine)
@@ -350,16 +375,24 @@
 
     private async Task OnYamlUpload(InputFileChangeEventArgs e)
     {
-        using var reader = new StreamReader(e.File.OpenReadStream());
-        var content = await reader.ReadToEndAsync();
-
-        foreach (var name in Registry.ParseYaml(content))
+        _errorMessage = null;
+        try
         {
-            if (_machines.Any(m => m.Name == name)) continue;
-            _machines.Add(await Registry.ResolveAsync(name));
-        }
+            using var reader = new StreamReader(e.File.OpenReadStream());
+            var content = await reader.ReadToEndAsync();
 
-        SaveState();
+            foreach (var name in Registry.ParseYaml(content))
+            {
+                if (_machines.Any(m => m.Name == name)) continue;
+                _machines.Add(await Registry.ResolveAsync(name));
+            }
+
+            SaveState();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Couldn't load machines from that file: {ex.Message}";
+        }
     }
 
     private void SaveState()
@@ -372,6 +405,7 @@
     {
         if (_selectedRecipe is null) return;
 
+        _errorMessage = null;
         _deploying = true;
         var toDeploy = _machines.Where(m => m.Status == RowStatus.Ready).ToList();
         var totalSteps = _selectedRecipe.Steps.Count();
@@ -383,6 +417,13 @@
         {
             var machineInfos = toDeploy.ToDictionary(m => m.Name, m => m.Info!);
             await Orchestrator.RunAsync(_selectedRecipe, machineInfos, _progress);
+        }
+        catch (Exception ex)
+        {
+            // DeploymentOrchestrator already handles expected per-machine failures internally —
+            // reaching here means something unexpected broke before/outside that (e.g. couldn't
+            // load credentials).
+            _errorMessage = $"Deployment failed to start: {ex.Message}";
         }
         finally
         {
