@@ -1,0 +1,404 @@
+@page "/"
+@using Shush.Recipe
+@using Shush.Design.Services
+@inject MachineRegistryService Registry
+@inject RecipeStateStore StateStore
+@inject DeploymentOrchestrator Orchestrator
+@inject IJSRuntime JS
+
+<PageTitle>Shush.Design</PageTitle>
+
+<div class="app-shell">
+    <header class="app-header">
+        <div>
+            <h1>Shush.Design</h1>
+            <p class="app-header__subtitle">Deploy Shush recipes to lab rigs from the browser.</p>
+        </div>
+        <div class="field">
+            <label for="recipe-select">Recipe</label>
+            <select id="recipe-select" value="@(_selectedRecipe?.Name ?? string.Empty)" @onchange="OnRecipeSelected">
+                <option value="">Select a recipe…</option>
+                @foreach (var recipe in _recipes)
+                {
+                    <option value="@recipe.Name">@recipe.Name</option>
+                }
+            </select>
+        </div>
+    </header>
+
+    @if (_selectedRecipe is null)
+    {
+        <p class="empty-state">Select a recipe above to get started.</p>
+    }
+    else
+    {
+        <main class="app-main">
+            <section class="card" aria-labelledby="properties-heading">
+                <h2 id="properties-heading">Properties</h2>
+
+                @if (_properties.Count == 0)
+                {
+                    <p class="empty-state">This recipe has no configurable properties.</p>
+                }
+                else
+                {
+                    <div class="field-grid">
+                        @foreach (var property in _properties)
+                        {
+                            <div class="field">
+                                <label for="@FieldId(property)">@property.Label</label>
+                                @switch (property.Kind)
+                                {
+                                    case PropertyEditorKind.Text:
+                                        <input id="@FieldId(property)"
+                                               value="@property.GetValueAsString(_selectedRecipe)"
+                                               @onchange="e => OnPropertyChanged(property, e)" />
+                                        break;
+                                    case PropertyEditorKind.Dropdown:
+                                        <select id="@FieldId(property)"
+                                                value="@property.GetValueAsString(_selectedRecipe)"
+                                                @onchange="e => OnPropertyChanged(property, e)">
+                                            @foreach (var option in property.GetDropdownOptions())
+                                            {
+                                                <option value="@option">@option</option>
+                                            }
+                                        </select>
+                                        break;
+                                    case PropertyEditorKind.Collection:
+                                        <ul class="chip-list">
+                                            @foreach (var item in property.GetOrCreateList(_selectedRecipe).Cast<object>().ToList())
+                                            {
+                                                <li class="chip">
+                                                    @property.ConvertElementToString(item)
+                                                    <button type="button" class="chip__remove" @onclick="() => RemoveListItem(property, item)" aria-label="Remove value">&#10005;</button>
+                                                </li>
+                                            }
+                                        </ul>
+                                        <div class="inline-add">
+                                            <input id="@FieldId(property)"
+                                                   value="@GetCollectionInput(property)"
+                                                   @onchange="e => SetCollectionInput(property, e)" placeholder="Add value" />
+                                            <button type="button" class="btn btn--secondary" @onclick="() => AddListItem(property)">Add</button>
+                                        </div>
+                                        break;
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="card" aria-labelledby="machines-heading">
+                <div class="card__header">
+                    <h2 id="machines-heading">Machines</h2>
+                    <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
+                        <label for="machine-name" class="visually-hidden">Machine name</label>
+                        <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off"
+                               @bind="_newMachineName" @bind:event="oninput" />
+                        <button type="submit" class="btn btn--secondary">Add</button>
+                        <label class="btn btn--ghost file-btn">
+                            Load from YAML
+                            <InputFile OnChange="OnYamlUpload" class="visually-hidden" />
+                        </label>
+                    </form>
+                </div>
+
+                @if (_machines.Count == 0)
+                {
+                    <p class="empty-state">No machines yet — add one above or load a YAML file.</p>
+                }
+                else
+                {
+                    <div class="table-scroll">
+                        <table class="machines-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Machine</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Progress</th>
+                                    <th scope="col">Detail</th>
+                                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var machine in _machines)
+                                {
+                                    var (icon, label) = StatusDisplay(machine.Status);
+                                    var percent = _progress is { TotalSteps: > 0 }
+                                        ? (int)(100.0 * machine.CompletedSteps.Count / _progress.TotalSteps)
+                                        : 0;
+
+                                    <tr>
+                                        <td data-label="Machine">@machine.Name</td>
+                                        <td data-label="Status">
+                                            <span class="badge badge--@(machine.Status.ToString().ToLowerInvariant())">
+                                                <span aria-hidden="true" class="badge__icon@(machine.Status == RowStatus.Running ? " spin" : "")">@icon</span>
+                                                @label
+                                            </span>
+                                        </td>
+                                        <td data-label="Progress">
+                                            @if (machine.Status is RowStatus.Running or RowStatus.Success or RowStatus.Failed)
+                                            {
+                                                <div class="progress-track" role="progressbar"
+                                                     aria-valuenow="@percent" aria-valuemin="0" aria-valuemax="100"
+                                                     aria-label="@($"{machine.Name} deployment progress")">
+                                                    <div class="progress-fill progress-fill--@(machine.Status.ToString().ToLowerInvariant())" style="width: @(percent)%"></div>
+                                                </div>
+                                                <span class="progress-label text-muted">@percent%</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">—</span>
+                                            }
+                                        </td>
+                                        <td data-label="Detail">
+                                            @if (machine.Status == RowStatus.Invalid)
+                                            {
+                                                <span class="text-danger">@machine.Error</span>
+                                            }
+                                            else if (machine.Status == RowStatus.Running)
+                                            {
+                                                <span class="text-muted">@machine.CurrentStep</span>
+                                            }
+                                            else if (machine.CompletedSteps.Count > 0)
+                                            {
+                                                var last = machine.CompletedSteps[^1];
+                                                <span class="@(last.Success ? "text-muted" : "text-danger")">@last.StepName</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">—</span>
+                                            }
+                                        </td>
+                                        <td data-label="">
+                                            @if (machine.Status is RowStatus.Ready or RowStatus.Invalid)
+                                            {
+                                                <button type="button" class="btn btn--icon" @onclick="() => RemoveMachine(machine)" aria-label="@($"Remove {machine.Name}")">&#10005;</button>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="btn btn--link" @onclick="() => ToggleExpand(machine.Name)" aria-expanded="@_expanded.Contains(machine.Name)">
+                                                    @(_expanded.Contains(machine.Name) ? "Hide log" : "View log")
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                    @if (_expanded.Contains(machine.Name))
+                                    {
+                                        <tr class="log-row">
+                                            <td colspan="5">
+                                                <pre class="log-panel" id="@LogElementId(machine.Name)">@GetMachineLog(machine.Name)</pre>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <div class="deploy-bar">
+                    <p class="deploy-summary" aria-live="polite">@DeploySummary</p>
+                    <button type="button" class="btn btn--primary" disabled="@(!CanDeploy)" @onclick="StartDeployment">
+                        @(_deploying ? "Deploying…" : "Deploy")
+                    </button>
+                </div>
+            </section>
+        </main>
+    }
+</div>
+
+@code {
+    private List<IRecipe> _recipes = [];
+    private IRecipe? _selectedRecipe;
+    private List<RecipeProperty> _properties = [];
+    private List<MachineRow> _machines = [];
+    private string _newMachineName = string.Empty;
+    private readonly Dictionary<string, string> _collectionInputs = new();
+    private readonly HashSet<string> _expanded = new();
+    private BlazorDeploymentProgress? _progress;
+    private bool _deploying;
+
+    private bool CanDeploy => _selectedRecipe is not null && !_deploying && _machines.Any(m => m.Status == RowStatus.Ready);
+
+    private string DeploySummary
+    {
+        get
+        {
+            var ready = _machines.Count(m => m.Status == RowStatus.Ready);
+            if (_progress is null) return $"{ready} machine(s) ready to deploy.";
+
+            var success = _machines.Count(m => m.Status == RowStatus.Success);
+            var failed = _machines.Count(m => m.Status == RowStatus.Failed);
+            var running = _machines.Count(m => m.Status == RowStatus.Running);
+
+            return _deploying
+                ? $"Deploying… {success} succeeded, {failed} failed, {running} running."
+                : $"Finished: {success} succeeded, {failed} failed.";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _recipes = RecipeCatalog.Discover();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        foreach (var name in _expanded)
+            await JS.InvokeVoidAsync("scrollLogToBottom", LogElementId(name));
+    }
+
+    private static (string Icon, string Label) StatusDisplay(RowStatus status) => status switch
+    {
+        RowStatus.Ready => ("●", "Ready"),
+        RowStatus.Invalid => ("⚠", "Invalid"),
+        RowStatus.Running => ("↻", "Running"),
+        RowStatus.Success => ("✓", "Success"),
+        RowStatus.Failed => ("✕", "Failed"),
+        _ => ("", ""),
+    };
+
+    private static string FieldId(RecipeProperty property) => $"prop-{property.Info.Name}";
+
+    private static string LogElementId(string machineName) => $"log-{machineName.Replace('.', '-')}";
+
+    private async Task OnRecipeSelected(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        _selectedRecipe = _recipes.FirstOrDefault(r => r.Name == name);
+        _properties = _selectedRecipe is null ? [] : RecipeFormBinder.GetSettableProperties(_selectedRecipe);
+        _machines = [];
+        _progress = null;
+        _expanded.Clear();
+        _collectionInputs.Clear();
+
+        if (_selectedRecipe is null) return;
+
+        var state = StateStore.Load(_selectedRecipe.Name);
+        if (state is null) return;
+
+        foreach (var propertyValue in state.Properties)
+        {
+            var property = _properties.FirstOrDefault(p => p.Info.Name == propertyValue.Name);
+            property?.SetValueFromString(_selectedRecipe, propertyValue.Value);
+        }
+
+        foreach (var machineName in state.Machines)
+            _machines.Add(await Registry.ResolveAsync(machineName));
+    }
+
+    private void OnPropertyChanged(RecipeProperty property, ChangeEventArgs e)
+    {
+        property.SetValueFromString(_selectedRecipe!, e.Value?.ToString() ?? string.Empty);
+        SaveState();
+    }
+
+    private string GetCollectionInput(RecipeProperty property) =>
+        _collectionInputs.GetValueOrDefault(property.Info.Name, string.Empty);
+
+    private void SetCollectionInput(RecipeProperty property, ChangeEventArgs e) =>
+        _collectionInputs[property.Info.Name] = e.Value?.ToString() ?? string.Empty;
+
+    private void AddListItem(RecipeProperty property)
+    {
+        var text = GetCollectionInput(property);
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        property.GetOrCreateList(_selectedRecipe!).Add(property.ConvertElementFromString(text));
+        _collectionInputs[property.Info.Name] = string.Empty;
+        SaveState();
+    }
+
+    private void RemoveListItem(RecipeProperty property, object item)
+    {
+        property.GetOrCreateList(_selectedRecipe!).Remove(item);
+        SaveState();
+    }
+
+    private async Task AddMachine()
+    {
+        var name = _newMachineName.Trim();
+        if (string.IsNullOrEmpty(name) || _machines.Any(m => m.Name == name)) return;
+
+        _machines.Add(await Registry.ResolveAsync(name));
+        _newMachineName = string.Empty;
+        SaveState();
+    }
+
+    private void RemoveMachine(MachineRow machine)
+    {
+        _machines.Remove(machine);
+        SaveState();
+    }
+
+    private async Task OnYamlUpload(InputFileChangeEventArgs e)
+    {
+        using var reader = new StreamReader(e.File.OpenReadStream());
+        var content = await reader.ReadToEndAsync();
+
+        foreach (var name in Registry.ParseYaml(content))
+        {
+            if (_machines.Any(m => m.Name == name)) continue;
+            _machines.Add(await Registry.ResolveAsync(name));
+        }
+
+        SaveState();
+    }
+
+    private void SaveState()
+    {
+        if (_selectedRecipe is null) return;
+        StateStore.Save(_selectedRecipe, _properties, _machines.Select(m => m.Name));
+    }
+
+    private async Task StartDeployment()
+    {
+        if (_selectedRecipe is null) return;
+
+        _deploying = true;
+        var toDeploy = _machines.Where(m => m.Status == RowStatus.Ready).ToList();
+        var totalSteps = _selectedRecipe.Steps.Count();
+
+        _progress = new BlazorDeploymentProgress(toDeploy.ToDictionary(m => m.Name), totalSteps);
+        _progress.Changed += OnProgressChanged;
+
+        try
+        {
+            var machineInfos = toDeploy.ToDictionary(m => m.Name, m => m.Info!);
+            await Orchestrator.RunAsync(_selectedRecipe, machineInfos, _progress);
+        }
+        finally
+        {
+            _progress.Changed -= OnProgressChanged;
+            _deploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnProgressChanged() => InvokeAsync(StateHasChanged);
+
+    private void ToggleExpand(string boxId)
+    {
+        if (!_expanded.Add(boxId)) _expanded.Remove(boxId);
+    }
+
+    private string GetMachineLog(string boxId)
+    {
+        if (_progress?.LogFilePath is null || !File.Exists(_progress.LogFilePath)) return string.Empty;
+
+        // The deployment's FileLoggerProvider still holds this file open for writing (with
+        // FileShare.Read) while a run is in progress, so the reader must explicitly tolerate
+        // that existing Write access — File.ReadAllLines's default share doesn't, and throws.
+        using var stream = new FileStream(_progress.LogFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+
+        var lines = new List<string>();
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+            if (line.Contains($"[{boxId}]"))
+                lines.Add(line);
+
+        return string.Join(Environment.NewLine, lines);
+    }
+}

@@ -6,6 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>exe</OutputType>
+  </PropertyGroup>
+
+  <!-- Only self-contain/single-file when explicitly publishing with a RuntimeIdentifier
+       (e.g. `dotnet publish -r win-x64`) — otherwise Shush can't be referenced as a
+       library by Shush.Design, since a self-contained exe can't be referenced by a
+       framework-dependent one (NETSDK1151). -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
   </PropertyGroup>

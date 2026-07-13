@@ -32,6 +32,20 @@ dotnet run --project Shush -- --recipe VrForaging --machines frg-machines.yaml
 
 A timestamped log file (e.g. `deploy_20260521_104224.log`) is written next to the binary with full structured output. The terminal shows a live table — one row per machine — with progress dots and the currently executing step.
 
+## Web UI (Shush.Design)
+
+A Blazor Server app for running recipes from a browser instead of the CLI — pick a recipe, adjust its exposed properties, add/remove target machines (or bulk-load them from a YAML file), and deploy with a live per-machine progress view.
+
+```bash
+dotnet run --project Shush.Design
+```
+
+Then open the URL printed in the console (e.g. `http://localhost:5036`). It reads `secrets.json` from the repo root (same file the CLI uses) and shares the same machine registry. No recipe is loaded by default — select one from the dropdown first.
+
+Property values and the machine list are autosaved per recipe to `.shush/state/<RecipeName>.xml` and reloaded next time that recipe is selected. Deployment logs are written under `.shush/logs/`.
+
+This is intended for use on a trusted internal network only — there is no authentication.
+
 ## Machines file
 
 ```yaml

@@ -33,15 +33,7 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
     var loggerFactory = services.GetRequiredService<ILoggerFactory>();
     var logger = loggerFactory.CreateLogger<Program>();
 
-    // Discover all IRecipe implementations in this assembly via reflection
-    var recipeTypes = typeof(IRecipe).Assembly
-        .GetTypes()
-        .Where(t => t is { IsClass: true, IsAbstract: false } && t.IsAssignableTo(typeof(IRecipe)));
-
-    var recipes = recipeTypes
-        .Select(t => (IRecipe?)Activator.CreateInstance(t))
-        .OfType<IRecipe>()
-        .ToList();
+    var recipes = RecipeCatalog.Discover();
 
     var recipe = recipes.FirstOrDefault(r => r.Name.Equals(recipeName, StringComparison.OrdinalIgnoreCase));
 

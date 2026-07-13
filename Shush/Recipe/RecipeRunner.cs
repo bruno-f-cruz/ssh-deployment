@@ -10,14 +10,14 @@ public class RecipeRunner
     private readonly Secrets _secrets;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RecipeRunner> _logger;
-    private readonly DeploymentDisplay? _display;
+    private readonly IDeploymentProgress? _display;
 
     public RecipeRunner(
         IRecipe recipe,
         Dictionary<string, MachineInfo> machines,
         Secrets secrets,
         ILoggerFactory loggerFactory,
-        DeploymentDisplay? display = null)
+        IDeploymentProgress? display = null)
     {
         _recipe = recipe;
         _machines = machines;

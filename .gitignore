@@ -84,4 +84,7 @@ artifacts/
 ## Mono auto generated files
 mono_crash.*
 
+## Shush.Design app data (autosaved recipe state, deployment logs)
+.shush/
+
 secrets.json
