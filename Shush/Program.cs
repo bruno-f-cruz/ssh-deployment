@@ -1,5 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Shush;
 using Shush.Recipe;
 using System.CommandLine;
 
@@ -13,14 +15,37 @@ var machinesOption = new Option<string>(
     description: "Path to a machines YAML file (list of machine names)")
 { IsRequired = true };
 
+var envFileOption = new Option<string?>(
+    aliases: ["--env-file", "-e"],
+    description: "Path to a .env file to load. If omitted, settings come from real environment variables only.");
+
 var rootCommand = new RootCommand("SSH Deployment Tool")
 {
     recipeOption,
-    machinesOption
+    machinesOption,
+    envFileOption
 };
 
-rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
+rootCommand.SetHandler(async (string recipeName, string machinesPath, string? envFilePath) =>
 {
+    if (envFilePath is not null)
+    {
+        if (!File.Exists(envFilePath))
+        {
+            Console.Error.WriteLine($"--env-file '{envFilePath}' was not found.");
+            Environment.Exit(1);
+            return;
+        }
+
+        DotNetEnv.Env.Load(envFilePath);
+    }
+
+    var configuration = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var settings = configuration.Get<ShushSettings>() ?? new ShushSettings();
+
     var logFile = $"deploy_{DateTime.Now:yyyyMMdd_HHmmss}.log";
 
     await using var services = new ServiceCollection()
@@ -33,15 +58,7 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
     var loggerFactory = services.GetRequiredService<ILoggerFactory>();
     var logger = loggerFactory.CreateLogger<Program>();
 
-    // Discover all IRecipe implementations in this assembly via reflection
-    var recipeTypes = typeof(IRecipe).Assembly
-        .GetTypes()
-        .Where(t => t is { IsClass: true, IsAbstract: false } && t.IsAssignableTo(typeof(IRecipe)));
-
-    var recipes = recipeTypes
-        .Select(t => (IRecipe?)Activator.CreateInstance(t))
-        .OfType<IRecipe>()
-        .ToList();
+    var recipes = RecipeCatalog.Discover();
 
     var recipe = recipes.FirstOrDefault(r => r.Name.Equals(recipeName, StringComparison.OrdinalIgnoreCase));
 
@@ -53,9 +70,9 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
         return;
     }
 
-    var machines = await MachineLoader.LoadAsync(machinesPath);
+    var machines = await MachineLoader.LoadAsync(machinesPath, settings);
 
-    var secrets = Secrets.Load();
+    var secrets = settings.Credentials;
 
     Console.WriteLine($"Recipe '{recipe.Name}' — {machines.Count} machine(s)  [log: {logFile}]");
     Console.WriteLine();
@@ -75,6 +92,6 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath) =>
 
     display.PrintSummary();
 
-}, recipeOption, machinesOption);
+}, recipeOption, machinesOption, envFileOption);
 
 return await rootCommand.InvokeAsync(args);

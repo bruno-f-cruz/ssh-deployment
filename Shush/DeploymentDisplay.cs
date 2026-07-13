@@ -1,6 +1,8 @@
+using Shush.Recipe;
+
 namespace Shush;
 
-public sealed class DeploymentDisplay
+public sealed class DeploymentDisplay : IDeploymentProgress
 {
     private const int DotsColumnWidth = 20;
     private const string Esc = "\x1B";
