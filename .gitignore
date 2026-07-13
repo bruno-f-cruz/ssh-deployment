@@ -87,4 +87,10 @@ mono_crash.*
 ## Shush.Design app data (autosaved recipe state, deployment logs)
 .shush/
 
+## Contains credentials — see README for the expected shape (both the app-level .env files
+## and docker-compose's own root-level .env)
+.env
+
+## Superseded by .env, kept ignored in case either still lingers on disk
+shush.json
 secrets.json

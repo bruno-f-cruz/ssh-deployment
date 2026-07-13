@@ -1,0 +1,12 @@
+.git/
+.vs/
+.idea/
+**/bin/
+**/obj/
+**/.shush/
+**/.env
+**/shush.json
+secrets.json
+*.log
+docs/
+frg-machines.yaml

@@ -1,4 +1,5 @@
 using System.Xml.Serialization;
+using Shush;
 using Shush.Recipe;
 
 namespace Shush.Design.Services;
@@ -25,9 +26,9 @@ public sealed class RecipeStateStore
 {
     private readonly string _stateDirectory;
 
-    public RecipeStateStore(IWebHostEnvironment env)
+    public RecipeStateStore(IWebHostEnvironment env, ShushSettings settings)
     {
-        _stateDirectory = Path.Combine(ShushPaths.GetShushDirectory(env), "state");
+        _stateDirectory = Path.Combine(ShushPaths.GetShushDirectory(env, settings), "state");
         Directory.CreateDirectory(_stateDirectory);
     }
 

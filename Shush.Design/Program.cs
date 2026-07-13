@@ -1,12 +1,37 @@
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Shush;
 using Shush.Design.Components;
 using Shush.Design.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+// A Windows Service's default working directory is %SystemRoot%\System32, not wherever the
+// exe lives — resolve the real app directory once and use it for ContentRootPath.
+var isWindowsService = WindowsServiceHelpers.IsWindowsService();
+var appDirectory = isWindowsService ? AppContext.BaseDirectory : Directory.GetCurrentDirectory();
+
+var envFileArg = GetArgValue(args, "--env-file") ?? GetArgValue(args, "-e");
+if (envFileArg is not null)
+{
+    if (!File.Exists(envFileArg))
+        throw new FileNotFoundException($"--env-file '{envFileArg}' was not found.");
+
+    DotNetEnv.Env.Load(envFileArg);
+}
+
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = isWindowsService ? appDirectory : default,
+});
+
+var shushSettings = builder.Configuration.Get<ShushSettings>() ?? new ShushSettings();
+
+builder.Host.UseWindowsService(options => options.ServiceName = "ShushDeployment");
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.AddSingleton(shushSettings);
 builder.Services.AddSingleton<MachineRegistryService>();
 builder.Services.AddSingleton<RecipeStateStore>();
 builder.Services.AddSingleton<DeploymentOrchestrator>();
@@ -30,3 +55,15 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static string? GetArgValue(string[] args, string name)
+{
+    for (var i = 0; i < args.Length; i++)
+    {
+        if (args[i] == name && i + 1 < args.Length)
+            return args[i + 1];
+        if (args[i].StartsWith(name + "=", StringComparison.Ordinal))
+            return args[i][(name.Length + 1)..];
+    }
+    return null;
+}

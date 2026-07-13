@@ -8,10 +8,12 @@ namespace Shush.Design.Services;
 public sealed class DeploymentOrchestrator
 {
     private readonly IWebHostEnvironment _env;
+    private readonly ShushSettings _settings;
 
-    public DeploymentOrchestrator(IWebHostEnvironment env)
+    public DeploymentOrchestrator(IWebHostEnvironment env, ShushSettings settings)
     {
         _env = env;
+        _settings = settings;
     }
 
     public async Task RunAsync(
@@ -20,14 +22,9 @@ public sealed class DeploymentOrchestrator
         BlazorDeploymentProgress progress,
         CancellationToken ct = default)
     {
-        // dotnet run sets the process's working directory to this project's folder, not the
-        // repo root, so relative paths like Secrets.Load()'s default "secrets.json" won't
-        // resolve — anchor explicitly to the repo root (Shush.Design's parent), where
-        // secrets.json and frg-machines.yaml already live for the CLI.
-        var repoRoot = ShushPaths.GetRepoRoot(_env);
-        var secrets = Secrets.Load(Path.Combine(repoRoot, "secrets.json"));
+        var secrets = _settings.Credentials;
 
-        var logDirectory = Path.Combine(ShushPaths.GetShushDirectory(_env), "logs");
+        var logDirectory = Path.Combine(ShushPaths.GetShushDirectory(_env, _settings), "logs");
         Directory.CreateDirectory(logDirectory);
         var logFile = Path.Combine(logDirectory, $"deploy_{DateTime.Now:yyyyMMdd_HHmmss}.log");
         progress.LogFilePath = logFile;
