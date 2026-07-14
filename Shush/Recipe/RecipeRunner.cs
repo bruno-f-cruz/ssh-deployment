@@ -5,6 +5,8 @@ namespace Shush.Recipe;
 
 public class RecipeRunner
 {
+    private const int MaxConcurrentDeployments = 16;
+
     private readonly IRecipe _recipe;
     private readonly Dictionary<string, MachineInfo> _machines;
     private readonly Secrets _secrets;
@@ -31,7 +33,16 @@ public class RecipeRunner
     {
         var failures = new System.Collections.Concurrent.ConcurrentDictionary<string, Exception>();
 
-        await Parallel.ForEachAsync(_machines, ct, async (kv, cancellationToken) =>
+        ThreadPool.GetMinThreads(out _, out var minIocp);
+        ThreadPool.SetMinThreads(MaxConcurrentDeployments, minIocp);
+
+        var options = new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = MaxConcurrentDeployments,
+        };
+
+        await Parallel.ForEachAsync(_machines, options, async (kv, cancellationToken) =>
         {
             var (boxId, machineInfo) = (kv.Key, kv.Value);
 
