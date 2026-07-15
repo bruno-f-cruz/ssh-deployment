@@ -1,22 +1,20 @@
 namespace Shush.Recipe.Steps;
 
+[Step("CreateBatchFile", Description = "Write an ASCII batch/command file from a list of lines.")]
 public class CreateBatchFileStep : IRecipeStep
 {
-    private readonly string _remotePath;
-    private readonly string[] _lines;
+    [Input(Required = true, Description = "Remote path of the file to create.")]
+    public string RemotePath { get; init; } = "";
 
-    public CreateBatchFileStep(string remotePath, params string[] lines)
-    {
-        _remotePath = remotePath;
-        _lines = lines;
-    }
+    [Input(Required = true, Description = "Lines written to the file, in order.")]
+    public string[] Lines { get; init; } = [];
 
     public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
-        var items = string.Join(", ", _lines.Select(l => $"'{l.Replace("'", "''")}'"));
+        var items = string.Join(", ", Lines.Select(l => $"'{l.Replace("'", "''")}'"));
         string[] commands =
         [
-            $"Set-Content -Path '{_remotePath}' -Value @({items}) -Encoding ASCII",
+            $"Set-Content -Path '{RemotePath}' -Value @({items}) -Encoding ASCII",
         ];
 
         return context.RunCommandsAsync(commands, cancellationToken);

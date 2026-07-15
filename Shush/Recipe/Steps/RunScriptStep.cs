@@ -1,21 +1,19 @@
 namespace Shush.Recipe.Steps;
 
+[Step("RunScript", Description = "Run a sequence of PowerShell commands on the remote machine.")]
 public class RunScriptStep : IRecipeStep
 {
-    private readonly string[] _commands;
-    private readonly string? _workingDirectory;
+    [Input(Required = true, Description = "PowerShell commands to run in order.")]
+    public string[] Commands { get; init; } = [];
 
-    public RunScriptStep(string[] commands, string? workingDirectory = null)
-    {
-        _commands = commands;
-        _workingDirectory = workingDirectory;
-    }
+    [Input(Description = "Directory to run the commands in (Set-Location before running).")]
+    public string? WorkingDirectory { get; init; }
 
     public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
-        var commands = _workingDirectory is null
-            ? _commands
-            : [$"Set-Location '{_workingDirectory}'", .. _commands];
+        var commands = WorkingDirectory is null
+            ? Commands
+            : [$"Set-Location '{WorkingDirectory}'", .. Commands];
 
         return context.RunCommandsAsync(commands, cancellationToken);
     }

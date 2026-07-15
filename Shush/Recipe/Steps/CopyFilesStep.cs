@@ -1,19 +1,17 @@
 namespace Shush.Recipe.Steps;
 
+[Step("CopyFiles", Description = "Recursively upload a local directory to a remote base directory.")]
 public class CopyFilesStep : IRecipeStep
 {
-    private readonly string _sourceDirectory;
-    private readonly string _remoteBaseDirectory;
+    [Input(Required = true, Description = "Local directory to copy from.")]
+    public string SourceDirectory { get; init; } = "";
 
-    public CopyFilesStep(string sourceDirectory, string remoteBaseDirectory)
-    {
-        _sourceDirectory = sourceDirectory;
-        _remoteBaseDirectory = remoteBaseDirectory;
-    }
+    [Input(Required = true, Description = "Remote directory files are uploaded under.")]
+    public string RemoteBaseDirectory { get; init; } = "";
 
     public async Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
-        var sourceDir = new DirectoryInfo(_sourceDirectory);
+        var sourceDir = new DirectoryInfo(SourceDirectory);
 
         if (!sourceDir.Exists)
             throw new DirectoryNotFoundException($"Source directory not found: {sourceDir.FullName}");
@@ -23,7 +21,7 @@ public class CopyFilesStep : IRecipeStep
             cancellationToken.ThrowIfCancellationRequested();
 
             var relativePath = Path.GetRelativePath(sourceDir.FullName, file.FullName);
-            var remoteFilePath = Path.Combine(_remoteBaseDirectory, relativePath).Replace('\\', '/');
+            var remoteFilePath = Path.Combine(RemoteBaseDirectory, relativePath).Replace('\\', '/');
 
             await context.UploadFileAsync(file, remoteFilePath, cancellationToken);
         }
