@@ -27,6 +27,12 @@ var shushSettings = builder.Configuration.Get<ShushSettings>() ?? new ShushSetti
 
 builder.Host.UseWindowsService(options => options.ServiceName = "ShushDeployment");
 
+var appLogDirectory = Path.Combine(ShushPaths.GetShushDirectory(builder.Environment, shushSettings), "logs");
+Directory.CreateDirectory(appLogDirectory);
+var appLogPath = Path.Combine(appLogDirectory, $"app_{DateTime.Now:yyyyMMdd}.log");
+builder.Logging.AddProvider(new FileLoggerProvider(appLogPath, append: true));
+builder.Services.AddSingleton(new AppLogPath(appLogPath));
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

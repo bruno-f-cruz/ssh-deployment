@@ -5,6 +5,7 @@
 @inject RecipeStateStore StateStore
 @inject DeploymentOrchestrator Orchestrator
 @inject IJSRuntime JS
+@inject ILogger<Deploy> Logger
 
 <PageTitle>Shush.Design</PageTitle>
 
@@ -12,7 +13,10 @@
     <header class="app-header">
         <div>
             <h1>Shush.Design</h1>
-            <p class="app-header__subtitle">Deploy Shush recipes to lab rigs from the browser.</p>
+            <p class="app-header__subtitle">
+                Deploy Shush recipes to lab rigs from the browser.
+                <a href="/logs">Application log &rarr;</a>
+            </p>
         </div>
         <div class="field">
             <label for="recipe-select">Recipe</label>
@@ -42,7 +46,16 @@
     {
         <main class="app-main">
             <section class="card" aria-labelledby="properties-heading">
-                <h2 id="properties-heading">Properties</h2>
+                <div class="card__header">
+                    <h2 id="properties-heading">Properties</h2>
+                    <div class="inline-add">
+                        <button type="button" class="btn btn--secondary" @onclick="DownloadConfig">Download config</button>
+                        <label class="btn btn--ghost file-btn">
+                            Upload config
+                            <InputFile OnChange="OnConfigUpload" class="visually-hidden" />
+                        </label>
+                    </div>
+                </div>
 
                 @if (_properties.Count == 0)
                 {
@@ -114,6 +127,7 @@
                             Load from YAML
                             <InputFile OnChange="OnYamlUpload" class="visually-hidden" />
                         </label>
+                        <button type="button" class="btn btn--ghost" disabled="@(_machines.Count == 0)" @onclick="ExportMachines">Export to YAML</button>
                     </form>
                 </div>
 
@@ -139,7 +153,7 @@
                                 {
                                     var (icon, label) = StatusDisplay(machine.Status);
                                     var percent = _progress is { TotalSteps: > 0 }
-                                        ? (int)(100.0 * machine.CompletedSteps.Count / _progress.TotalSteps)
+                                        ? (int)(100.0 * machine.CompletedStepCount / _progress.TotalSteps)
                                         : 0;
 
                                     <tr>
@@ -166,7 +180,7 @@
                                             }
                                         </td>
                                         <td data-label="Detail">
-                                            @if (machine.Status == RowStatus.Invalid)
+                                            @if (machine.Status is RowStatus.Invalid or RowStatus.Failed && machine.LastCompletedStep() is null && machine.Error is not null)
                                             {
                                                 <span class="text-danger">@machine.Error</span>
                                             }
@@ -174,9 +188,8 @@
                                             {
                                                 <span class="text-muted">@machine.CurrentStep</span>
                                             }
-                                            else if (machine.CompletedSteps.Count > 0)
+                                            else if (machine.LastCompletedStep() is { } last)
                                             {
-                                                var last = machine.CompletedSteps[^1];
                                                 <span class="@(last.Success ? "text-muted" : "text-danger")">@last.StepName</span>
                                             }
                                             else
@@ -262,9 +275,10 @@
         {
             _availableMachineNames = await Registry.GetAllNamesAsync();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Registry unreachable — autocomplete just has no suggestions, add-by-name still works.
+            Logger.LogError(ex, "Couldn't load machine names from the registry for autocomplete.");
         }
     }
 
@@ -304,6 +318,13 @@
         var state = StateStore.Load(_selectedRecipe.Name);
         if (state is null) return;
 
+        await ApplyState(state);
+    }
+
+    private async Task ApplyState(RecipeState state)
+    {
+        if (_selectedRecipe is null) return;
+
         foreach (var propertyValue in state.Properties)
         {
             var property = _properties.FirstOrDefault(p => p.Info.Name == propertyValue.Name);
@@ -313,11 +334,15 @@
         try
         {
             foreach (var machineName in state.Machines)
+            {
+                if (_machines.Any(m => m.Name == machineName)) continue;
                 _machines.Add(await Registry.ResolveAsync(machineName));
+            }
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Couldn't reload saved machines from the registry: {ex.Message}";
+            Logger.LogError(ex, "Couldn't resolve machines for recipe '{Recipe}' from the registry.", _selectedRecipe.Name);
+            _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
         }
     }
 
@@ -363,6 +388,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Couldn't resolve machine '{Machine}' against the registry.", name);
             _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
         }
     }
@@ -391,14 +417,63 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Couldn't load machines from uploaded YAML file '{FileName}'.", e.File.Name);
             _errorMessage = $"Couldn't load machines from that file: {ex.Message}";
+        }
+    }
+
+    private async Task ExportMachines()
+    {
+        var yaml = Registry.SerializeYaml(_machines.Select(m => m.Name));
+        await JS.InvokeVoidAsync("downloadFile", "machines.yaml", yaml, "text/yaml");
+    }
+
+    private async Task DownloadConfig()
+    {
+        if (_selectedRecipe is null) return;
+
+        var xml = StateStore.SerializeToXml(_selectedRecipe, _properties, _machines.Select(m => m.Name));
+        var fileName = $"{_selectedRecipe.Name}.config.xml";
+        await JS.InvokeVoidAsync("downloadFile", fileName, xml, "application/xml");
+    }
+
+    private async Task OnConfigUpload(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        if (_selectedRecipe is null) return;
+
+        try
+        {
+            var state = StateStore.DeserializeXml(e.File.OpenReadStream());
+            if (state is null)
+            {
+                _errorMessage = "That file doesn't look like a valid config export.";
+                return;
+            }
+
+            await ApplyState(state);
+            SaveState();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't load config from uploaded file '{FileName}'.", e.File.Name);
+            _errorMessage = $"Couldn't load that config file: {ex.Message}";
         }
     }
 
     private void SaveState()
     {
         if (_selectedRecipe is null) return;
-        StateStore.Save(_selectedRecipe, _properties, _machines.Select(m => m.Name));
+
+        try
+        {
+            StateStore.Save(_selectedRecipe, _properties, _machines.Select(m => m.Name));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't save state for recipe '{Recipe}'.", _selectedRecipe.Name);
+            _errorMessage = $"Couldn't save your changes: {ex.Message}";
+        }
     }
 
     private async Task StartDeployment()
@@ -423,6 +498,7 @@
             // DeploymentOrchestrator already handles expected per-machine failures internally —
             // reaching here means something unexpected broke before/outside that (e.g. couldn't
             // load credentials).
+            Logger.LogError(ex, "Deployment of recipe '{Recipe}' failed to start.", _selectedRecipe.Name);
             _errorMessage = $"Deployment failed to start: {ex.Message}";
         }
         finally
@@ -440,6 +516,31 @@
         if (!_expanded.Add(boxId)) _expanded.Remove(boxId);
     }
 
+    // FileLoggerProvider only stamps the leading "[BoxId]" tag on the first physical line of a
+    // log entry — continuation lines (extra structured-log fields, and the whole exception +
+    // stack trace) carry no tag at all. Filtering line-by-line for the tag silently drops that
+    // detail, so instead we group lines into whole records (a header line + its untagged
+    // continuation lines) and keep/drop an entire record based on its header line.
+    private static readonly System.Text.RegularExpressions.Regex LogHeaderPattern =
+        new(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]");
+
+    private static string FilterLogByBoxId(string boxId, IEnumerable<string> lines)
+    {
+        var tag = $"[{boxId}]";
+        var output = new List<string>();
+        var include = false;
+
+        foreach (var line in lines)
+        {
+            if (LogHeaderPattern.IsMatch(line))
+                include = line.Contains(tag);
+            if (include)
+                output.Add(line);
+        }
+
+        return string.Join(Environment.NewLine, output);
+    }
+
     private string GetMachineLog(string boxId)
     {
         if (_progress?.LogFilePath is null || !File.Exists(_progress.LogFilePath)) return string.Empty;
@@ -453,9 +554,8 @@
         var lines = new List<string>();
         string? line;
         while ((line = reader.ReadLine()) is not null)
-            if (line.Contains($"[{boxId}]"))
-                lines.Add(line);
+            lines.Add(line);
 
-        return string.Join(Environment.NewLine, lines);
+        return FilterLogByBoxId(boxId, lines);
     }
 }

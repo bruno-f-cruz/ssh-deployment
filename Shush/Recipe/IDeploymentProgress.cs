@@ -4,4 +4,5 @@ public interface IDeploymentProgress
 {
     void ReportStepStart(string boxId, string stepName);
     void ReportStep(string boxId, bool success, string stepName);
+    void ReportFailure(string boxId, Exception ex);
 }

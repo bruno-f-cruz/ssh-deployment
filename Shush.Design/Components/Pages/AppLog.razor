@@ -1,0 +1,55 @@
+@page "/logs"
+@using Shush.Design.Services
+@inject AppLogPath LogPath
+@implements IDisposable
+
+<PageTitle>Shush.Design — Application log</PageTitle>
+
+<div class="app-shell">
+    <header class="app-header">
+        <div>
+            <h1>Application log</h1>
+            <p class="app-header__subtitle">
+                App-level errors (registry, config, uploads) — not tied to any single deployment run.
+                <a href="/">&larr; Back to dashboard</a>
+            </p>
+        </div>
+        <button type="button" class="btn btn--secondary" @onclick="Refresh">Refresh</button>
+    </header>
+
+    <main class="app-main">
+        <section class="card">
+            <pre class="log-panel" style="max-height: 70vh;">@_content</pre>
+        </section>
+    </main>
+</div>
+
+@code {
+    private string _content = string.Empty;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        _timer = new Timer(_ => InvokeAsync(Refresh), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private void Refresh()
+    {
+        _content = ReadLog();
+        StateHasChanged();
+    }
+
+    private string ReadLog()
+    {
+        if (!File.Exists(LogPath.Path)) return "(no log entries yet)";
+
+        // The app-wide FileLoggerProvider still holds this file open for writing, so the reader
+        // must explicitly tolerate that existing Write access.
+        using var stream = new FileStream(LogPath.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -37,14 +37,35 @@ public sealed class RecipeStateStore
         var path = GetPath(recipeName);
         if (!File.Exists(path)) return null;
 
-        var serializer = new XmlSerializer(typeof(RecipeState));
         using var stream = File.OpenRead(path);
-        return (RecipeState?)serializer.Deserialize(stream);
+        return DeserializeXml(stream);
     }
 
     public void Save(IRecipe recipe, List<RecipeProperty> properties, IEnumerable<string> machineNames)
     {
-        var state = new RecipeState
+        var state = BuildState(recipe, properties, machineNames);
+        using var stream = File.Create(GetPath(recipe.Name));
+        Serialize(state, stream);
+    }
+
+    /// <summary>Serializes the current state to an XML string, for an explicit "download config" export.</summary>
+    public string SerializeToXml(IRecipe recipe, List<RecipeProperty> properties, IEnumerable<string> machineNames)
+    {
+        var state = BuildState(recipe, properties, machineNames);
+        using var stream = new MemoryStream();
+        Serialize(state, stream);
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>Deserializes an uploaded "config" file, for an explicit "upload config" import.</summary>
+    public RecipeState? DeserializeXml(Stream stream)
+    {
+        var serializer = new XmlSerializer(typeof(RecipeState));
+        return (RecipeState?)serializer.Deserialize(stream);
+    }
+
+    private static RecipeState BuildState(IRecipe recipe, List<RecipeProperty> properties, IEnumerable<string> machineNames) =>
+        new()
         {
             Properties = properties
                 .Select(p => new PropertyValue { Name = p.Info.Name, Value = p.GetValueAsString(recipe) })
@@ -52,10 +73,8 @@ public sealed class RecipeStateStore
             Machines = machineNames.ToList(),
         };
 
-        var serializer = new XmlSerializer(typeof(RecipeState));
-        using var stream = File.Create(GetPath(recipe.Name));
-        serializer.Serialize(stream, state);
-    }
+    private static void Serialize(RecipeState state, Stream stream) =>
+        new XmlSerializer(typeof(RecipeState)).Serialize(stream, state);
 
     private string GetPath(string recipeName)
     {

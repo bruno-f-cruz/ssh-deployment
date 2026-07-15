@@ -7,9 +7,9 @@ public sealed class FileLoggerProvider : ILoggerProvider
     private readonly StreamWriter _writer;
     private readonly object _lock = new();
 
-    public FileLoggerProvider(string path)
+    public FileLoggerProvider(string path, bool append = false)
     {
-        _writer = new StreamWriter(path, append: false) { AutoFlush = true };
+        _writer = new StreamWriter(path, append) { AutoFlush = true };
     }
 
     public ILogger CreateLogger(string categoryName) =>

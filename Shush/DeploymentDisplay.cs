@@ -46,6 +46,16 @@ public sealed class DeploymentDisplay : IDeploymentProgress
         }
     }
 
+    public void ReportFailure(string boxId, Exception ex)
+    {
+        lock (_lock)
+        {
+            _currentStep[boxId] = string.Empty;
+            _steps[boxId].Add((false, ex.Message));
+            RedrawRow(boxId);
+        }
+    }
+
     public void PrintSummary()
     {
         var failures = _steps

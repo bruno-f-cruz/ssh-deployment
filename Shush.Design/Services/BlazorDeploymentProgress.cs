@@ -30,8 +30,17 @@ public sealed class BlazorDeploymentProgress : IDeploymentProgress
     {
         var row = _rows[boxId];
         row.CurrentStep = string.Empty;
-        row.CompletedSteps.Add((success, stepName));
+        row.AddCompletedStep(success, stepName);
         if (!success) row.Status = RowStatus.Failed;
+        Changed?.Invoke();
+    }
+
+    public void ReportFailure(string boxId, Exception ex)
+    {
+        var row = _rows[boxId];
+        row.CurrentStep = string.Empty;
+        row.Status = RowStatus.Failed;
+        row.Error = ex.Message;
         Changed?.Invoke();
     }
 

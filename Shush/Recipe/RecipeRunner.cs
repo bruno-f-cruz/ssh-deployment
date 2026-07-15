@@ -83,6 +83,7 @@ public class RecipeRunner
             catch (Exception ex)
             {
                 failures[boxId] = ex;
+                _display?.ReportFailure(boxId, ex);
             }
         });
 

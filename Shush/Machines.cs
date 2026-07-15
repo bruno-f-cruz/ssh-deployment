@@ -33,6 +33,16 @@ public static class MachineLoader
         return doc?.Machines ?? [];
     }
 
+    /// <summary>Inverse of <see cref="ParseNames"/>, so an exported list can be re-uploaded unchanged.</summary>
+    public static string SerializeNames(IEnumerable<string> names)
+    {
+        var serializer = new SerializerBuilder()
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)
+            .Build();
+
+        return serializer.Serialize(new MachinesYaml { Machines = names.ToList() });
+    }
+
     public static async Task<MachineInfo?> ResolveOneAsync(string name, ShushSettings settings)
     {
         var registry = await GetRegistryAsync(settings);
