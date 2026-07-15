@@ -28,6 +28,10 @@
                 }
             </select>
         </div>
+        <label class="btn btn--ghost file-btn">
+            Upload config
+            <InputFile OnChange="OnConfigUpload" class="visually-hidden" />
+        </label>
     </header>
 
     @if (_errorMessage is not null)
@@ -48,13 +52,7 @@
             <section class="card" aria-labelledby="properties-heading">
                 <div class="card__header">
                     <h2 id="properties-heading">Properties</h2>
-                    <div class="inline-add">
-                        <button type="button" class="btn btn--secondary" @onclick="DownloadConfig">Download config</button>
-                        <label class="btn btn--ghost file-btn">
-                            Upload config
-                            <InputFile OnChange="OnConfigUpload" class="visually-hidden" />
-                        </label>
-                    </div>
+                    <button type="button" class="btn btn--secondary" @onclick="DownloadConfig">Download config</button>
                 </div>
 
                 @if (_properties.Count == 0)
@@ -306,12 +304,8 @@
     {
         _errorMessage = null;
         var name = e.Value?.ToString();
-        _selectedRecipe = _recipes.FirstOrDefault(r => r.Name == name);
-        _properties = _selectedRecipe is null ? [] : RecipeFormBinder.GetSettableProperties(_selectedRecipe);
-        _machines = [];
-        _progress = null;
-        _expanded.Clear();
-        _collectionInputs.Clear();
+        var recipe = _recipes.FirstOrDefault(r => r.Name == name);
+        SelectRecipe(recipe);
 
         if (_selectedRecipe is null) return;
 
@@ -319,6 +313,16 @@
         if (state is null) return;
 
         await ApplyState(state);
+    }
+
+    private void SelectRecipe(IRecipe? recipe)
+    {
+        _selectedRecipe = recipe;
+        _properties = recipe is null ? [] : RecipeFormBinder.GetSettableProperties(recipe);
+        _machines = [];
+        _progress = null;
+        _expanded.Clear();
+        _collectionInputs.Clear();
     }
 
     private async Task ApplyState(RecipeState state)
@@ -440,17 +444,30 @@
     private async Task OnConfigUpload(InputFileChangeEventArgs e)
     {
         _errorMessage = null;
-        if (_selectedRecipe is null) return;
 
         try
         {
-            var state = StateStore.DeserializeXml(e.File.OpenReadStream());
-            if (state is null)
+            // IBrowserFile's stream only supports async reads — XmlSerializer.Deserialize reads
+            // synchronously, so buffer to memory first rather than handing it the raw upload stream.
+            using var buffer = new MemoryStream();
+            await e.File.OpenReadStream().CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            var state = StateStore.DeserializeXml(buffer);
+            if (state is null || string.IsNullOrWhiteSpace(state.RecipeName))
             {
                 _errorMessage = "That file doesn't look like a valid config export.";
                 return;
             }
 
+            var recipe = _recipes.FirstOrDefault(r => r.Name == state.RecipeName);
+            if (recipe is null)
+            {
+                _errorMessage = $"Config file references unknown recipe '{state.RecipeName}'.";
+                return;
+            }
+
+            SelectRecipe(recipe);
             await ApplyState(state);
             SaveState();
         }

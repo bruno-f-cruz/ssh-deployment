@@ -44,7 +44,7 @@ public class MachineContext : IAsyncDisposable
     {
         ct.ThrowIfCancellationRequested();
 
-        string joined = string.Join("; ", commands);
+        string joined = string.Join(" ; if ($LASTEXITCODE) { exit $LASTEXITCODE } ; ", commands);
         string escaped = joined.Replace("\"", "\\\"");
         string psCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"{escaped}\"";
 

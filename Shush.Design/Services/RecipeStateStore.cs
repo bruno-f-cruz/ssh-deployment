@@ -15,6 +15,8 @@ public sealed class PropertyValue
 
 public sealed class RecipeState
 {
+    public string RecipeName { get; set; } = string.Empty;
+
     [XmlArrayItem("Property")]
     public List<PropertyValue> Properties { get; set; } = [];
 
@@ -67,6 +69,7 @@ public sealed class RecipeStateStore
     private static RecipeState BuildState(IRecipe recipe, List<RecipeProperty> properties, IEnumerable<string> machineNames) =>
         new()
         {
+            RecipeName = recipe.Name,
             Properties = properties
                 .Select(p => new PropertyValue { Name = p.Info.Name, Value = p.GetValueAsString(recipe) })
                 .ToList(),
