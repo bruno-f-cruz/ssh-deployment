@@ -518,3 +518,97 @@ input[type=text], input:not([type]), select, .machines-table input {
             content: none;
         }
 }
+
+/* ---- Recipe DSL editor (dual-mode) ---- */
+.editor-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.editor-toolbar .spacer { flex: 1 1 auto; }
+
+.validation-errors {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: #fdecec;
+    border: 1px solid #e50000;
+    color: #a31515;
+    font-size: 0.85rem;
+}
+
+.validation-errors li { margin: 0.15rem 0; }
+
+/* Highlight overlay: transparent textarea layered over a highlighted <pre>. */
+.yaml-editor {
+    position: relative;
+    width: 100%;
+    height: 26rem;
+    font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border: 1px solid #cfd4dc;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1e1e1e;
+}
+
+.yaml-editor pre,
+.yaml-editor textarea {
+    margin: 0;
+    padding: 0.75rem;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 2;
+}
+
+.yaml-editor pre {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    color: #d4d4d4;
+}
+
+.yaml-editor textarea {
+    position: absolute;
+    inset: 0;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: #fff;
+}
+
+.tok-key { color: #9cdcfe; }
+.tok-str { color: #ce9178; }
+.tok-ref { color: #dcdcaa; font-weight: 600; }
+.tok-comment { color: #6a9955; font-style: italic; }
+
+/* Structured step editor */
+.step-row {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #fafafa;
+}
+
+.step-row__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.step-row__type { font-weight: 600; }
+.step-row__spacer { flex: 1 1 auto; }
+.step-inputs { display: grid; gap: 0.5rem; }
+.step-inputs .field label .req { color: #e50000; margin-left: 0.15rem; }
+.help-icon { cursor: help; color: #6b7280; font-size: 0.8rem; }

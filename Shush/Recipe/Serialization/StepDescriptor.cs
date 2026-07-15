@@ -1,6 +1,10 @@
+using System.Collections;
 using System.Reflection;
 
 namespace Shush.Recipe.Serialization;
+
+/// <summary>How an input is edited in the UI, derived from its CLR type.</summary>
+public enum InputShape { Scalar, Collection, Dictionary }
 
 public sealed class InputDescriptor
 {
@@ -9,6 +13,21 @@ public sealed class InputDescriptor
     public required bool Required { get; init; }
     public string? Description { get; init; }
     public Type PropertyType => Property.PropertyType;
+
+    public InputShape Shape
+    {
+        get
+        {
+            var type = PropertyType;
+            if (type == typeof(string))
+                return InputShape.Scalar;
+            if (type.IsAssignableFrom(typeof(Dictionary<string, string>)) && typeof(IEnumerable).IsAssignableFrom(type))
+                return InputShape.Dictionary;
+            if (typeof(IEnumerable).IsAssignableFrom(type))
+                return InputShape.Collection;
+            return InputShape.Scalar;
+        }
+    }
 }
 
 public sealed class OutputDescriptor
