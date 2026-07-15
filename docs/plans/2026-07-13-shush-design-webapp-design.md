@@ -2,6 +2,12 @@
 
 Status: Design validated, not yet implemented.
 
+> **Superseded (2026-07-15):** recipes are now serializable **YAML documents**, not C# classes
+> — see [2026-07-15-serializable-recipes.md](2026-07-15-serializable-recipes.md) and
+> [../recipes.md](../recipes.md). The reflection-based `RecipeFormBinder`/`RecipeCatalog` and the
+> XML `RecipeStateStore` described below have been replaced by document-driven form binding,
+> `RecipeStore` YAML discovery, and a YAML `DeployStateStore`.
+
 ## Goal
 
 Let people deploy any Shush recipe to one or more frg-machines from a browser: pick a
