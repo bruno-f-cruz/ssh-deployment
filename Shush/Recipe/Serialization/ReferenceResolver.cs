@@ -41,23 +41,40 @@ public static partial class ReferenceResolver
         return result;
     }
 
-    private static string ResolveExpression(string expr, ResolutionScope scope, FunctionLibrary functions)
+    /// <summary>A parsed <c>${...}</c> token: either a function call or a <c>namespace.member</c> reference.</summary>
+    public readonly record struct ReferenceToken(
+        bool IsFunction, string Name, IReadOnlyList<string> Arguments, string Namespace, string Member);
+
+    /// <summary>Parses every <c>${...}</c> token in a string without resolving it (used by validation).</summary>
+    public static IReadOnlyList<ReferenceToken> ParseTokens(string input) =>
+        TokenPattern().Matches(input)
+            .Select(m => ParseExpression(m.Groups[1].Value.Trim()))
+            .ToList();
+
+    public static ReferenceToken ParseExpression(string expr)
     {
         var open = expr.IndexOf('(');
         if (open >= 0 && expr.EndsWith(')'))
         {
             var name = expr[..open].Trim();
             var args = ParseArguments(expr[(open + 1)..^1]);
-            return functions.Invoke(name, args);
+            return new ReferenceToken(IsFunction: true, name, args, Namespace: string.Empty, Member: string.Empty);
         }
 
         var dot = expr.IndexOf('.');
         if (dot <= 0 || dot == expr.Length - 1)
             throw new RecipeValidationException($"Invalid reference '${{{expr}}}': expected 'namespace.name'.");
 
-        var first = expr[..dot];
-        var rest = expr[(dot + 1)..];
-        if (scope.TryLookup(first, rest, out var resolved))
+        return new ReferenceToken(IsFunction: false, Name: string.Empty, Arguments: [], expr[..dot], expr[(dot + 1)..]);
+    }
+
+    private static string ResolveExpression(string expr, ResolutionScope scope, FunctionLibrary functions)
+    {
+        var token = ParseExpression(expr);
+        if (token.IsFunction)
+            return functions.Invoke(token.Name, token.Arguments);
+
+        if (scope.TryLookup(token.Namespace, token.Member, out var resolved))
             return resolved;
 
         throw new RecipeValidationException($"Unknown reference '${{{expr}}}'.");
