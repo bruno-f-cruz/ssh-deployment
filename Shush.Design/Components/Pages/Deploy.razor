@@ -500,7 +500,7 @@
         _errorMessage = null;
         _deploying = true;
         var toDeploy = _machines.Where(m => m.Status == RowStatus.Ready).ToList();
-        var totalSteps = _selectedRecipe.Steps.Count();
+        var totalSteps = _selectedRecipe.StepNames.Count;
 
         _progress = new BlazorDeploymentProgress(toDeploy.ToDictionary(m => m.Name), totalSteps);
         _progress.Changed += OnProgressChanged;
