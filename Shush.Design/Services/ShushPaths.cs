@@ -12,4 +12,12 @@ public static class ShushPaths
         Directory.CreateDirectory(dir);
         return dir;
     }
+
+    /// <summary>Directory for user-uploaded / user-edited recipe YAML files (overlays the built-ins by name).</summary>
+    public static string GetUserRecipesDirectory(IWebHostEnvironment env, ShushSettings settings)
+    {
+        var dir = Path.Combine(GetShushDirectory(env, settings), "recipes");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
 }
