@@ -42,7 +42,7 @@ dataverse:
                 new CreateBatchFileStep(
                     @"C:\Users\Public\Desktop\DEV-VrForaging.cmd",
                     $"cd /d {clone.ClonedPath}",
-                    $"uv run .\\scripts\\aind.py"),
+                    $"uv run clabe run .\\scripts\\aind.py"),
                 new WriteFileStep(CLABE_FILE, $"{clone.ClonedPath}/local/clabe.yml"),
             ];
         }

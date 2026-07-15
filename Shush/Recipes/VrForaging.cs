@@ -23,7 +23,7 @@ public class VrForagingRecipe : IRecipe
                 new CreateBatchFileStep(
                     @"C:\Users\Public\Desktop\VrForaging.cmd",
                     $"cd /d {clone.ClonedPath}",
-                    $"uv run .\\scripts\\aind.py"),
+                    $"uv run clabe run .\\scripts\\aind.py"),
                 new TemplatedCopyFilesStep(
                     sourceDirectory: "./FilesToTransfer",
                     remoteBaseDirectory: clone.ClonedPath,
