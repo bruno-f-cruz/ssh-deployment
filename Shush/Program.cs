@@ -71,7 +71,17 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath, string? en
     if (recipesDirPath is not null)
         recipeDirs.Add(recipesDirPath);
 
-    var recipes = store.Discover(recipeDirs);
+    List<IRecipe> recipes;
+    try
+    {
+        recipes = store.Discover(recipeDirs);
+    }
+    catch (RecipeValidationException ex)
+    {
+        Console.Error.WriteLine($"Recipe validation failed:{Environment.NewLine}{ex.Message}");
+        Environment.Exit(1);
+        return;
+    }
 
     var recipe = recipes.FirstOrDefault(r => r.Name.Equals(recipeName, StringComparison.OrdinalIgnoreCase));
 
