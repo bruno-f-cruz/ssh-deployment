@@ -1,0 +1,40 @@
+name: VrForaging
+params:
+  tag:
+    type: string
+    label: Git Tag
+    default: v1.1.2
+vars:
+  repoRoot: C:/git
+  scheduleTime: ${random.time("17:50", "18:10")}
+steps:
+  - id: clone
+    type: GitClone
+    with:
+      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Behavior.VrForaging
+      rootPath: ${vars.repoRoot}
+  - type: GitCheckout
+    with:
+      path: ${clone.clonedPath}
+      reference: ${params.tag}
+      cleanExceptions:
+        - .cache_manager.json
+  - type: RunScript
+    with:
+      workingDirectory: ${clone.clonedPath}
+      commands:
+        - "$ErrorActionPreference = 'Stop'"
+        - "$ProgressPreference = 'SilentlyContinue'"
+        - .\scripts\deploy.ps1
+  - type: CreateBatchFile
+    with:
+      remotePath: C:\Users\Public\Desktop\VrForaging.cmd
+      lines:
+        - cd /d ${clone.clonedPath}
+        - uv run clabe run .\scripts\aind.py
+  - type: TemplatedCopyFiles
+    with:
+      sourceDirectory: ./FilesToTransfer
+      remoteBaseDirectory: ${clone.clonedPath}
+      variables:
+        schedule_time: ${vars.scheduleTime}

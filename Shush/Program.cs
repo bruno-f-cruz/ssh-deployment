@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Shush;
 using Shush.Recipe;
+using Shush.Recipe.Serialization;
 using System.CommandLine;
 
 var recipeOption = new Option<string>(
@@ -19,14 +20,19 @@ var envFileOption = new Option<string?>(
     aliases: ["--env-file", "-e"],
     description: "Path to a .env file to load. If omitted, settings come from real environment variables only.");
 
+var recipesDirOption = new Option<string?>(
+    aliases: ["--recipes-dir"],
+    description: "Additional directory of recipe .yml files. Overrides built-in recipes by name.");
+
 var rootCommand = new RootCommand("SSH Deployment Tool")
 {
     recipeOption,
     machinesOption,
-    envFileOption
+    envFileOption,
+    recipesDirOption
 };
 
-rootCommand.SetHandler(async (string recipeName, string machinesPath, string? envFilePath) =>
+rootCommand.SetHandler(async (string recipeName, string machinesPath, string? envFilePath, string? recipesDirPath) =>
 {
     if (envFilePath is not null)
     {
@@ -58,7 +64,14 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath, string? en
     var loggerFactory = services.GetRequiredService<ILoggerFactory>();
     var logger = loggerFactory.CreateLogger<Program>();
 
-    var recipes = RecipeCatalog.Discover();
+    var registry = new StepRegistry(typeof(IRecipe).Assembly);
+    var store = new RecipeStore(registry, FunctionLibrary.Default);
+
+    var recipeDirs = new List<string> { Path.Combine(AppContext.BaseDirectory, "Recipes") };
+    if (recipesDirPath is not null)
+        recipeDirs.Add(recipesDirPath);
+
+    var recipes = store.Discover(recipeDirs);
 
     var recipe = recipes.FirstOrDefault(r => r.Name.Equals(recipeName, StringComparison.OrdinalIgnoreCase));
 
@@ -92,6 +105,6 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath, string? en
 
     display.PrintSummary();
 
-}, recipeOption, machinesOption, envFileOption);
+}, recipeOption, machinesOption, envFileOption, recipesDirOption);
 
 return await rootCommand.InvokeAsync(args);
