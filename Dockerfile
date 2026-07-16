@@ -15,9 +15,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 COPY --from=build /app/publish .
-# Recipe steps (TemplatedCopyFilesStep/CopyFilesStep) resolve this relative to the process's
-# working directory at runtime — a genuine runtime dependency, not just project source.
-COPY FilesToTransfer/ ./FilesToTransfer/
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080

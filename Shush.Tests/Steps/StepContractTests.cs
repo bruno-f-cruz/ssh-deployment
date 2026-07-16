@@ -14,7 +14,6 @@ public class StepContractTests
     [InlineData("WriteFile")]
     [InlineData("CreateBatchFile")]
     [InlineData("CopyFiles")]
-    [InlineData("TemplatedCopyFiles")]
     [InlineData("CreateShortcut")]
     [InlineData("DeleteDirectory")]
     public void Step_is_registered(string typeName) =>

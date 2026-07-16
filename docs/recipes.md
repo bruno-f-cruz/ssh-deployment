@@ -81,7 +81,6 @@ with:
 | `WriteFile` | `content`*, `targetPath`* | — |
 | `CreateBatchFile` | `remotePath`*, `lines`* (list) | — |
 | `CopyFiles` | `sourceDirectory`*, `remoteBaseDirectory`* | — |
-| `TemplatedCopyFiles` | `sourceDirectory`*, `remoteBaseDirectory`*, `variables` (map) | — |
 | `CreateShortcut` | `cmdPath`*, `shortcutDirectory`*, `shortName`* | — |
 | `DeleteDirectory` | `path`* | — |
 

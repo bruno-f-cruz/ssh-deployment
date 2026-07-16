@@ -124,9 +124,8 @@ To update: `Stop-Service "ShushDeployment"`, replace the published files, `Start
 
 ### Running it in Docker (Linux VM or elsewhere)
 
-`Dockerfile` builds `Shush.Design` as a self-contained image (`FilesToTransfer/` is included — some
-recipe steps read it from disk at runtime). No credentials are needed at build or run time: the web
-app has operators sign in through the browser.
+`Dockerfile` builds `Shush.Design` as a self-contained image. No credentials are needed at build or
+run time: the web app has operators sign in through the browser.
 
 ```bash
 docker compose up -d --build
@@ -202,26 +201,12 @@ step catalog with inputs and outputs.
 | `WriteFile` | `content`, `targetPath` | — |
 | `CreateBatchFile` | `remotePath`, `lines[]` | — |
 | `CopyFiles` | `sourceDirectory`, `remoteBaseDirectory` | — |
-| `TemplatedCopyFiles` | `sourceDirectory`, `remoteBaseDirectory`, `variables` | — |
 | `CreateShortcut` | `cmdPath`, `shortcutDirectory`, `shortName` | — |
 | `DeleteDirectory` | `path` | — |
 
 Adding a step type is: implement `IRecipeStep`, annotate it with `[Step]`/`[Input]`/`[Output]`, and
 it appears automatically in the CLI, validation, and the web editor's palette and tooltips.
 
-## File templating
-
-Files under `FilesToTransfer/` can contain `{{ variable_name }}` placeholders, resolved by the
-`TemplatedCopyFiles` step from its `variables` input:
-
-```yaml
-- type: TemplatedCopyFiles
-  with:
-    sourceDirectory: ./FilesToTransfer
-    remoteBaseDirectory: ${clone.clonedPath}
-    variables:
-      schedule_time: ${vars.scheduleTime}
-```
-
-`vars` (and their `${...}` functions) are resolved once per machine, so each rig receives its own
-resolved copy — e.g. `${random.time(...)}` yields an independent time per machine.
+For content that needs per-machine values substituted in, use `WriteFile` with `${...}` references
+in its `content` — `vars` (and their `${...}` functions) are resolved once per machine, so each rig
+receives its own resolved copy, e.g. `${random.time(...)}` yields an independent time per machine.
