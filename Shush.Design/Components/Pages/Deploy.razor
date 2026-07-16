@@ -2,6 +2,7 @@
 @using Shush.Recipe
 @using Shush.Recipe.Serialization
 @using Shush.Design.Services
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject RecipeStore RecipeStore
 @inject StepRegistry Registry
 @inject FunctionLibrary Functions
@@ -9,6 +10,9 @@
 @inject MachineRegistryService MachineRegistry
 @inject DeployStateStore StateStore
 @inject DeploymentOrchestrator Orchestrator
+@inject CredentialStore Credentials
+@inject ProtectedLocalStorage LocalStore
+@inject ProtectedSessionStorage SessionStore
 @inject IJSRuntime JS
 @inject ILogger<Deploy> Logger
 
@@ -38,6 +42,44 @@
             <InputFile OnChange="OnRecipeUpload" accept=".yml,.yaml" class="visually-hidden" />
         </label>
     </header>
+
+    <section class="card signin-card" aria-label="SSH credentials">
+        @if (Credentials.IsSignedIn)
+        {
+            <div class="signin-status">
+                <span>&#128274; Signed in as <strong>@Credentials.Username</strong></span>
+                <button type="button" class="btn btn--ghost" @onclick="SignOut">Sign out</button>
+            </div>
+        }
+        else
+        {
+            <form class="signin-form" @onsubmit="SignIn" @onsubmit:preventDefault="true">
+                <div class="field">
+                    <label for="ssh-user">Username</label>
+                    <input id="ssh-user" name="username" autocomplete="username" @bind="_usernameInput" @bind:event="oninput" />
+                </div>
+                <div class="field">
+                    <label for="ssh-pass">Password</label>
+                    <div class="password-field">
+                        <input id="ssh-pass" name="password" type="@(_showPassword ? "text" : "password")"
+                               autocomplete="current-password" @bind="_passwordInput" @bind:event="oninput" />
+                        <button type="button" class="btn btn--ghost" @onclick="() => _showPassword = !_showPassword"
+                                aria-label="@(_showPassword ? "Hide password" : "Show password")">
+                            @(_showPassword ? "Hide" : "Show")
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn--primary"
+                        disabled="@(string.IsNullOrWhiteSpace(_usernameInput) || string.IsNullOrEmpty(_passwordInput))">
+                    Sign in
+                </button>
+            </form>
+            <p class="text-muted signin-hint">
+                Credentials open SSH connections from this server and are kept only for this browser session.
+                Sign in to enable deployment.
+            </p>
+        }
+    </section>
 
     @if (_session is not null)
     {
@@ -444,6 +486,10 @@
 </div>
 
 @code {
+    private string _usernameInput = string.Empty;
+    private string _passwordInput = string.Empty;
+    private bool _showPassword;
+
     private List<string> _recipeNames = [];
     private RecipeEditSession? _session;
     private List<RecipeField> _fields = [];
@@ -574,6 +620,7 @@
     private string? _errorMessage;
 
     private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0
+        && Credentials.IsSignedIn
         && !_fields.Any(f => f.Required && string.IsNullOrEmpty(ParamValue(f)))
         && _machines.Any(m => m.Status == RowStatus.Ready);
 
@@ -623,6 +670,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            await LoadCredentials();
+
         if (_rawNeedsHighlightInit)
         {
             _rawNeedsHighlightInit = false;
@@ -631,6 +681,64 @@
 
         foreach (var name in _expanded)
             await JS.InvokeVoidAsync("scrollLogToBottom", LogElementId(name));
+    }
+
+    // ---- Credentials ----
+
+    private async Task LoadCredentials()
+    {
+        try
+        {
+            var user = await LocalStore.GetAsync<string>("shush.username");
+            if (user is { Success: true, Value: { Length: > 0 } })
+                _usernameInput = user.Value;
+
+            var pass = await SessionStore.GetAsync<string>("shush.password");
+            if (!string.IsNullOrWhiteSpace(_usernameInput) && pass is { Success: true, Value: { Length: > 0 } })
+                Credentials.SignIn(_usernameInput, pass.Value);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Storage is unavailable during prerender or if the user blocks it — sign-in still works manually.
+            Logger.LogWarning(ex, "Couldn't load saved credentials from browser storage.");
+        }
+    }
+
+    private async Task SignIn()
+    {
+        if (string.IsNullOrWhiteSpace(_usernameInput) || string.IsNullOrEmpty(_passwordInput))
+            return;
+
+        Credentials.SignIn(_usernameInput.Trim(), _passwordInput);
+
+        try
+        {
+            await LocalStore.SetAsync("shush.username", Credentials.Username!);
+            await SessionStore.SetAsync("shush.password", _passwordInput);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't persist credentials to browser storage.");
+        }
+
+        _passwordInput = string.Empty;
+        _showPassword = false;
+    }
+
+    private async Task SignOut()
+    {
+        Credentials.SignOut();
+        _passwordInput = string.Empty;
+        try
+        {
+            await SessionStore.DeleteAsync("shush.password");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't clear saved password from browser storage.");
+        }
     }
 
     private async Task OnRecipeSelected(ChangeEventArgs e)
@@ -1041,7 +1149,7 @@
         try
         {
             var machineInfos = toDeploy.ToDictionary(m => m.Name, m => m.Info!);
-            await Orchestrator.RunAsync(recipe, machineInfos, _progress);
+            await Orchestrator.RunAsync(recipe, machineInfos, Credentials.ToSecrets(), _progress);
         }
         catch (Exception ex)
         {

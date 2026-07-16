@@ -43,6 +43,9 @@ builder.Services.AddSingleton(shushSettings);
 builder.Services.AddSingleton<MachineRegistryService>();
 builder.Services.AddSingleton<DeploymentOrchestrator>();
 
+// SSH credentials are entered per session by the operator (never shipped with the app).
+builder.Services.AddScoped<CredentialStore>();
+
 // Recipe engine wiring: step catalog, functions, YAML discovery, and per-recipe deploy state.
 builder.Services.AddSingleton(new StepRegistry(typeof(IRecipe).Assembly));
 builder.Services.AddSingleton(FunctionLibrary.Default);

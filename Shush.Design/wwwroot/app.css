@@ -738,3 +738,22 @@ input[type=text], input:not([type]), select, .machines-table input {
     font-size: 0.85rem;
 }
 .reorder-note .btn--icon { margin-left: auto; color: #92400e; }
+
+/* ---- Sign-in (SSH credentials) ---- */
+.signin-card { padding: 1rem 1.5rem; }
+.signin-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.signin-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+}
+.signin-form .field { flex: 1 1 200px; }
+.password-field { display: flex; gap: 0.4rem; align-items: stretch; }
+.password-field input { flex: 1 1 auto; }
+.signin-hint { margin: 0.6rem 0 0; font-size: 0.8rem; }
