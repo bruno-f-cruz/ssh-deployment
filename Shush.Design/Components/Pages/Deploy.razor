@@ -39,6 +39,24 @@
         </label>
     </header>
 
+    @if (_session is not null)
+    {
+        <nav class="bookmark-rail" aria-label="Jump to section">
+            <button type="button" class="bookmark" @onclick='() => JumpTo("parameters")' title="Parameters">
+                <span class="bookmark__dot @(MissingRequiredCount > 0 ? "bookmark__dot--warn" : "bookmark__dot--ok")"></span>
+                <span class="bookmark__label">Parameters</span>
+            </button>
+            <button type="button" class="bookmark" @onclick='() => JumpTo("steps")' title="Steps">
+                <span class="bookmark__dot @(_validationErrors.Count > 0 ? "bookmark__dot--error" : "bookmark__dot--ok")"></span>
+                <span class="bookmark__label">Steps</span>
+            </button>
+            <button type="button" class="bookmark" @onclick='() => JumpTo("machines")' title="Machines">
+                <span class="bookmark__dot @(ReadyMachineCount > 0 ? "bookmark__dot--ok" : "")"></span>
+                <span class="bookmark__label">Machines</span>
+            </button>
+        </nav>
+    }
+
     @if (_errorMessage is not null)
     {
         <div class="alert alert--error" role="alert">
@@ -54,26 +72,48 @@
     else
     {
         <main class="app-main">
-            <section class="card" aria-labelledby="properties-heading">
+            <section id="section-parameters" class="card" aria-labelledby="parameters-heading">
                 <div class="card__header">
-                    <h2 id="properties-heading">Properties</h2>
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("parameters")' aria-expanded="@SectionOpen("parameters")">
+                        <span class="chevron @(SectionOpen("parameters") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="parameters-heading">Parameters</h2>
+                    </button>
+                    @if (!SectionOpen("parameters") && MissingRequiredCount > 0)
+                    {
+                        <span class="section-badge section-badge--warn">@MissingRequiredCount required</span>
+                    }
                 </div>
+
+                @if (SectionOpen("parameters"))
+                {
+                <p class="text-muted" style="margin-top:-0.25rem;">Values you can set for this deployment. Required parameters (no default) must be filled in before deploying.</p>
 
                 @if (_fields.Count == 0)
                 {
-                    <p class="empty-state">This recipe has no configurable properties.</p>
+                    <p class="empty-state">This recipe has no configurable parameters.</p>
                 }
                 else
                 {
                     <div class="field-grid">
                         @foreach (var field in _fields)
                         {
+                            var missing = field.Required && string.IsNullOrEmpty(ParamValue(field));
                             <div class="field">
-                                <label for="@($"prop-{field.Name}")">@field.Label</label>
+                                <label for="@($"prop-{field.Name}")">
+                                    @field.Label
+                                    @if (field.Required)
+                                    {
+                                        <span class="req" title="Required">*</span>
+                                    }
+                                </label>
                                 @if (field.Kind == PropertyEditorKind.Dropdown)
                                 {
                                     <select id="@($"prop-{field.Name}")" value="@ParamValue(field)"
                                             @onchange="e => OnParamChanged(field, e)">
+                                        @if (field.Required)
+                                        {
+                                            <option value="">Select…</option>
+                                        }
                                         @foreach (var option in field.Options)
                                         {
                                             <option value="@option">@option</option>
@@ -85,17 +125,61 @@
                                     <input id="@($"prop-{field.Name}")" value="@ParamValue(field)"
                                            @onchange="e => OnParamChanged(field, e)" />
                                 }
+                                @if (missing)
+                                {
+                                    <span class="validation-message">Required.</span>
+                                }
                             </div>
                         }
                     </div>
                 }
+
+                @if (_session.Document.Vars.Count > 0)
+                {
+                    <details class="vars-block">
+                        <summary>Variables (read-only — computed by the recipe)</summary>
+                        <div class="table-scroll">
+                            <table class="machines-table">
+                                <thead>
+                                    <tr><th scope="col">Name</th><th scope="col">Expression</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var (name, expr) in _session.Document.Vars)
+                                    {
+                                        <tr>
+                                            <td data-label="Name"><code>@name</code></td>
+                                            <td data-label="Expression"><code>@expr</code></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                }
+                }
             </section>
 
-            <section class="card" aria-labelledby="steps-heading">
+            <section id="section-steps" class="card" aria-labelledby="steps-heading">
                 <div class="card__header">
-                    <h2 id="steps-heading">Steps</h2>
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("steps")' aria-expanded="@SectionOpen("steps")">
+                        <span class="chevron @(SectionOpen("steps") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="steps-heading">Steps</h2>
+                    </button>
+                    <span class="section-badge">@_session.Document.Steps.Count</span>
+                    @if (_validationErrors.Count > 0)
+                    {
+                        <span class="section-badge section-badge--error">@_validationErrors.Count issue@(_validationErrors.Count == 1 ? "" : "s")</span>
+                    }
+                    @if (SectionOpen("steps") && !_rawMode && _session.Document.Steps.Count > 0)
+                    {
+                        <span class="spacer"></span>
+                        <button type="button" class="btn btn--link" @onclick="CollapseAllSteps">Collapse all</button>
+                        <button type="button" class="btn btn--link" @onclick="ExpandAllSteps">Expand all</button>
+                    }
                 </div>
 
+                @if (SectionOpen("steps"))
+                {
                 <div class="editor-toolbar">
                     <button type="button" class="btn @(_rawMode ? "btn--ghost" : "btn--secondary")" @onclick="() => SetRawMode(false)">Structured</button>
                     <button type="button" class="btn @(_rawMode ? "btn--secondary" : "btn--ghost")" @onclick="() => SetRawMode(true)">Raw YAML</button>
@@ -104,6 +188,15 @@
                     <button type="button" class="btn btn--ghost" @onclick="ResetRecipe">Reset to default</button>
                     <button type="button" class="btn btn--secondary" disabled="@(_validationErrors.Count > 0)" @onclick="SaveRecipe">Save recipe</button>
                 </div>
+
+                @if (_reorderNote is not null)
+                {
+                    <p class="reorder-note" role="status">
+                        <span aria-hidden="true">&#8635;</span>
+                        Move blocked — it would break a step reference: @_reorderNote
+                        <button type="button" class="btn btn--icon" @onclick="() => _reorderNote = null" aria-label="Dismiss">&#10005;</button>
+                    </p>
+                }
 
                 @if (_validationErrors.Count > 0)
                 {
@@ -130,62 +223,75 @@
                 {
                     @foreach (var (step, index) in _session.Document.Steps.Select((s, i) => (s, i)))
                     {
-                        <div class="step-row">
+                        <div class="step-row @(_dragIndex == index ? "step-row--dragging" : "") @(_dragOverIndex == index ? "step-row--dragover" : "")"
+                             @ondragover:preventDefault="true"
+                             @ondrop:preventDefault="true"
+                             @ondrop="() => OnStepDrop(index)"
+                             @ondragenter="() => OnStepDragEnter(index)">
                             <div class="step-row__header">
-                                <span class="step-row__type" title="@StepTooltip(step.Type)">@step.Type</span>
-                                @if (Registry.TryGet(step.Type, out _))
-                                {
-                                    <span class="help-icon" title="@StepTooltip(step.Type)">&#9432;</span>
-                                }
-                                else
+                                <span class="step-row__grip" draggable="true" title="Drag to reorder" aria-hidden="true"
+                                      @ondragstart="() => OnStepDragStart(index)" @ondragend="OnStepDragEnd">&#10303;</span>
+                                <button type="button" class="step-row__toggle" @onclick="() => ToggleStep(step)" aria-expanded="@StepOpen(step)">
+                                    <span class="chevron @(StepOpen(step) ? "chevron--open" : "")">&#9656;</span>
+                                    <span class="step-row__type" title="@StepTooltip(step.Type)">@step.Type</span>
+                                </button>
+                                @if (!Registry.TryGet(step.Type, out _))
                                 {
                                     <span class="text-danger">(unknown step type)</span>
                                 }
+                                @if (!string.IsNullOrEmpty(step.Id))
+                                {
+                                    <span class="step-row__summary">#@step.Id</span>
+                                }
+                                <span class="help-icon" title="@StepTooltip(step.Type)">&#9432;</span>
                                 <span class="step-row__spacer"></span>
                                 <button type="button" class="btn btn--icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)" aria-label="Move up">&#8593;</button>
                                 <button type="button" class="btn btn--icon" disabled="@(index == _session.Document.Steps.Count - 1)" @onclick="() => MoveStep(index, 1)" aria-label="Move down">&#8595;</button>
                                 <button type="button" class="btn btn--icon" @onclick="() => RemoveStep(index)" aria-label="Remove step">&#10005;</button>
                             </div>
 
-                            <div class="step-inputs">
-                                <div class="field">
-                                    <label>id <span class="help-icon" title="Optional. Other steps reference this step's outputs as ${id.output}.">&#9432;</span></label>
-                                    <input value="@step.Id" @onchange="e => SetStepId(step, e)" placeholder="(none)" />
-                                </div>
+                            @if (StepOpen(step))
+                            {
+                                <div class="step-inputs">
+                                    <div class="field">
+                                        <label>id <span class="help-icon" title="Optional. Other steps reference this step's outputs as ${id.output}.">&#9432;</span></label>
+                                        <input value="@step.Id" @onchange="e => SetStepId(step, e)" placeholder="(none)" />
+                                    </div>
 
-                                @if (Registry.TryGet(step.Type, out var descriptor))
-                                {
-                                    @foreach (var input in descriptor.Inputs)
+                                    @if (Registry.TryGet(step.Type, out var descriptor))
                                     {
-                                        <div class="field">
-                                            <label>
-                                                @input.Name
-                                                @if (input.Required)
+                                        @foreach (var input in descriptor.Inputs)
+                                        {
+                                            <div class="field">
+                                                <label>
+                                                    @input.Name
+                                                    @if (input.Required)
+                                                    {
+                                                        <span class="req" title="Required">*</span>
+                                                    }
+                                                    <span class="help-icon" title="@InputTooltip(input)">&#9432;</span>
+                                                </label>
+                                                @switch (input.Shape)
                                                 {
-                                                    <span class="req" title="Required">*</span>
+                                                    case InputShape.Scalar:
+                                                        <input value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)" />
+                                                        break;
+                                                    case InputShape.Collection:
+                                                        <textarea rows="3" placeholder="One value per line"
+                                                                  value="@GetLines(step, input.Name)"
+                                                                  @onchange="e => SetLines(step, input.Name, e)"></textarea>
+                                                        break;
+                                                    case InputShape.Dictionary:
+                                                        <textarea rows="3" placeholder="key: value (one per line)"
+                                                                  value="@GetPairs(step, input.Name)"
+                                                                  @onchange="e => SetPairs(step, input.Name, e)"></textarea>
+                                                        break;
                                                 }
-                                                <span class="help-icon" title="@InputTooltip(input)">&#9432;</span>
-                                            </label>
-                                            @switch (input.Shape)
-                                            {
-                                                case InputShape.Scalar:
-                                                    <input value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)" />
-                                                    break;
-                                                case InputShape.Collection:
-                                                    <textarea rows="3" placeholder="One value per line"
-                                                              value="@GetLines(step, input.Name)"
-                                                              @onchange="e => SetLines(step, input.Name, e)"></textarea>
-                                                    break;
-                                                case InputShape.Dictionary:
-                                                    <textarea rows="3" placeholder="key: value (one per line)"
-                                                              value="@GetPairs(step, input.Name)"
-                                                              @onchange="e => SetPairs(step, input.Name, e)"></textarea>
-                                                    break;
-                                            }
-                                        </div>
+                                            </div>
+                                        }
                                     }
-                                }
-                            </div>
+                                </div>
+                            }
                         </div>
                     }
 
@@ -200,11 +306,20 @@
                         </select>
                     </div>
                 }
+                }
             </section>
 
-            <section class="card" aria-labelledby="machines-heading">
+            <section id="section-machines" class="card" aria-labelledby="machines-heading">
                 <div class="card__header">
-                    <h2 id="machines-heading">Machines</h2>
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("machines")' aria-expanded="@SectionOpen("machines")">
+                        <span class="chevron @(SectionOpen("machines") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="machines-heading">Machines</h2>
+                    </button>
+                    <span class="section-badge @(ReadyMachineCount > 0 ? "section-badge--ok" : "")">@ReadyMachineCount / @_machines.Count ready</span>
+                </div>
+
+                @if (SectionOpen("machines"))
+                {
                     <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
                         <label for="machine-name" class="visually-hidden">Machine name</label>
                         <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off" list="machine-options"
@@ -222,7 +337,6 @@
                         </label>
                         <button type="button" class="btn btn--ghost" disabled="@(_machines.Count == 0)" @onclick="ExportMachines">Export to YAML</button>
                     </form>
-                </div>
 
                 @if (_machines.Count == 0)
                 {
@@ -316,6 +430,7 @@
                         </table>
                     </div>
                 }
+                }
 
                 <div class="deploy-bar">
                     <p class="deploy-summary" aria-live="polite">@DeploySummary</p>
@@ -339,6 +454,117 @@
     private string _rawYaml = string.Empty;
     private bool _rawNeedsHighlightInit;
 
+    private readonly HashSet<string> _collapsedSections = new();
+    private readonly HashSet<StepSpec> _collapsedSteps = new();
+
+    private int MissingRequiredCount => _fields.Count(f => f.Required && string.IsNullOrEmpty(ParamValue(f)));
+    private int ReadyMachineCount => _machines.Count(m => m.Status == RowStatus.Ready);
+
+    private bool SectionOpen(string key) => !_collapsedSections.Contains(key);
+    private void ToggleSection(string key)
+    {
+        if (!_collapsedSections.Add(key)) _collapsedSections.Remove(key);
+    }
+
+    private bool StepOpen(StepSpec step) => !_collapsedSteps.Contains(step);
+    private void ToggleStep(StepSpec step)
+    {
+        if (!_collapsedSteps.Add(step)) _collapsedSteps.Remove(step);
+    }
+
+    private void CollapseAllSteps()
+    {
+        if (_session is null) return;
+        foreach (var step in _session.Document.Steps) _collapsedSteps.Add(step);
+    }
+
+    private void ExpandAllSteps() => _collapsedSteps.Clear();
+
+    private int? _dragIndex;
+    private int? _dragOverIndex;
+    private string? _reorderNote;
+
+    private void OnStepDragStart(int index) => _dragIndex = index;
+
+    private void OnStepDragEnter(int index)
+    {
+        if (_dragIndex is not null && _dragIndex != index)
+            _dragOverIndex = index;
+    }
+
+    private void OnStepDragEnd()
+    {
+        _dragIndex = null;
+        _dragOverIndex = null;
+    }
+
+    private void OnStepDrop(int index)
+    {
+        if (_dragIndex is int from)
+            TryPlaceStep(from, index);
+
+        _dragIndex = null;
+        _dragOverIndex = null;
+    }
+
+    /// <summary>
+    /// Moves a step to a new index, but refuses a move that would break an otherwise-valid recipe
+    /// (a step landing before the step whose output it references). The check is general: it re-runs
+    /// the recipe validator on the prospective order, so it covers any reference between any steps.
+    /// </summary>
+    private void TryPlaceStep(int from, int finalIndex)
+    {
+        if (_session is null) return;
+
+        var steps = _session.Document.Steps;
+        if (from < 0 || from >= steps.Count) return;
+        if (from == finalIndex) return;
+
+        var reordered = new List<StepSpec>(steps);
+        var item = reordered[from];
+        reordered.RemoveAt(from);
+        reordered.Insert(Math.Clamp(finalIndex, 0, reordered.Count), item);
+
+        var errors = ProbeValidate(reordered);
+        if (_validationErrors.Count == 0 && errors.Count > 0)
+        {
+            _reorderNote = errors[0];
+            return;
+        }
+
+        steps.Clear();
+        steps.AddRange(reordered);
+        _validationErrors = errors;
+        _reorderNote = null;
+    }
+
+    private IReadOnlyList<string> ProbeValidate(List<StepSpec> steps)
+    {
+        var probe = new RecipeDocument
+        {
+            Name = _session!.Document.Name,
+            Params = _session.Document.Params,
+            Vars = _session.Document.Vars,
+            Steps = steps,
+        };
+        try
+        {
+            new RecipeValidator(Registry, Functions).Validate(probe);
+            return [];
+        }
+        catch (RecipeValidationException ex)
+        {
+            return ex.Errors;
+        }
+    }
+
+    private async Task JumpTo(string key)
+    {
+        _collapsedSections.Remove(key);
+        StateHasChanged();
+        await JS.InvokeVoidAsync("scrollToId", $"section-{key}");
+    }
+
     private List<MachineRow> _machines = [];
     private List<string> _availableMachineNames = [];
     private string _newMachineName = string.Empty;
@@ -347,7 +573,9 @@
     private bool _deploying;
     private string? _errorMessage;
 
-    private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0 && _machines.Any(m => m.Status == RowStatus.Ready);
+    private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0
+        && !_fields.Any(f => f.Required && string.IsNullOrEmpty(ParamValue(f)))
+        && _machines.Any(m => m.Status == RowStatus.Ready);
 
     private string DeploySummary
     {
@@ -591,11 +819,9 @@
     private void MoveStep(int index, int delta)
     {
         if (_session is null) return;
-        var steps = _session.Document.Steps;
         var target = index + delta;
-        if (target < 0 || target >= steps.Count) return;
-        (steps[index], steps[target]) = (steps[target], steps[index]);
-        Revalidate();
+        if (target < 0 || target >= _session.Document.Steps.Count) return;
+        TryPlaceStep(index, target);
     }
 
     private void RemoveStep(int index)

@@ -612,3 +612,129 @@ input[type=text], input:not([type]), select, .machines-table input {
 .step-inputs { display: grid; gap: 0.5rem; }
 .step-inputs .field label .req { color: #e50000; margin-left: 0.15rem; }
 .help-icon { cursor: help; color: #6b7280; font-size: 0.8rem; }
+
+.field label .req { color: #e50000; margin-left: 0.15rem; }
+
+.vars-block { margin-top: 1rem; }
+.vars-block > summary { cursor: pointer; color: #4b5563; font-size: 0.9rem; margin-bottom: 0.5rem; }
+.vars-block code { font-size: 0.85rem; }
+
+/* ---- Collapsible cards ---- */
+.card__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+.card__toggle h2 { margin: 0; }
+.chevron {
+    display: inline-block;
+    color: #6b7280;
+    transition: transform 0.15s ease;
+    font-size: 0.8rem;
+}
+.chevron--open { transform: rotate(90deg); }
+
+.section-badge {
+    font-size: 0.72rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #374151;
+    white-space: nowrap;
+}
+.section-badge--warn { background: #fef3c7; color: #92400e; }
+.section-badge--error { background: #fee2e2; color: #991b1b; }
+.section-badge--ok { background: #dcfce7; color: #166534; }
+
+/* ---- Collapsible step rows ---- */
+.step-row__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+.step-row__summary { color: #6b7280; font-size: 0.85rem; }
+
+/* ---- Bookmark jump rail ---- */
+.bookmark-rail {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    z-index: 40;
+}
+.bookmark {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-right: 0;
+    border-radius: 999px 0 0 999px;
+    padding: 0.35rem 0.6rem 0.35rem 0.7rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    cursor: pointer;
+    color: #374151;
+    max-width: 2.1rem;
+    overflow: hidden;
+    transition: max-width 0.18s ease, background 0.15s ease;
+}
+.bookmark:hover, .bookmark:focus-visible { max-width: 12rem; background: #f9fafb; }
+.bookmark__dot {
+    flex: 0 0 auto;
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    background: #9ca3af;
+}
+.bookmark__dot--ok { background: #22c55e; }
+.bookmark__dot--warn { background: #f59e0b; }
+.bookmark__dot--error { background: #ef4444; }
+.bookmark__label { font-size: 0.8rem; white-space: nowrap; }
+
+@media (max-width: 900px) {
+    .bookmark-rail { display: none; }
+}
+
+/* ---- Drag-to-reorder steps ---- */
+.step-row__grip {
+    cursor: grab;
+    color: #9ca3af;
+    padding: 0 0.35rem;
+    user-select: none;
+    font-size: 1rem;
+    line-height: 1;
+}
+.step-row__grip:active { cursor: grabbing; }
+.step-row--dragging { opacity: 0.45; }
+.step-row--dragover { background: #eef2ff; outline: 2px dashed #6366f1; outline-offset: -2px; }
+
+.reorder-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0 0 0.75rem;
+    border-radius: 6px;
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+    font-size: 0.85rem;
+}
+.reorder-note .btn--icon { margin-left: auto; color: #92400e; }

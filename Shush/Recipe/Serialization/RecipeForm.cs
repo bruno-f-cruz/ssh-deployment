@@ -17,6 +17,9 @@ public sealed class RecipeField
     public required PropertyEditorKind Kind { get; init; }
     public string? Default { get; init; }
     public IReadOnlyList<string> Options { get; init; } = [];
+
+    /// <summary>A param with no declared default is required — the operator must supply a value.</summary>
+    public bool Required => Default is null;
 }
 
 /// <summary>

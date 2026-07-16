@@ -73,6 +73,43 @@ public class SerializedRecipeTests
     }
 
     [Fact]
+    public void Missing_required_param_throws()
+    {
+        var recipe = Recipe("""
+            name: T
+            params:
+              tag:
+                type: string
+            steps:
+              - type: DeleteDirectory
+                with:
+                  path: ${params.tag}
+            """);
+        Assert.Throws<RecipeValidationException>(() => recipe.CreatePlan());
+    }
+
+    [Fact]
+    public void Supplied_value_satisfies_required_param()
+    {
+        var recipe = Recipe("""
+            name: T
+            params:
+              tag:
+                type: string
+            steps:
+              - type: DeleteDirectory
+                with:
+                  path: ${params.tag}
+            """,
+            paramValues: new() { ["tag"] = "C:/x" });
+
+        using var e = recipe.CreatePlan().Steps().GetEnumerator();
+        Assert.True(e.MoveNext());
+        var path = e.Current.Step.GetType().GetProperty("Path")!.GetValue(e.Current.Step);
+        Assert.Equal("C:/x", path);
+    }
+
+    [Fact]
     public void StepNames_are_resolution_free()
     {
         var recipe = Recipe("""

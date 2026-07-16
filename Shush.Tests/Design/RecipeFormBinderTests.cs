@@ -28,6 +28,24 @@ public class RecipeFormBinderTests
     }
 
     [Fact]
+    public void Param_without_default_is_required()
+    {
+        var doc = YamlRecipeSerializer.Deserialize("""
+            name: T
+            params:
+              a:
+                type: string
+              b:
+                type: string
+                default: x
+            steps: []
+            """);
+        var fields = RecipeFormBinder.GetFields(doc);
+        Assert.True(fields.Single(f => f.Name == "a").Required);
+        Assert.False(fields.Single(f => f.Name == "b").Required);
+    }
+
+    [Fact]
     public void Label_falls_back_to_humanized_name()
     {
         var doc = YamlRecipeSerializer.Deserialize("""

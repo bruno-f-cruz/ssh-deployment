@@ -37,7 +37,14 @@ public sealed class SerializedRecipe : IRecipe
 
         foreach (var (name, decl) in _document.Params)
         {
-            var value = _paramValues.TryGetValue(name, out var supplied) ? supplied : decl.Default ?? string.Empty;
+            string value;
+            if (_paramValues.TryGetValue(name, out var supplied) && !string.IsNullOrEmpty(supplied))
+                value = supplied;
+            else if (decl.Default is not null)
+                value = decl.Default;
+            else
+                throw new RecipeValidationException($"Parameter '{name}' is required but no value was provided.");
+
             scope.SetParam(name, value);
         }
 
