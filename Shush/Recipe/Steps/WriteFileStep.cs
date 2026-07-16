@@ -1,18 +1,16 @@
 namespace Shush.Recipe.Steps;
 
+[Step("WriteFile", Description = "Upload literal text content to a file on the remote machine.")]
 public class WriteFileStep : IRecipeStep
 {
-    private readonly string _content;
-    private readonly string _targetPath;
+    [Input(Required = true, Description = "The file content to write.")]
+    public string Content { get; init; } = "";
 
-    public WriteFileStep(string content, string targetPath)
-    {
-        _content = content;
-        _targetPath = targetPath;
-    }
+    [Input(Required = true, Description = "Remote path the content is written to.")]
+    public string TargetPath { get; init; } = "";
 
     public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
-        return context.UploadContentAsync(_content, _targetPath, cancellationToken);
+        return context.UploadContentAsync(Content, TargetPath, cancellationToken);
     }
 }

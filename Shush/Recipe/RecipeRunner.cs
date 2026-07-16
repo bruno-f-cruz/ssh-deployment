@@ -52,17 +52,19 @@ public class RecipeRunner
             {
                 await using var context = await MachineContext.ConnectAsync(boxId, machineInfo, _secrets, _loggerFactory, cancellationToken);
 
-                foreach (var step in _recipe.Steps)
+                var plan = _recipe.CreatePlan();
+                foreach (var planned in plan.Steps())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var stepName = step.GetType().Name;
+                    var stepName = planned.DisplayName;
                     _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, stepName);
                     _display?.ReportStepStart(boxId, stepName);
 
                     try
                     {
-                        await step.ExecuteAsync(context, cancellationToken);
+                        await planned.Step.ExecuteAsync(context, cancellationToken);
+                        planned.CaptureOutputs();
                         _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
                         _display?.ReportStep(boxId, success: true, stepName);
                     }

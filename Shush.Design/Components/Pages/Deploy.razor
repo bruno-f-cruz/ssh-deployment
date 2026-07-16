@@ -1,9 +1,18 @@
 @page "/"
 @using Shush.Recipe
+@using Shush.Recipe.Serialization
 @using Shush.Design.Services
-@inject MachineRegistryService Registry
-@inject RecipeStateStore StateStore
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@inject RecipeStore RecipeStore
+@inject StepRegistry Registry
+@inject FunctionLibrary Functions
+@inject RecipePaths Paths
+@inject MachineRegistryService MachineRegistry
+@inject DeployStateStore StateStore
 @inject DeploymentOrchestrator Orchestrator
+@inject CredentialStore Credentials
+@inject ProtectedLocalStorage LocalStore
+@inject ProtectedSessionStorage SessionStore
 @inject IJSRuntime JS
 @inject ILogger<Deploy> Logger
 
@@ -20,19 +29,75 @@
         </div>
         <div class="field">
             <label for="recipe-select">Recipe</label>
-            <select id="recipe-select" value="@(_selectedRecipe?.Name ?? string.Empty)" @onchange="OnRecipeSelected">
+            <select id="recipe-select" value="@(_session?.RecipeName ?? string.Empty)" @onchange="OnRecipeSelected">
                 <option value="">Select a recipe…</option>
-                @foreach (var recipe in _recipes)
+                @foreach (var name in _recipeNames)
                 {
-                    <option value="@recipe.Name">@recipe.Name</option>
+                    <option value="@name">@name</option>
                 }
             </select>
         </div>
         <label class="btn btn--ghost file-btn">
-            Upload config
-            <InputFile OnChange="OnConfigUpload" class="visually-hidden" />
+            Import recipe
+            <InputFile OnChange="OnRecipeUpload" accept=".yml,.yaml" class="visually-hidden" />
         </label>
     </header>
+
+    <section class="card signin-card" aria-label="SSH credentials">
+        @if (Credentials.IsSignedIn)
+        {
+            <div class="signin-status">
+                <span>&#128274; Signed in as <strong>@Credentials.Username</strong></span>
+                <button type="button" class="btn btn--ghost" @onclick="SignOut">Sign out</button>
+            </div>
+        }
+        else
+        {
+            <form class="signin-form" @onsubmit="SignIn" @onsubmit:preventDefault="true">
+                <div class="field">
+                    <label for="ssh-user">Username</label>
+                    <input id="ssh-user" name="username" autocomplete="username" @bind="_usernameInput" @bind:event="oninput" />
+                </div>
+                <div class="field">
+                    <label for="ssh-pass">Password</label>
+                    <div class="password-field">
+                        <input id="ssh-pass" name="password" type="@(_showPassword ? "text" : "password")"
+                               autocomplete="current-password" @bind="_passwordInput" @bind:event="oninput" />
+                        <button type="button" class="btn btn--ghost" @onclick="() => _showPassword = !_showPassword"
+                                aria-label="@(_showPassword ? "Hide password" : "Show password")">
+                            @(_showPassword ? "Hide" : "Show")
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn--primary"
+                        disabled="@(string.IsNullOrWhiteSpace(_usernameInput) || string.IsNullOrEmpty(_passwordInput))">
+                    Sign in
+                </button>
+            </form>
+            <p class="text-muted signin-hint">
+                Credentials open SSH connections from this server and are kept only for this browser session.
+                Sign in to enable deployment.
+            </p>
+        }
+    </section>
+
+    @if (_session is not null)
+    {
+        <nav class="bookmark-rail" aria-label="Jump to section">
+            <button type="button" class="bookmark" @onclick='() => JumpTo("parameters")' title="Parameters">
+                <span class="bookmark__dot @(MissingRequiredCount > 0 ? "bookmark__dot--warn" : "bookmark__dot--ok")"></span>
+                <span class="bookmark__label">Parameters</span>
+            </button>
+            <button type="button" class="bookmark" @onclick='() => JumpTo("steps")' title="Steps">
+                <span class="bookmark__dot @(_validationErrors.Count > 0 ? "bookmark__dot--error" : "bookmark__dot--ok")"></span>
+                <span class="bookmark__label">Steps</span>
+            </button>
+            <button type="button" class="bookmark" @onclick='() => JumpTo("machines")' title="Machines">
+                <span class="bookmark__dot @(ReadyMachineCount > 0 ? "bookmark__dot--ok" : "")"></span>
+                <span class="bookmark__label">Machines</span>
+            </button>
+        </nav>
+    }
 
     @if (_errorMessage is not null)
     {
@@ -42,74 +107,261 @@
         </div>
     }
 
-    @if (_selectedRecipe is null)
+    @if (_session is null)
     {
         <p class="empty-state">Select a recipe above to get started.</p>
     }
     else
     {
         <main class="app-main">
-            <section class="card" aria-labelledby="properties-heading">
+            <section id="section-parameters" class="card" aria-labelledby="parameters-heading">
                 <div class="card__header">
-                    <h2 id="properties-heading">Properties</h2>
-                    <button type="button" class="btn btn--secondary" @onclick="DownloadConfig">Download config</button>
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("parameters")' aria-expanded="@SectionOpen("parameters")">
+                        <span class="chevron @(SectionOpen("parameters") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="parameters-heading">Parameters</h2>
+                    </button>
+                    @if (!SectionOpen("parameters") && MissingRequiredCount > 0)
+                    {
+                        <span class="section-badge section-badge--warn">@MissingRequiredCount required</span>
+                    }
                 </div>
 
-                @if (_properties.Count == 0)
+                @if (SectionOpen("parameters"))
                 {
-                    <p class="empty-state">This recipe has no configurable properties.</p>
+                <p class="text-muted" style="margin-top:-0.25rem;">Values you can set for this deployment. Required parameters (no default) must be filled in before deploying.</p>
+
+                @if (_fields.Count == 0)
+                {
+                    <p class="empty-state">This recipe has no configurable parameters.</p>
                 }
                 else
                 {
                     <div class="field-grid">
-                        @foreach (var property in _properties)
+                        @foreach (var field in _fields)
                         {
+                            var missing = field.Required && string.IsNullOrEmpty(ParamValue(field));
                             <div class="field">
-                                <label for="@FieldId(property)">@property.Label</label>
-                                @switch (property.Kind)
+                                <label for="@($"prop-{field.Name}")">
+                                    @field.Label
+                                    @if (field.Required)
+                                    {
+                                        <span class="req" title="Required">*</span>
+                                    }
+                                </label>
+                                @if (field.Kind == PropertyEditorKind.Dropdown)
                                 {
-                                    case PropertyEditorKind.Text:
-                                        <input id="@FieldId(property)"
-                                               value="@property.GetValueAsString(_selectedRecipe)"
-                                               @onchange="e => OnPropertyChanged(property, e)" />
-                                        break;
-                                    case PropertyEditorKind.Dropdown:
-                                        <select id="@FieldId(property)"
-                                                value="@property.GetValueAsString(_selectedRecipe)"
-                                                @onchange="e => OnPropertyChanged(property, e)">
-                                            @foreach (var option in property.GetDropdownOptions())
-                                            {
-                                                <option value="@option">@option</option>
-                                            }
-                                        </select>
-                                        break;
-                                    case PropertyEditorKind.Collection:
-                                        <ul class="chip-list">
-                                            @foreach (var item in property.GetOrCreateList(_selectedRecipe).Cast<object>().ToList())
-                                            {
-                                                <li class="chip">
-                                                    @property.ConvertElementToString(item)
-                                                    <button type="button" class="chip__remove" @onclick="() => RemoveListItem(property, item)" aria-label="Remove value">&#10005;</button>
-                                                </li>
-                                            }
-                                        </ul>
-                                        <div class="inline-add">
-                                            <input id="@FieldId(property)"
-                                                   value="@GetCollectionInput(property)"
-                                                   @onchange="e => SetCollectionInput(property, e)" placeholder="Add value" />
-                                            <button type="button" class="btn btn--secondary" @onclick="() => AddListItem(property)">Add</button>
-                                        </div>
-                                        break;
+                                    <select id="@($"prop-{field.Name}")" value="@ParamValue(field)"
+                                            @onchange="e => OnParamChanged(field, e)">
+                                        @if (field.Required)
+                                        {
+                                            <option value="">Select…</option>
+                                        }
+                                        @foreach (var option in field.Options)
+                                        {
+                                            <option value="@option">@option</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input id="@($"prop-{field.Name}")" value="@ParamValue(field)"
+                                           @onchange="e => OnParamChanged(field, e)" />
+                                }
+                                @if (missing)
+                                {
+                                    <span class="validation-message">Required.</span>
                                 }
                             </div>
                         }
                     </div>
                 }
+
+                @if (_session.Document.Vars.Count > 0)
+                {
+                    <details class="vars-block">
+                        <summary>Variables (read-only — computed by the recipe)</summary>
+                        <div class="table-scroll">
+                            <table class="machines-table">
+                                <thead>
+                                    <tr><th scope="col">Name</th><th scope="col">Expression</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var (name, expr) in _session.Document.Vars)
+                                    {
+                                        <tr>
+                                            <td data-label="Name"><code>@name</code></td>
+                                            <td data-label="Expression"><code>@expr</code></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                }
+                }
             </section>
 
-            <section class="card" aria-labelledby="machines-heading">
+            <section id="section-steps" class="card" aria-labelledby="steps-heading">
                 <div class="card__header">
-                    <h2 id="machines-heading">Machines</h2>
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("steps")' aria-expanded="@SectionOpen("steps")">
+                        <span class="chevron @(SectionOpen("steps") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="steps-heading">Steps</h2>
+                    </button>
+                    <span class="section-badge">@_session.Document.Steps.Count</span>
+                    @if (_validationErrors.Count > 0)
+                    {
+                        <span class="section-badge section-badge--error">@_validationErrors.Count issue@(_validationErrors.Count == 1 ? "" : "s")</span>
+                    }
+                    @if (SectionOpen("steps") && !_rawMode && _session.Document.Steps.Count > 0)
+                    {
+                        <span class="spacer"></span>
+                        <button type="button" class="btn btn--link" @onclick="CollapseAllSteps">Collapse all</button>
+                        <button type="button" class="btn btn--link" @onclick="ExpandAllSteps">Expand all</button>
+                    }
+                </div>
+
+                @if (SectionOpen("steps"))
+                {
+                <div class="editor-toolbar">
+                    <button type="button" class="btn @(_rawMode ? "btn--ghost" : "btn--secondary")" @onclick="() => SetRawMode(false)">Structured</button>
+                    <button type="button" class="btn @(_rawMode ? "btn--secondary" : "btn--ghost")" @onclick="() => SetRawMode(true)">Raw YAML</button>
+                    <span class="spacer"></span>
+                    <button type="button" class="btn btn--ghost" @onclick="ExportRecipe">Export</button>
+                    <button type="button" class="btn btn--ghost" @onclick="ResetRecipe">Reset to default</button>
+                    <button type="button" class="btn btn--secondary" disabled="@(_validationErrors.Count > 0)" @onclick="SaveRecipe">Save recipe</button>
+                </div>
+
+                @if (_reorderNote is not null)
+                {
+                    <p class="reorder-note" role="status">
+                        <span aria-hidden="true">&#8635;</span>
+                        Move blocked — it would break a step reference: @_reorderNote
+                        <button type="button" class="btn btn--icon" @onclick="() => _reorderNote = null" aria-label="Dismiss">&#10005;</button>
+                    </p>
+                }
+
+                @if (_validationErrors.Count > 0)
+                {
+                    <ul class="validation-errors" role="alert">
+                        @foreach (var error in _validationErrors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                }
+
+                @if (_rawMode)
+                {
+                    <div class="yaml-editor">
+                        <pre id="yaml-pre" aria-hidden="true"></pre>
+                        <textarea id="yaml-ta" spellcheck="false" @bind="_rawYaml" @bind:event="oninput"></textarea>
+                    </div>
+                    <div class="editor-toolbar" style="margin-top:0.75rem;">
+                        <button type="button" class="btn btn--secondary" @onclick="ApplyRawYaml">Apply YAML</button>
+                        <span class="text-muted">Edits apply to the structured view once valid.</span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var (step, index) in _session.Document.Steps.Select((s, i) => (s, i)))
+                    {
+                        <div class="step-row @(_dragIndex == index ? "step-row--dragging" : "") @(_dragOverIndex == index ? "step-row--dragover" : "")"
+                             @ondragover:preventDefault="true"
+                             @ondrop:preventDefault="true"
+                             @ondrop="() => OnStepDrop(index)"
+                             @ondragenter="() => OnStepDragEnter(index)">
+                            <div class="step-row__header">
+                                <span class="step-row__grip" draggable="true" title="Drag to reorder" aria-hidden="true"
+                                      @ondragstart="() => OnStepDragStart(index)" @ondragend="OnStepDragEnd">&#10303;</span>
+                                <button type="button" class="step-row__toggle" @onclick="() => ToggleStep(step)" aria-expanded="@StepOpen(step)">
+                                    <span class="chevron @(StepOpen(step) ? "chevron--open" : "")">&#9656;</span>
+                                    <span class="step-row__type" title="@StepTooltip(step.Type)">@step.Type</span>
+                                </button>
+                                @if (!Registry.TryGet(step.Type, out _))
+                                {
+                                    <span class="text-danger">(unknown step type)</span>
+                                }
+                                @if (!string.IsNullOrEmpty(step.Id))
+                                {
+                                    <span class="step-row__summary">#@step.Id</span>
+                                }
+                                <span class="help-icon" title="@StepTooltip(step.Type)">&#9432;</span>
+                                <span class="step-row__spacer"></span>
+                                <button type="button" class="btn btn--icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)" aria-label="Move up">&#8593;</button>
+                                <button type="button" class="btn btn--icon" disabled="@(index == _session.Document.Steps.Count - 1)" @onclick="() => MoveStep(index, 1)" aria-label="Move down">&#8595;</button>
+                                <button type="button" class="btn btn--icon" @onclick="() => RemoveStep(index)" aria-label="Remove step">&#10005;</button>
+                            </div>
+
+                            @if (StepOpen(step))
+                            {
+                                <div class="step-inputs">
+                                    <div class="field">
+                                        <label>id <span class="help-icon" title="Optional. Other steps reference this step's outputs as ${id.output}.">&#9432;</span></label>
+                                        <input value="@step.Id" @onchange="e => SetStepId(step, e)" placeholder="(none)" />
+                                    </div>
+
+                                    @if (Registry.TryGet(step.Type, out var descriptor))
+                                    {
+                                        @foreach (var input in descriptor.Inputs)
+                                        {
+                                            <div class="field">
+                                                <label>
+                                                    @input.Name
+                                                    @if (input.Required)
+                                                    {
+                                                        <span class="req" title="Required">*</span>
+                                                    }
+                                                    <span class="help-icon" title="@InputTooltip(input)">&#9432;</span>
+                                                </label>
+                                                @switch (input.Shape)
+                                                {
+                                                    case InputShape.Scalar:
+                                                        <input value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)" />
+                                                        break;
+                                                    case InputShape.Collection:
+                                                        <textarea rows="3" placeholder="One value per line"
+                                                                  value="@GetLines(step, input.Name)"
+                                                                  @onchange="e => SetLines(step, input.Name, e)"></textarea>
+                                                        break;
+                                                    case InputShape.Dictionary:
+                                                        <textarea rows="3" placeholder="key: value (one per line)"
+                                                                  value="@GetPairs(step, input.Name)"
+                                                                  @onchange="e => SetPairs(step, input.Name, e)"></textarea>
+                                                        break;
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="editor-toolbar">
+                        <label for="add-step" class="visually-hidden">Add step</label>
+                        <select id="add-step" @onchange="AddStep">
+                            <option value="">＋ Add step…</option>
+                            @foreach (var descriptor in Registry.Descriptors.OrderBy(d => d.TypeName))
+                            {
+                                <option value="@descriptor.TypeName" title="@descriptor.Description">@descriptor.TypeName</option>
+                            }
+                        </select>
+                    </div>
+                }
+                }
+            </section>
+
+            <section id="section-machines" class="card" aria-labelledby="machines-heading">
+                <div class="card__header">
+                    <button type="button" class="card__toggle" @onclick='() => ToggleSection("machines")' aria-expanded="@SectionOpen("machines")">
+                        <span class="chevron @(SectionOpen("machines") ? "chevron--open" : "")">&#9656;</span>
+                        <h2 id="machines-heading">Machines</h2>
+                    </button>
+                    <span class="section-badge @(ReadyMachineCount > 0 ? "section-badge--ok" : "")">@ReadyMachineCount / @_machines.Count ready</span>
+                </div>
+
+                @if (SectionOpen("machines"))
+                {
                     <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
                         <label for="machine-name" class="visually-hidden">Machine name</label>
                         <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off" list="machine-options"
@@ -127,7 +379,6 @@
                         </label>
                         <button type="button" class="btn btn--ghost" disabled="@(_machines.Count == 0)" @onclick="ExportMachines">Export to YAML</button>
                     </form>
-                </div>
 
                 @if (_machines.Count == 0)
                 {
@@ -221,6 +472,7 @@
                         </table>
                     </div>
                 }
+                }
 
                 <div class="deploy-bar">
                     <p class="deploy-summary" aria-live="polite">@DeploySummary</p>
@@ -234,19 +486,143 @@
 </div>
 
 @code {
-    private List<IRecipe> _recipes = [];
-    private IRecipe? _selectedRecipe;
-    private List<RecipeProperty> _properties = [];
+    private string _usernameInput = string.Empty;
+    private string _passwordInput = string.Empty;
+    private bool _showPassword;
+
+    private List<string> _recipeNames = [];
+    private RecipeEditSession? _session;
+    private List<RecipeField> _fields = [];
+    private readonly Dictionary<string, string> _paramValues = new();
+    private IReadOnlyList<string> _validationErrors = [];
+
+    private bool _rawMode;
+    private string _rawYaml = string.Empty;
+    private bool _rawNeedsHighlightInit;
+
+    private readonly HashSet<string> _collapsedSections = new();
+    private readonly HashSet<StepSpec> _collapsedSteps = new();
+
+    private int MissingRequiredCount => _fields.Count(f => f.Required && string.IsNullOrEmpty(ParamValue(f)));
+    private int ReadyMachineCount => _machines.Count(m => m.Status == RowStatus.Ready);
+
+    private bool SectionOpen(string key) => !_collapsedSections.Contains(key);
+    private void ToggleSection(string key)
+    {
+        if (!_collapsedSections.Add(key)) _collapsedSections.Remove(key);
+    }
+
+    private bool StepOpen(StepSpec step) => !_collapsedSteps.Contains(step);
+    private void ToggleStep(StepSpec step)
+    {
+        if (!_collapsedSteps.Add(step)) _collapsedSteps.Remove(step);
+    }
+
+    private void CollapseAllSteps()
+    {
+        if (_session is null) return;
+        foreach (var step in _session.Document.Steps) _collapsedSteps.Add(step);
+    }
+
+    private void ExpandAllSteps() => _collapsedSteps.Clear();
+
+    private int? _dragIndex;
+    private int? _dragOverIndex;
+    private string? _reorderNote;
+
+    private void OnStepDragStart(int index) => _dragIndex = index;
+
+    private void OnStepDragEnter(int index)
+    {
+        if (_dragIndex is not null && _dragIndex != index)
+            _dragOverIndex = index;
+    }
+
+    private void OnStepDragEnd()
+    {
+        _dragIndex = null;
+        _dragOverIndex = null;
+    }
+
+    private void OnStepDrop(int index)
+    {
+        if (_dragIndex is int from)
+            TryPlaceStep(from, index);
+
+        _dragIndex = null;
+        _dragOverIndex = null;
+    }
+
+    /// <summary>
+    /// Moves a step to a new index, but refuses a move that would break an otherwise-valid recipe
+    /// (a step landing before the step whose output it references). The check is general: it re-runs
+    /// the recipe validator on the prospective order, so it covers any reference between any steps.
+    /// </summary>
+    private void TryPlaceStep(int from, int finalIndex)
+    {
+        if (_session is null) return;
+
+        var steps = _session.Document.Steps;
+        if (from < 0 || from >= steps.Count) return;
+        if (from == finalIndex) return;
+
+        var reordered = new List<StepSpec>(steps);
+        var item = reordered[from];
+        reordered.RemoveAt(from);
+        reordered.Insert(Math.Clamp(finalIndex, 0, reordered.Count), item);
+
+        var errors = ProbeValidate(reordered);
+        if (_validationErrors.Count == 0 && errors.Count > 0)
+        {
+            _reorderNote = errors[0];
+            return;
+        }
+
+        steps.Clear();
+        steps.AddRange(reordered);
+        _validationErrors = errors;
+        _reorderNote = null;
+    }
+
+    private IReadOnlyList<string> ProbeValidate(List<StepSpec> steps)
+    {
+        var probe = new RecipeDocument
+        {
+            Name = _session!.Document.Name,
+            Params = _session.Document.Params,
+            Vars = _session.Document.Vars,
+            Steps = steps,
+        };
+        try
+        {
+            new RecipeValidator(Registry, Functions).Validate(probe);
+            return [];
+        }
+        catch (RecipeValidationException ex)
+        {
+            return ex.Errors;
+        }
+    }
+
+    private async Task JumpTo(string key)
+    {
+        _collapsedSections.Remove(key);
+        StateHasChanged();
+        await JS.InvokeVoidAsync("scrollToId", $"section-{key}");
+    }
+
     private List<MachineRow> _machines = [];
     private List<string> _availableMachineNames = [];
     private string _newMachineName = string.Empty;
-    private readonly Dictionary<string, string> _collectionInputs = new();
     private readonly HashSet<string> _expanded = new();
     private BlazorDeploymentProgress? _progress;
     private bool _deploying;
     private string? _errorMessage;
 
-    private bool CanDeploy => _selectedRecipe is not null && !_deploying && _machines.Any(m => m.Status == RowStatus.Ready);
+    private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0
+        && Credentials.IsSignedIn
+        && !_fields.Any(f => f.Required && string.IsNullOrEmpty(ParamValue(f)))
+        && _machines.Any(m => m.Status == RowStatus.Ready);
 
     private string DeploySummary
     {
@@ -267,24 +643,426 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _recipes = RecipeCatalog.Discover();
+        LoadRecipeNames();
 
         try
         {
-            _availableMachineNames = await Registry.GetAllNamesAsync();
+            _availableMachineNames = await MachineRegistry.GetAllNamesAsync();
         }
         catch (Exception ex)
         {
-            // Registry unreachable — autocomplete just has no suggestions, add-by-name still works.
             Logger.LogError(ex, "Couldn't load machine names from the registry for autocomplete.");
+        }
+    }
+
+    private void LoadRecipeNames()
+    {
+        try
+        {
+            _recipeNames = RecipeStore.Discover([Paths.BaseDir, Paths.UserDir]).Select(r => r.Name).OrderBy(n => n).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't discover recipes.");
+            _errorMessage = $"Couldn't load recipes: {ex.Message}";
         }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            await LoadCredentials();
+
+        if (_rawNeedsHighlightInit)
+        {
+            _rawNeedsHighlightInit = false;
+            await JS.InvokeVoidAsync("shushYaml.init", "yaml-ta", "yaml-pre");
+        }
+
         foreach (var name in _expanded)
             await JS.InvokeVoidAsync("scrollLogToBottom", LogElementId(name));
     }
+
+    // ---- Credentials ----
+
+    private async Task LoadCredentials()
+    {
+        try
+        {
+            var user = await LocalStore.GetAsync<string>("shush.username");
+            if (user is { Success: true, Value: { Length: > 0 } })
+                _usernameInput = user.Value;
+
+            var pass = await SessionStore.GetAsync<string>("shush.password");
+            if (!string.IsNullOrWhiteSpace(_usernameInput) && pass is { Success: true, Value: { Length: > 0 } })
+                Credentials.SignIn(_usernameInput, pass.Value);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Storage is unavailable during prerender or if the user blocks it — sign-in still works manually.
+            Logger.LogWarning(ex, "Couldn't load saved credentials from browser storage.");
+        }
+    }
+
+    private async Task SignIn()
+    {
+        if (string.IsNullOrWhiteSpace(_usernameInput) || string.IsNullOrEmpty(_passwordInput))
+            return;
+
+        Credentials.SignIn(_usernameInput.Trim(), _passwordInput);
+
+        try
+        {
+            await LocalStore.SetAsync("shush.username", Credentials.Username!);
+            await SessionStore.SetAsync("shush.password", _passwordInput);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't persist credentials to browser storage.");
+        }
+
+        _passwordInput = string.Empty;
+        _showPassword = false;
+    }
+
+    private async Task SignOut()
+    {
+        Credentials.SignOut();
+        _passwordInput = string.Empty;
+        try
+        {
+            await SessionStore.DeleteAsync("shush.password");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't clear saved password from browser storage.");
+        }
+    }
+
+    private async Task OnRecipeSelected(ChangeEventArgs e)
+    {
+        _errorMessage = null;
+        var name = e.Value?.ToString();
+
+        if (string.IsNullOrEmpty(name))
+        {
+            _session = null;
+            return;
+        }
+
+        OpenRecipe(name);
+        await LoadDeployState();
+    }
+
+    private void OpenRecipe(string name)
+    {
+        try
+        {
+            _session = RecipeEditSession.OpenFromBase(name, Paths.BaseDir, Paths.UserDir, Registry, Functions);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't open recipe '{Recipe}'.", name);
+            _errorMessage = $"Couldn't open recipe: {ex.Message}";
+            _session = null;
+            return;
+        }
+
+        _rawMode = false;
+        _machines = [];
+        _progress = null;
+        _expanded.Clear();
+        RebuildFields();
+        Revalidate();
+    }
+
+    private void RebuildFields()
+    {
+        if (_session is null) return;
+
+        _fields = RecipeFormBinder.GetFields(_session.Document);
+        _paramValues.Clear();
+        foreach (var field in _fields)
+            _paramValues[field.Name] = field.Default ?? string.Empty;
+    }
+
+    private async Task LoadDeployState()
+    {
+        if (_session is null) return;
+
+        var state = StateStore.Load(_session.RecipeName);
+        if (state is null) return;
+
+        foreach (var (key, value) in state.ParamOverrides)
+            _paramValues[key] = value;
+
+        try
+        {
+            foreach (var machineName in state.Machines)
+            {
+                if (_machines.Any(m => m.Name == machineName)) continue;
+                _machines.Add(await MachineRegistry.ResolveAsync(machineName));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't resolve machines for recipe '{Recipe}'.", _session.RecipeName);
+            _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
+        }
+    }
+
+    private void Revalidate() => _validationErrors = _session?.Validate() ?? [];
+
+    private void SaveState()
+    {
+        if (_session is null) return;
+
+        try
+        {
+            StateStore.Save(_session.RecipeName, new DeployState
+            {
+                Machines = _machines.Select(m => m.Name).ToList(),
+                ParamOverrides = new Dictionary<string, string>(_paramValues),
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't save deploy state for recipe '{Recipe}'.", _session.RecipeName);
+            _errorMessage = $"Couldn't save your changes: {ex.Message}";
+        }
+    }
+
+    // ---- Params ----
+
+    private string ParamValue(RecipeField field) => _paramValues.GetValueOrDefault(field.Name, field.Default ?? string.Empty);
+
+    private void OnParamChanged(RecipeField field, ChangeEventArgs e)
+    {
+        _paramValues[field.Name] = e.Value?.ToString() ?? string.Empty;
+        SaveState();
+    }
+
+    // ---- Structured step editing ----
+
+    private string StepTooltip(string type)
+    {
+        if (!Registry.TryGet(type, out var d)) return "Unknown step type.";
+        var inputs = string.Join(", ", d.Inputs.Select(i => i.Required ? $"{i.Name}*" : i.Name));
+        var outputs = d.Outputs.Count == 0 ? "none" : string.Join(", ", d.Outputs.Select(o => o.Name));
+        return $"{d.Description}\nInputs: {inputs}\nOutputs: {outputs}";
+    }
+
+    private static string InputTooltip(InputDescriptor input)
+    {
+        var kind = input.Shape switch
+        {
+            InputShape.Collection => "list",
+            InputShape.Dictionary => "key/value map",
+            _ => "text",
+        };
+        var required = input.Required ? " (required)" : string.Empty;
+        return $"{input.Description}\nType: {kind}{required}";
+    }
+
+    private void SetStepId(StepSpec step, ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        step.Id = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        Revalidate();
+    }
+
+    private static string GetScalar(StepSpec step, string name) =>
+        step.With.TryGetValue(name, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
+
+    private void SetScalar(StepSpec step, string name, ChangeEventArgs e)
+    {
+        step.With[name] = e.Value?.ToString() ?? string.Empty;
+        Revalidate();
+    }
+
+    private static string GetLines(StepSpec step, string name)
+    {
+        if (step.With.TryGetValue(name, out var v) && v is IEnumerable<object?> items)
+            return string.Join("\n", items.Select(i => i?.ToString()));
+        return string.Empty;
+    }
+
+    private void SetLines(StepSpec step, string name, ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? string.Empty;
+        step.With[name] = text
+            .Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0)
+            .Cast<object?>()
+            .ToList();
+        Revalidate();
+    }
+
+    private static string GetPairs(StepSpec step, string name)
+    {
+        if (step.With.TryGetValue(name, out var v) && v is IDictionary<object, object?> map)
+            return string.Join("\n", map.Select(kv => $"{kv.Key}: {kv.Value}"));
+        return string.Empty;
+    }
+
+    private void SetPairs(StepSpec step, string name, ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? string.Empty;
+        var dict = new Dictionary<object, object?>();
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0) continue;
+            var colon = trimmed.IndexOf(':');
+            if (colon <= 0) continue;
+            dict[trimmed[..colon].Trim()] = trimmed[(colon + 1)..].Trim();
+        }
+        step.With[name] = dict;
+        Revalidate();
+    }
+
+    private void MoveStep(int index, int delta)
+    {
+        if (_session is null) return;
+        var target = index + delta;
+        if (target < 0 || target >= _session.Document.Steps.Count) return;
+        TryPlaceStep(index, target);
+    }
+
+    private void RemoveStep(int index)
+    {
+        if (_session is null) return;
+        _session.Document.Steps.RemoveAt(index);
+        Revalidate();
+    }
+
+    private void AddStep(ChangeEventArgs e)
+    {
+        var type = e.Value?.ToString();
+        if (_session is null || string.IsNullOrEmpty(type)) return;
+        _session.Document.Steps.Add(new StepSpec { Type = type, With = new() });
+        Revalidate();
+    }
+
+    // ---- Raw YAML mode ----
+
+    private void SetRawMode(bool raw)
+    {
+        if (_session is null) return;
+
+        if (raw)
+        {
+            _rawYaml = _session.ToYaml();
+            _rawMode = true;
+            _rawNeedsHighlightInit = true;
+        }
+        else if (ApplyRawYamlInternal())
+        {
+            _rawMode = false;
+        }
+    }
+
+    private void ApplyRawYaml() => ApplyRawYamlInternal();
+
+    private bool ApplyRawYamlInternal()
+    {
+        if (_session is null) return false;
+
+        if (_session.TryApplyRawYaml(_rawYaml, out var errors))
+        {
+            _validationErrors = [];
+            RebuildFieldsPreservingValues();
+            return true;
+        }
+
+        _validationErrors = errors;
+        return false;
+    }
+
+    private void RebuildFieldsPreservingValues()
+    {
+        if (_session is null) return;
+        var previous = new Dictionary<string, string>(_paramValues);
+        RebuildFields();
+        foreach (var (key, value) in previous)
+            if (_paramValues.ContainsKey(key))
+                _paramValues[key] = value;
+    }
+
+    // ---- Recipe file actions ----
+
+    private void SaveRecipe()
+    {
+        if (_session is null) return;
+        try
+        {
+            _session.Save();
+            LoadRecipeNames();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't save recipe '{Recipe}'.", _session.RecipeName);
+            _errorMessage = $"Couldn't save recipe: {ex.Message}";
+        }
+    }
+
+    private void ResetRecipe()
+    {
+        if (_session is null) return;
+        try
+        {
+            _session.ResetToDefault();
+            RebuildFields();
+            Revalidate();
+            LoadRecipeNames();
+            if (_rawMode) _rawYaml = _session.ToYaml();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't reset recipe '{Recipe}'.", _session.RecipeName);
+            _errorMessage = $"Couldn't reset recipe: {ex.Message}";
+        }
+    }
+
+    private async Task ExportRecipe()
+    {
+        if (_session is null) return;
+        await JS.InvokeVoidAsync("downloadFile", $"{_session.RecipeName}.yml", _session.ToYaml(), "text/yaml");
+    }
+
+    private async Task OnRecipeUpload(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream());
+            var content = await reader.ReadToEndAsync();
+
+            var document = YamlRecipeSerializer.Deserialize(content);
+            new RecipeValidator(Registry, Functions).Validate(document);
+
+            var safeName = string.Concat(document.Name.Split(Path.GetInvalidFileNameChars()));
+            File.WriteAllText(Path.Combine(Paths.UserDir, $"{safeName}.yml"), content);
+
+            LoadRecipeNames();
+            OpenRecipe(document.Name);
+            await LoadDeployState();
+        }
+        catch (RecipeValidationException ex)
+        {
+            _errorMessage = $"That recipe is invalid: {string.Join("; ", ex.Errors)}";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't import recipe from '{FileName}'.", e.File.Name);
+            _errorMessage = $"Couldn't import that recipe: {ex.Message}";
+        }
+    }
+
+    // ---- Machines ----
 
     private static (string Icon, string Label) StatusDisplay(RowStatus status) => status switch
     {
@@ -296,87 +1074,7 @@
         _ => ("", ""),
     };
 
-    private static string FieldId(RecipeProperty property) => $"prop-{property.Info.Name}";
-
     private static string LogElementId(string machineName) => $"log-{machineName.Replace('.', '-')}";
-
-    private async Task OnRecipeSelected(ChangeEventArgs e)
-    {
-        _errorMessage = null;
-        var name = e.Value?.ToString();
-        var recipe = _recipes.FirstOrDefault(r => r.Name == name);
-        SelectRecipe(recipe);
-
-        if (_selectedRecipe is null) return;
-
-        var state = StateStore.Load(_selectedRecipe.Name);
-        if (state is null) return;
-
-        await ApplyState(state);
-    }
-
-    private void SelectRecipe(IRecipe? recipe)
-    {
-        _selectedRecipe = recipe;
-        _properties = recipe is null ? [] : RecipeFormBinder.GetSettableProperties(recipe);
-        _machines = [];
-        _progress = null;
-        _expanded.Clear();
-        _collectionInputs.Clear();
-    }
-
-    private async Task ApplyState(RecipeState state)
-    {
-        if (_selectedRecipe is null) return;
-
-        foreach (var propertyValue in state.Properties)
-        {
-            var property = _properties.FirstOrDefault(p => p.Info.Name == propertyValue.Name);
-            property?.SetValueFromString(_selectedRecipe, propertyValue.Value);
-        }
-
-        try
-        {
-            foreach (var machineName in state.Machines)
-            {
-                if (_machines.Any(m => m.Name == machineName)) continue;
-                _machines.Add(await Registry.ResolveAsync(machineName));
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Couldn't resolve machines for recipe '{Recipe}' from the registry.", _selectedRecipe.Name);
-            _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
-        }
-    }
-
-    private void OnPropertyChanged(RecipeProperty property, ChangeEventArgs e)
-    {
-        property.SetValueFromString(_selectedRecipe!, e.Value?.ToString() ?? string.Empty);
-        SaveState();
-    }
-
-    private string GetCollectionInput(RecipeProperty property) =>
-        _collectionInputs.GetValueOrDefault(property.Info.Name, string.Empty);
-
-    private void SetCollectionInput(RecipeProperty property, ChangeEventArgs e) =>
-        _collectionInputs[property.Info.Name] = e.Value?.ToString() ?? string.Empty;
-
-    private void AddListItem(RecipeProperty property)
-    {
-        var text = GetCollectionInput(property);
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        property.GetOrCreateList(_selectedRecipe!).Add(property.ConvertElementFromString(text));
-        _collectionInputs[property.Info.Name] = string.Empty;
-        SaveState();
-    }
-
-    private void RemoveListItem(RecipeProperty property, object item)
-    {
-        property.GetOrCreateList(_selectedRecipe!).Remove(item);
-        SaveState();
-    }
 
     private async Task AddMachine()
     {
@@ -386,7 +1084,7 @@
 
         try
         {
-            _machines.Add(await Registry.ResolveAsync(name));
+            _machines.Add(await MachineRegistry.ResolveAsync(name));
             _newMachineName = string.Empty;
             SaveState();
         }
@@ -411,10 +1109,10 @@
             using var reader = new StreamReader(e.File.OpenReadStream());
             var content = await reader.ReadToEndAsync();
 
-            foreach (var name in Registry.ParseYaml(content))
+            foreach (var name in MachineRegistry.ParseYaml(content))
             {
                 if (_machines.Any(m => m.Name == name)) continue;
-                _machines.Add(await Registry.ResolveAsync(name));
+                _machines.Add(await MachineRegistry.ResolveAsync(name));
             }
 
             SaveState();
@@ -428,79 +1126,22 @@
 
     private async Task ExportMachines()
     {
-        var yaml = Registry.SerializeYaml(_machines.Select(m => m.Name));
+        var yaml = MachineRegistry.SerializeYaml(_machines.Select(m => m.Name));
         await JS.InvokeVoidAsync("downloadFile", "machines.yaml", yaml, "text/yaml");
     }
 
-    private async Task DownloadConfig()
-    {
-        if (_selectedRecipe is null) return;
-
-        var xml = StateStore.SerializeToXml(_selectedRecipe, _properties, _machines.Select(m => m.Name));
-        var fileName = $"{_selectedRecipe.Name}.config.xml";
-        await JS.InvokeVoidAsync("downloadFile", fileName, xml, "application/xml");
-    }
-
-    private async Task OnConfigUpload(InputFileChangeEventArgs e)
-    {
-        _errorMessage = null;
-
-        try
-        {
-            // IBrowserFile's stream only supports async reads — XmlSerializer.Deserialize reads
-            // synchronously, so buffer to memory first rather than handing it the raw upload stream.
-            using var buffer = new MemoryStream();
-            await e.File.OpenReadStream().CopyToAsync(buffer);
-            buffer.Position = 0;
-
-            var state = StateStore.DeserializeXml(buffer);
-            if (state is null || string.IsNullOrWhiteSpace(state.RecipeName))
-            {
-                _errorMessage = "That file doesn't look like a valid config export.";
-                return;
-            }
-
-            var recipe = _recipes.FirstOrDefault(r => r.Name == state.RecipeName);
-            if (recipe is null)
-            {
-                _errorMessage = $"Config file references unknown recipe '{state.RecipeName}'.";
-                return;
-            }
-
-            SelectRecipe(recipe);
-            await ApplyState(state);
-            SaveState();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Couldn't load config from uploaded file '{FileName}'.", e.File.Name);
-            _errorMessage = $"Couldn't load that config file: {ex.Message}";
-        }
-    }
-
-    private void SaveState()
-    {
-        if (_selectedRecipe is null) return;
-
-        try
-        {
-            StateStore.Save(_selectedRecipe, _properties, _machines.Select(m => m.Name));
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Couldn't save state for recipe '{Recipe}'.", _selectedRecipe.Name);
-            _errorMessage = $"Couldn't save your changes: {ex.Message}";
-        }
-    }
+    // ---- Deployment ----
 
     private async Task StartDeployment()
     {
-        if (_selectedRecipe is null) return;
+        if (_session is null) return;
 
         _errorMessage = null;
         _deploying = true;
         var toDeploy = _machines.Where(m => m.Status == RowStatus.Ready).ToList();
-        var totalSteps = _selectedRecipe.Steps.Count();
+
+        var recipe = new SerializedRecipe(_session.Document, Registry, Functions, new Dictionary<string, string>(_paramValues));
+        var totalSteps = _session.Document.Steps.Count;
 
         _progress = new BlazorDeploymentProgress(toDeploy.ToDictionary(m => m.Name), totalSteps);
         _progress.Changed += OnProgressChanged;
@@ -508,14 +1149,11 @@
         try
         {
             var machineInfos = toDeploy.ToDictionary(m => m.Name, m => m.Info!);
-            await Orchestrator.RunAsync(_selectedRecipe, machineInfos, _progress);
+            await Orchestrator.RunAsync(recipe, machineInfos, Credentials.ToSecrets(), _progress);
         }
         catch (Exception ex)
         {
-            // DeploymentOrchestrator already handles expected per-machine failures internally —
-            // reaching here means something unexpected broke before/outside that (e.g. couldn't
-            // load credentials).
-            Logger.LogError(ex, "Deployment of recipe '{Recipe}' failed to start.", _selectedRecipe.Name);
+            Logger.LogError(ex, "Deployment of recipe '{Recipe}' failed to start.", _session.RecipeName);
             _errorMessage = $"Deployment failed to start: {ex.Message}";
         }
         finally
@@ -533,11 +1171,6 @@
         if (!_expanded.Add(boxId)) _expanded.Remove(boxId);
     }
 
-    // FileLoggerProvider only stamps the leading "[BoxId]" tag on the first physical line of a
-    // log entry — continuation lines (extra structured-log fields, and the whole exception +
-    // stack trace) carry no tag at all. Filtering line-by-line for the tag silently drops that
-    // detail, so instead we group lines into whole records (a header line + its untagged
-    // continuation lines) and keep/drop an entire record based on its header line.
     private static readonly System.Text.RegularExpressions.Regex LogHeaderPattern =
         new(@"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]");
 
@@ -562,9 +1195,6 @@
     {
         if (_progress?.LogFilePath is null || !File.Exists(_progress.LogFilePath)) return string.Empty;
 
-        // The deployment's FileLoggerProvider still holds this file open for writing (with
-        // FileShare.Read) while a run is in progress, so the reader must explicitly tolerate
-        // that existing Write access — File.ReadAllLines's default share doesn't, and throws.
         using var stream = new FileStream(_progress.LogFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var reader = new StreamReader(stream);
 

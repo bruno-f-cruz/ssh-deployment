@@ -2,27 +2,23 @@ using System.Text.RegularExpressions;
 
 namespace Shush.Recipe.Steps;
 
+[Step("TemplatedCopyFiles", Description = "Copy a local directory, replacing {{token}} placeholders in file contents.")]
 public class TemplatedCopyFilesStep : IRecipeStep
 {
     private static readonly Regex TokenPattern = new(@"\{\{\s*(\w+)\s*\}\}", RegexOptions.Compiled);
 
-    private readonly string _sourceDirectory;
-    private readonly string _remoteBaseDirectory;
-    private readonly IReadOnlyDictionary<string, string> _variables;
+    [Input(Required = true, Description = "Local directory to copy from.")]
+    public string SourceDirectory { get; init; } = "";
 
-    public TemplatedCopyFilesStep(
-        string sourceDirectory,
-        string remoteBaseDirectory,
-        Dictionary<string, string> variables)
-    {
-        _sourceDirectory = sourceDirectory;
-        _remoteBaseDirectory = remoteBaseDirectory;
-        _variables = variables;
-    }
+    [Input(Required = true, Description = "Remote directory files are uploaded under.")]
+    public string RemoteBaseDirectory { get; init; } = "";
+
+    [Input(Description = "Values substituted for {{token}} placeholders in file contents.")]
+    public IReadOnlyDictionary<string, string> Variables { get; init; } = new Dictionary<string, string>();
 
     public async Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
-        var sourceDir = new DirectoryInfo(_sourceDirectory);
+        var sourceDir = new DirectoryInfo(SourceDirectory);
 
         if (!sourceDir.Exists)
             throw new DirectoryNotFoundException($"Source directory not found: {sourceDir.FullName}");
@@ -32,13 +28,13 @@ public class TemplatedCopyFilesStep : IRecipeStep
             cancellationToken.ThrowIfCancellationRequested();
 
             var relativePath = Path.GetRelativePath(sourceDir.FullName, file.FullName);
-            var remotePath = Path.Combine(_remoteBaseDirectory, relativePath).Replace('\\', '/');
+            var remotePath = Path.Combine(RemoteBaseDirectory, relativePath).Replace('\\', '/');
 
             var content = await File.ReadAllTextAsync(file.FullName, cancellationToken);
             var resolved = TokenPattern.Replace(content, m =>
             {
                 var key = m.Groups[1].Value;
-                return _variables.TryGetValue(key, out var value)
+                return Variables.TryGetValue(key, out var value)
                     ? value
                     : throw new KeyNotFoundException($"Template variable '{{{{key}}}}' was not provided.");
             });

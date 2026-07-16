@@ -19,11 +19,10 @@ public sealed class DeploymentOrchestrator
     public async Task RunAsync(
         IRecipe recipe,
         Dictionary<string, MachineInfo> machines,
+        Secrets secrets,
         BlazorDeploymentProgress progress,
         CancellationToken ct = default)
     {
-        var secrets = _settings.Credentials;
-
         var logDirectory = Path.Combine(ShushPaths.GetShushDirectory(_env, _settings), "logs");
         Directory.CreateDirectory(logDirectory);
         var logFile = Path.Combine(logDirectory, $"deploy_{DateTime.Now:yyyyMMdd_HHmmss}.log");

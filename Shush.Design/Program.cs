@@ -2,6 +2,8 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 using Shush;
 using Shush.Design.Components;
 using Shush.Design.Services;
+using Shush.Recipe;
+using Shush.Recipe.Serialization;
 
 // A Windows Service's default working directory is %SystemRoot%\System32, not wherever the
 // exe lives — resolve the real app directory once and use it for ContentRootPath.
@@ -39,8 +41,20 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddSingleton(shushSettings);
 builder.Services.AddSingleton<MachineRegistryService>();
-builder.Services.AddSingleton<RecipeStateStore>();
 builder.Services.AddSingleton<DeploymentOrchestrator>();
+
+// SSH credentials are entered per session by the operator (never shipped with the app).
+builder.Services.AddScoped<CredentialStore>();
+
+// Recipe engine wiring: step catalog, functions, YAML discovery, and per-recipe deploy state.
+builder.Services.AddSingleton(new StepRegistry(typeof(IRecipe).Assembly));
+builder.Services.AddSingleton(FunctionLibrary.Default);
+builder.Services.AddSingleton<RecipeStore>();
+builder.Services.AddSingleton(new RecipePaths(
+    BaseDir: Path.Combine(AppContext.BaseDirectory, "Recipes"),
+    UserDir: ShushPaths.GetUserRecipesDirectory(builder.Environment, shushSettings)));
+builder.Services.AddSingleton(new DeployStateStore(
+    Path.Combine(ShushPaths.GetShushDirectory(builder.Environment, shushSettings), "state")));
 
 var app = builder.Build();
 

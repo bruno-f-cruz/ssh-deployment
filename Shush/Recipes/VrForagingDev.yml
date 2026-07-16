@@ -1,0 +1,56 @@
+name: VrForagingDev
+params:
+  tag:
+    type: string
+    label: Git Tag
+    default: v1.2.0rc1
+vars:
+  repoRoot: C:/git
+steps:
+  - id: clone
+    type: GitClone
+    with:
+      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Behavior.VrForaging
+      rootPath: ${vars.repoRoot}
+      folderName: Aind.Behavior.VrForaging-dev
+  - type: GitCheckout
+    with:
+      path: ${clone.clonedPath}
+      reference: ${params.tag}
+      cleanExceptions:
+        - .cache_manager.json
+  - type: RunScript
+    with:
+      workingDirectory: ${clone.clonedPath}
+      commands:
+        - "$ErrorActionPreference = 'Stop'"
+        - "$ProgressPreference = 'SilentlyContinue'"
+        - .\scripts\deploy.ps1
+  - type: CreateBatchFile
+    with:
+      remotePath: C:\Users\Public\Desktop\DEV-VrForaging.cmd
+      lines:
+        - cd /d ${clone.clonedPath}
+        - uv run clabe run .\scripts\aind.py
+  - type: WriteFile
+    with:
+      targetPath: ${clone.clonedPath}/local/clabe.yml
+      content: |
+        # In order to get picked up, move this file to the root of the project or ./local
+
+        allow_dirty: false
+        skip_hardware_validation: false
+
+        watchdog:
+          project_name: "Cognitive flexibility in patch foraging"
+          destination: '\\allen\\aind\\stage\\vr-foraging\\data'
+          delete_modalities_source_after_success: true
+          job_type: "vr_foraging_v2"
+          transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
+          s3_bucket: "default"
+          schedule_time: 18:00:00
+
+        dataverse:
+          tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
+          client_id: "df37356e-3316-484a-b732-319b6b4ad464"
+          org: "org5d93e08d"
