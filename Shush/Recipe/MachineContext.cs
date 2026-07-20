@@ -29,10 +29,21 @@ public class MachineContext : IAsyncDisposable
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger<MachineContext>();
-        var sshClient = new SshClient(machine.hostname, secrets.Username, secrets.Password);
-        var scpClient = new ScpClient(machine.hostname, secrets.Username, secrets.Password);
 
-        logger.LogInformation("[{BoxId}] Connecting SSH and SCP clients to {Hostname}.", boxId, machine.hostname);
+        // Multi-homed machines can register several DNS records and SSH.NET only tries the
+        // first, so probe every resolved address and connect to one that actually answers.
+        var probe = await HostProber.ProbeAsync(machine.hostname, ct: ct);
+        var address = probe.ReachableAddress
+            ?? throw new InvalidOperationException(
+                $"No address of '{machine.hostname}' accepted a connection on port {HostProber.SshPort}. {probe.Describe()}");
+
+        if (probe.Addresses.Count > 1)
+            logger.LogWarning("[{BoxId}] {Details} — using {Address}.", boxId, probe.Describe(), address);
+
+        var sshClient = new SshClient(address, secrets.Username, secrets.Password);
+        var scpClient = new ScpClient(address, secrets.Username, secrets.Password);
+
+        logger.LogInformation("[{BoxId}] Connecting SSH and SCP clients to {Hostname} ({Address}).", boxId, machine.hostname, address);
         await sshClient.ConnectAsync(ct);
         await scpClient.ConnectAsync(ct);
         logger.LogInformation("[{BoxId}] Connected.", boxId);

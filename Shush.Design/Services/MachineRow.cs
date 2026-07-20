@@ -22,6 +22,11 @@ public sealed class MachineRow
     public RowStatus Status { get; set; } = RowStatus.Ready;
     public string CurrentStep { get; set; } = string.Empty;
 
+    // Reachability is informational only — an unreachable row stays deployable and
+    // the deployment itself reports the connection failure.
+    public HostProbeResult? Probe { get; set; }
+    public bool Probing { get; set; }
+
     public bool IsResolved => Info is not null;
 
     public int CompletedStepCount

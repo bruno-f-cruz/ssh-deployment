@@ -353,6 +353,26 @@ input[type=text], input:not([type]), select, .machines-table input {
         border-bottom: none;
     }
 
+.addr-chip {
+    display: inline-block;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: .78rem;
+    padding: .1rem .45rem;
+    border-radius: 999px;
+    margin: .1rem .25rem .1rem 0;
+    white-space: nowrap;
+}
+
+.addr-chip--ok {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.addr-chip--bad {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
 .text-muted {
     color: var(--text-muted);
 }

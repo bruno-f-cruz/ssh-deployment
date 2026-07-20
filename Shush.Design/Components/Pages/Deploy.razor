@@ -1,4 +1,5 @@
 @page "/"
+@using Shush
 @using Shush.Recipe
 @using Shush.Recipe.Serialization
 @using Shush.Design.Services
@@ -364,7 +365,7 @@
                 {
                     <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
                         <label for="machine-name" class="visually-hidden">Machine name</label>
-                        <input id="machine-name" placeholder="e.g. FRG.4-A" autocomplete="off" list="machine-options"
+                        <input id="machine-name" placeholder="e.g. FRG.4-A or 10.128.133.74" autocomplete="off" list="machine-options"
                                @bind="_newMachineName" @bind:event="oninput" />
                         <datalist id="machine-options">
                             @foreach (var name in _availableMachineNames.Except(_machines.Select(m => m.Name)))
@@ -391,6 +392,7 @@
                             <thead>
                                 <tr>
                                     <th scope="col">Machine</th>
+                                    <th scope="col">Address</th>
                                     <th scope="col">Status</th>
                                     <th scope="col">Progress</th>
                                     <th scope="col">Detail</th>
@@ -407,6 +409,33 @@
 
                                     <tr>
                                         <td data-label="Machine">@machine.Name</td>
+                                        <td data-label="Address">
+                                            @if (machine.Probing)
+                                            {
+                                                <span class="text-muted">checking…</span>
+                                            }
+                                            else if (machine.Probe is { ResolutionError: not null } unresolved)
+                                            {
+                                                <span class="text-danger" title="@unresolved.ResolutionError">unresolved</span>
+                                            }
+                                            else if (machine.Probe is { } probe)
+                                            {
+                                                @foreach (var addr in probe.Addresses)
+                                                {
+                                                    <span class="addr-chip @(addr.Reachable ? "addr-chip--ok" : "addr-chip--bad")"
+                                                          title="@(addr.Reachable ? $"port {HostProber.SshPort} reachable" : addr.Error)">@addr.Address</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">—</span>
+                                            }
+                                            @if (!machine.Probing && machine.IsResolved)
+                                            {
+                                                <button type="button" class="btn btn--icon" @onclick="() => ProbeMachine(machine)"
+                                                        aria-label="@($"Re-check {machine.Name} reachability")" title="Re-check reachability">&#8635;</button>
+                                            }
+                                        </td>
                                         <td data-label="Status">
                                             <span class="badge badge--@(machine.Status.ToString().ToLowerInvariant())">
                                                 <span aria-hidden="true" class="badge__icon@(machine.Status == RowStatus.Running ? " spin" : "")">@icon</span>
@@ -803,7 +832,9 @@
             foreach (var machineName in state.Machines)
             {
                 if (_machines.Any(m => m.Name == machineName)) continue;
-                _machines.Add(await MachineRegistry.ResolveAsync(machineName));
+                var row = await MachineRegistry.ResolveAsync(machineName);
+                _machines.Add(row);
+                ProbeMachine(row);
             }
         }
         catch (Exception ex)
@@ -1084,7 +1115,9 @@
 
         try
         {
-            _machines.Add(await MachineRegistry.ResolveAsync(name));
+            var row = await MachineRegistry.ResolveAsync(name);
+            _machines.Add(row);
+            ProbeMachine(row);
             _newMachineName = string.Empty;
             SaveState();
         }
@@ -1092,6 +1125,31 @@
         {
             Logger.LogError(ex, "Couldn't resolve machine '{Machine}' against the registry.", name);
             _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
+        }
+    }
+
+    private void ProbeMachine(MachineRow machine) => _ = ProbeMachineAsync(machine);
+
+    private async Task ProbeMachineAsync(MachineRow machine)
+    {
+        if (machine.Info is null || machine.Probing) return;
+
+        machine.Probing = true;
+        machine.Probe = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            machine.Probe = await HostProber.ProbeAsync(machine.Info.hostname);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Reachability probe for '{Machine}' failed unexpectedly.", machine.Name);
+        }
+        finally
+        {
+            machine.Probing = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -1112,7 +1170,9 @@
             foreach (var name in MachineRegistry.ParseYaml(content))
             {
                 if (_machines.Any(m => m.Name == name)) continue;
-                _machines.Add(await MachineRegistry.ResolveAsync(name));
+                var row = await MachineRegistry.ResolveAsync(name);
+                _machines.Add(row);
+                ProbeMachine(row);
             }
 
             SaveState();
