@@ -43,8 +43,11 @@ steps:
 
         # Stream telemetry (traces + logs) to the local OpenTelemetry Collector, which forwards
         # to the central OpenObserve server. Deploy the OtelCollector recipe on this rig first —
-        # it provides the collector listening on localhost:4318, adds the ingest auth, and
-        # backfills rig_id/hostname if they're ever missing.
+        # it provides the collector on 127.0.0.1:4318, adds the ingest auth, and backfills
+        # rig_id/hostname if they're ever missing.
+        #   - endpoint uses 127.0.0.1, NOT localhost: on Windows localhost resolves to IPv6 (::1)
+        #     first, but the collector's OTLP receiver binds IPv4 (127.0.0.1) — localhost silently
+        #     misses and telemetry is dropped.
         #   - software_name identifies the producing app (this is the installed distribution, so
         #     clabe also auto-resolves software_version from it, and tags the Service with it).
         #   - hostname (COMPUTERNAME) and rig_id (aibs_comp_id) auto-resolve on the rig; subject_id
@@ -52,7 +55,7 @@ steps:
         #     needs setting here — no auth header and no rig_id.
         otel:
           enabled: true
-          endpoint: http://localhost:4318
+          endpoint: http://127.0.0.1:4318
           software_name: aind-behavior-vr-foraging
 
         watchdog:
