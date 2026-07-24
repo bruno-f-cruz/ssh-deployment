@@ -16,8 +16,27 @@ public class StepContractTests
     [InlineData("CopyFiles")]
     [InlineData("CreateShortcut")]
     [InlineData("DeleteDirectory")]
+    [InlineData("SetEnvironmentVariable")]
     public void Step_is_registered(string typeName) =>
         Assert.NotNull(_registry.Get(typeName));
+
+    [Fact]
+    public void SetEnvironmentVariable_binds_scope_and_secret()
+    {
+        var with = new Dictionary<string, object?>
+        {
+            ["name"] = "OPENOBSERVE_AUTH",
+            ["value"] = "Basic abc==",
+            ["secret"] = true,
+        };
+        var descriptor = _registry.Get("SetEnvironmentVariable");
+        var step = (Shush.Recipe.Steps.SetEnvironmentVariableStep)StepBinder.Bind(descriptor, with);
+
+        Assert.Equal("OPENOBSERVE_AUTH", step.Name);
+        Assert.Equal("Basic abc==", step.Value);
+        Assert.True(step.Secret);
+        Assert.Equal("Machine", step.Scope); // default applied when not supplied
+    }
 
     [Fact]
     public void GitClone_exposes_clonedPath_output()

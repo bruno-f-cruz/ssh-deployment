@@ -83,6 +83,7 @@ with:
 | `CopyFiles` | `sourceDirectory`*, `remoteBaseDirectory`* | — |
 | `CreateShortcut` | `cmdPath`*, `shortcutDirectory`*, `shortName`* | — |
 | `DeleteDirectory` | `path`* | — |
+| `SetEnvironmentVariable` | `name`*, `value`*, `scope`, `secret` (bool) | — |
 
 The catalog is populated by reflection over `[Step]`-annotated `IRecipeStep` types
 (`StepRegistry`), so adding a step type is: implement `IRecipeStep`, annotate it with

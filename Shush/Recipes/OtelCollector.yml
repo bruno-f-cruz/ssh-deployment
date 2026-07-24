@@ -1,0 +1,241 @@
+# Installs the OpenTelemetry Collector (contrib) on a rig as the per-rig telemetry agent:
+# it scrapes this host's metrics + Windows Event Log AND receives clabe's OTLP on
+# localhost:4318, forwarding everything to the central OpenObserve server (backfilling
+# rig_id/hostname when the app didn't set them). Deploy this alongside VrForagingDev, whose
+# clabe.yml points clabe at http://localhost:4318.
+#
+# Requires the deploy host to expose OPENOBSERVE_AUTH (e.g. in the --env-file .env) — the
+# "Basic <base64 of email:password>" string for the OpenObserve ingest user. It is written to
+# the rig's machine environment, never stored in this recipe.
+#
+# The config body below mirrors kintoun/collector/otel-config.yaml (the source of truth) —
+# keep the two in sync. The collector's own env-var reads ("${env:...}") are written here with
+# a "@@D@@" placeholder for the leading "$" (so the recipe's ${...} resolver leaves them
+# alone) and restored to real "$" on the rig by the "config-fixup" step.
+name: OtelCollector
+params:
+  collectorVersion:
+    type: string
+    label: otelcol-contrib version
+    default: 0.116.0
+  serverEndpoint:
+    type: string
+    label: OpenObserve OTLP base (http://host:5080/api/<org>/)
+    default: http://10.128.53.12:5080/api/default/
+vars:
+  installDir: C:\otel-collector
+steps:
+  # 1. Fetch the collector binary + make the install and send-queue directories.
+  - type: RunScript
+    with:
+      commands:
+        - "$ErrorActionPreference = 'Stop'"
+        - "$ProgressPreference = 'SilentlyContinue'"
+        - 'New-Item -ItemType Directory -Force "${vars.installDir}" | Out-Null'
+        - 'New-Item -ItemType Directory -Force "${vars.installDir}\queue" | Out-Null'
+        - '$tgz = Join-Path $env:TEMP "otelcol-contrib.tar.gz"'
+        - 'Invoke-WebRequest -Uri "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${params.collectorVersion}/otelcol-contrib_${params.collectorVersion}_windows_amd64.tar.gz" -OutFile $tgz'
+        - 'tar -xzf $tgz -C "${vars.installDir}" otelcol-contrib.exe'
+        - 'Remove-Item $tgz -Force'
+  # 2. Write the collector config (env-var reads carry the @@D@@ placeholder; see header).
+  - type: WriteFile
+    with:
+      targetPath: ${vars.installDir}/otel-config.yaml
+      content: |
+        # Rig collector — OpenTelemetry Collector (contrib) as the SINGLE per-rig agent.
+        # Mirrors kintoun/collector/otel-config.yaml. Config values come from machine env vars:
+        #   OPENOBSERVE_ENDPOINT  OTLP/HTTP base, e.g. http://obs.example.org:5080/api/default/
+        #   OPENOBSERVE_AUTH      "Basic <base64 of email:password>"
+        #   aibs_comp_id          AIND log-schema rig id (the same var clabe reads) -> rig_id
+        #   COMPUTERNAME          set by Windows -> hostname when the app didn't set it
+
+        receivers:
+          # --- clabe application telemetry (OTLP in; clabe's default endpoint is :4318) ---
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 127.0.0.1:4317
+              http:
+                endpoint: 127.0.0.1:4318
+
+          # --- periodic host metrics (cross-platform) ---
+          hostmetrics:
+            collection_interval: 30s
+            scrapers:
+              cpu:
+              disk:
+              filesystem:
+              load:
+              memory:
+              network:
+              paging:
+              processes:
+
+          # --- periodic Windows performance counters ---
+          windowsperfcounters/memory:
+            collection_interval: 30s
+            metrics:
+              bytes.committed:
+                description: the number of bytes committed to memory
+                unit: By
+                gauge:
+            perfcounters:
+              - object: Memory
+                counters:
+                  - name: Committed Bytes
+                    metric: bytes.committed
+
+          windowsperfcounters/processor:
+            collection_interval: 1m
+            metrics:
+              processor.time:
+                description: active and idle time of the processor
+                unit: "%"
+                gauge:
+            perfcounters:
+              - object: "Processor"
+                instances: "*"
+                counters:
+                  - name: "% Processor Time"
+                    metric: processor.time
+                    attributes:
+                      state: active
+              - object: "Processor"
+                instances: [1, 2]
+                counters:
+                  - name: "% Idle Time"
+                    metric: processor.time
+                    attributes:
+                      state: idle
+
+          # --- Windows Event Log ---
+          # The high-volume "security" channel is deliberately NOT subscribed (~99.98% of raw
+          # event volume, all INFO). filter/warn_and_above below drops INFO from the rest.
+          windowseventlog/application:
+            channel: application
+          windowseventlog/setup:
+            channel: setup
+          windowseventlog/system:
+            channel: system
+
+        processors:
+          resourcedetection/system:
+            detectors: ["system"]
+            system:
+              hostname_sources: ["os"]
+
+          # rig_id for this agent's OWN host-scraped telemetry (resource attribute).
+          resource/rig:
+            attributes:
+              - key: rig_id
+                value: @@D@@{env:aibs_comp_id}
+                action: upsert
+
+          # Backfill identity on FORWARDED app telemetry, only if the app didn't set it.
+          # action: insert never overwrites, so clabe's own rig_id/hostname always win.
+          attributes/fill:
+            actions:
+              - key: rig_id
+                value: @@D@@{env:aibs_comp_id}
+                action: insert
+              - key: hostname
+                value: @@D@@{env:COMPUTERNAME}
+                action: insert
+
+          memory_limiter:
+            check_interval: 1s
+            limit_percentage: 75
+            spike_limit_percentage: 15
+
+          # Keep only WARN and above from the Windows event log; drop INFO/DEBUG/TRACE noise.
+          filter/warn_and_above:
+            logs:
+              log_record:
+                - 'severity_number < SEVERITY_NUMBER_WARN'
+
+          batch:
+            send_batch_size: 10000
+            timeout: 10s
+
+        extensions:
+          zpages: {}
+          # On-disk send queue so forwarded telemetry survives restarts / network outages.
+          file_storage/queue:
+            directory: C:\otel-collector\queue
+
+        exporters:
+          # Host-scraped telemetry -> OpenObserve. Event logs land in the "windows" stream via
+          # the stream-name header; metrics route by metric name regardless of the header.
+          otlphttp/openobserve:
+            endpoint: @@D@@{env:OPENOBSERVE_ENDPOINT}
+            headers:
+              stream-name: windows
+              Authorization: @@D@@{env:OPENOBSERVE_AUTH}
+
+          # Forwarded clabe telemetry -> OpenObserve "default" streams, disk-buffered.
+          otlphttp/openobserve_apps:
+            endpoint: @@D@@{env:OPENOBSERVE_ENDPOINT}
+            headers:
+              stream-name: default
+              Authorization: @@D@@{env:OPENOBSERVE_AUTH}
+            sending_queue:
+              enabled: true
+              storage: file_storage/queue
+            retry_on_failure:
+              enabled: true
+              initial_interval: 5s
+              max_interval: 1m
+              max_elapsed_time: 0s
+
+        service:
+          extensions: [zpages, file_storage/queue]
+          pipelines:
+            # --- host telemetry this agent scrapes ---
+            metrics:
+              receivers: [windowsperfcounters/processor, windowsperfcounters/memory, hostmetrics]
+              processors: [resourcedetection/system, resource/rig, memory_limiter, batch]
+              exporters: [otlphttp/openobserve]
+            logs:
+              receivers: [windowseventlog/application, windowseventlog/setup, windowseventlog/system]
+              processors: [resourcedetection/system, resource/rig, memory_limiter, filter/warn_and_above, batch]
+              exporters: [otlphttp/openobserve]
+            # --- clabe application telemetry this agent forwards ---
+            traces:
+              receivers: [otlp]
+              processors: [attributes/fill, memory_limiter, batch]
+              exporters: [otlphttp/openobserve_apps]
+            logs/apps:
+              receivers: [otlp]
+              processors: [attributes/fill, memory_limiter, batch]
+              exporters: [otlphttp/openobserve_apps]
+  # 3. Restore the collector's "${env:...}" reads: turn every @@D@@ back into a literal "$".
+  - type: RunScript
+    with:
+      commands:
+        - "$ErrorActionPreference = 'Stop'"
+        - '$cfg = "${vars.installDir}\otel-config.yaml"'
+        - '$t = [IO.File]::ReadAllText($cfg).Replace("@@D@@", "$")'
+        - '[IO.File]::WriteAllText($cfg, $t)'
+  # 4. Server endpoint + ingest auth as machine env vars (services read the machine environment).
+  #    aibs_comp_id is expected to already be set on the rig (AIND standard); COMPUTERNAME is
+  #    provided by Windows. OPENOBSERVE_AUTH comes from the deploy host's environment and is
+  #    redacted from the deploy log via secret: true.
+  - type: SetEnvironmentVariable
+    with:
+      name: OPENOBSERVE_ENDPOINT
+      value: ${params.serverEndpoint}
+  - type: SetEnvironmentVariable
+    with:
+      name: OPENOBSERVE_AUTH
+      value: '${env("OPENOBSERVE_AUTH")}'
+      secret: true
+  # 5. (Re)create and start the Windows service. Runs after setx so the fresh service process
+  #    inherits the new machine environment.
+  - type: RunScript
+    with:
+      commands:
+        - "$ErrorActionPreference = 'Stop'"
+        - '$svc = "otel-collector"'
+        - 'if (Get-Service $svc -ErrorAction SilentlyContinue) { Stop-Service $svc -Force -ErrorAction SilentlyContinue; sc.exe delete $svc | Out-Null; Start-Sleep -Seconds 2 }'
+        - 'sc.exe create $svc binPath= "${vars.installDir}\otelcol-contrib.exe --config ${vars.installDir}\otel-config.yaml" start= auto DisplayName= "OpenTelemetry Collector" | Out-Null'
+        - 'sc.exe start $svc | Out-Null'

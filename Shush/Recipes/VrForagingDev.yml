@@ -41,6 +41,20 @@ steps:
         allow_dirty: false
         skip_hardware_validation: false
 
+        # Stream telemetry (traces + logs) to the local OpenTelemetry Collector, which forwards
+        # to the central OpenObserve server. Deploy the OtelCollector recipe on this rig first —
+        # it provides the collector listening on localhost:4318, adds the ingest auth, and
+        # backfills rig_id/hostname if they're ever missing.
+        #   - software_name identifies the producing app (this is the installed distribution, so
+        #     clabe also auto-resolves software_version from it, and tags the Service with it).
+        #   - hostname (COMPUTERNAME) and rig_id (aibs_comp_id) auto-resolve on the rig; subject_id
+        #     and user_id are filled from the session when it is registered. So only software_name
+        #     needs setting here — no auth header and no rig_id.
+        otel:
+          enabled: true
+          endpoint: http://localhost:4318
+          software_name: aind-behavior-vr-foraging
+
         watchdog:
           project_name: "Cognitive flexibility in patch foraging"
           destination: '\\allen\\aind\\stage\\vr-foraging\\data'

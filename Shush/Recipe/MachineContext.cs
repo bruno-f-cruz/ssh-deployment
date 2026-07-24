@@ -51,15 +51,21 @@ public class MachineContext : IAsyncDisposable
         return new MachineContext(boxId, machine, sshClient, scpClient, logger);
     }
 
-    public Task RunCommandsAsync(string[] commands, CancellationToken ct = default)
+    /// <param name="logAs">
+    /// When set, this text is logged in place of the raw commands (and the wrapped command is
+    /// omitted from the failure log) so secrets never reach the deploy log. When null, the
+    /// commands are logged verbatim as before.
+    /// </param>
+    public Task RunCommandsAsync(string[] commands, CancellationToken ct = default, string? logAs = null)
     {
         ct.ThrowIfCancellationRequested();
 
         string joined = string.Join(" ; if ($LASTEXITCODE) { exit $LASTEXITCODE } ; ", commands);
         string escaped = joined.Replace("\"", "\\\"");
         string psCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"{escaped}\"";
+        string display = logAs ?? joined;
 
-        _logger.LogInformation("[{BoxId}] Running commands: {Commands}", BoxId, joined);
+        _logger.LogInformation("[{BoxId}] Running commands: {Commands}", BoxId, display);
 
         var cmd = _sshClient.CreateCommand(psCommand);
         cmd.CommandTimeout = TimeSpan.FromMinutes(10);
@@ -69,20 +75,29 @@ public class MachineContext : IAsyncDisposable
 
         if (cmd.ExitStatus != 0)
         {
-            _logger.LogError(
-                "[{BoxId}] SSH command failed.\nCommands: {Commands}\nWrapped: {Wrapped}\nExitCode: {ExitCode}\nError: {Error}",
-                BoxId,
-                joined,
-                psCommand,
-                cmd.ExitStatus,
-                error);
+            if (logAs is null)
+                _logger.LogError(
+                    "[{BoxId}] SSH command failed.\nCommands: {Commands}\nWrapped: {Wrapped}\nExitCode: {ExitCode}\nError: {Error}",
+                    BoxId,
+                    joined,
+                    psCommand,
+                    cmd.ExitStatus,
+                    error);
+            else
+                _logger.LogError(
+                    "[{BoxId}] SSH command failed.\nCommands: {Commands}\nExitCode: {ExitCode}\nError: {Error}",
+                    BoxId,
+                    display,
+                    cmd.ExitStatus,
+                    error);
+
             throw new InvalidOperationException($"SSH command failed with exit code {cmd.ExitStatus}: {error}");
         }
 
         _logger.LogDebug(
             "[{BoxId}] SSH command succeeded.\nCommands: {Commands}\nOutput: {Result}",
             BoxId,
-            joined,
+            display,
             result);
 
         return Task.CompletedTask;
