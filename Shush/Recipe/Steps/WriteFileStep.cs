@@ -3,7 +3,7 @@ namespace Shush.Recipe.Steps;
 [Step("WriteFile", Description = "Upload literal text content to a file on the remote machine.")]
 public class WriteFileStep : IRecipeStep
 {
-    [Input(Required = true, Description = "The file content to write.")]
+    [Input(Required = true, Multiline = true, Description = "The file content to write.")]
     public string Content { get; init; } = "";
 
     [Input(Required = true, Description = "Remote path the content is written to.")]

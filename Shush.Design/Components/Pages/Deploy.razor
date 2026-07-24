@@ -319,6 +319,11 @@
                                                     case InputShape.Scalar:
                                                         <input value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)" />
                                                         break;
+                                                    case InputShape.Text:
+                                                        <textarea class="file-input" rows="18" spellcheck="false" wrap="off"
+                                                                  value="@GetScalar(step, input.Name)"
+                                                                  @onchange="e => SetScalar(step, input.Name, e)"></textarea>
+                                                        break;
                                                     case InputShape.Collection:
                                                         <textarea rows="3" placeholder="One value per line"
                                                                   value="@GetLines(step, input.Name)"

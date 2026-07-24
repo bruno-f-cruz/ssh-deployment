@@ -3,8 +3,8 @@ using System.Reflection;
 
 namespace Shush.Recipe.Serialization;
 
-/// <summary>How an input is edited in the UI, derived from its CLR type.</summary>
-public enum InputShape { Scalar, Collection, Dictionary }
+/// <summary>How an input is edited in the UI, derived from its CLR type (and the Multiline hint).</summary>
+public enum InputShape { Scalar, Text, Collection, Dictionary }
 
 public sealed class InputDescriptor
 {
@@ -12,6 +12,10 @@ public sealed class InputDescriptor
     public required PropertyInfo Property { get; init; }
     public required bool Required { get; init; }
     public string? Description { get; init; }
+
+    /// <summary>A multi-line string input: edited as a full text area rather than a single line.</summary>
+    public bool Multiline { get; init; }
+
     public Type PropertyType => Property.PropertyType;
 
     public InputShape Shape
@@ -20,7 +24,7 @@ public sealed class InputDescriptor
         {
             var type = PropertyType;
             if (type == typeof(string))
-                return InputShape.Scalar;
+                return Multiline ? InputShape.Text : InputShape.Scalar;
             if (type.IsAssignableFrom(typeof(Dictionary<string, string>)) && typeof(IEnumerable).IsAssignableFrom(type))
                 return InputShape.Dictionary;
             if (typeof(IEnumerable).IsAssignableFrom(type))
@@ -61,6 +65,7 @@ public sealed class StepDescriptor
                 Property = x.p,
                 Required = x.attr.Required,
                 Description = x.attr.Description,
+                Multiline = x.attr.Multiline,
             })
             .ToList();
 

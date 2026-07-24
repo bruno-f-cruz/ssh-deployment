@@ -563,6 +563,24 @@ input[type=text], input:not([type]), select, .machines-table input {
 
 .validation-errors li { margin: 0.15rem 0; }
 
+/* Multi-line string input (e.g. WriteFile content): a file-like view — monospace, no wrapping,
+   with its own scroll so long lines stay on one line ("broken lines" preserved). */
+.file-input {
+    width: 100%;
+    min-height: 20rem;
+    box-sizing: border-box;
+    padding: .65rem .75rem;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font: 0.85rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 2;
+    resize: vertical;
+}
+
 /* Highlight overlay: transparent textarea layered over a highlighted <pre>. */
 .yaml-editor {
     position: relative;

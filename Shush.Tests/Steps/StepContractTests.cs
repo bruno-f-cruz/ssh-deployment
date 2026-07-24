@@ -21,6 +21,14 @@ public class StepContractTests
         Assert.NotNull(_registry.Get(typeName));
 
     [Fact]
+    public void WriteFile_content_is_a_multiline_text_input()
+    {
+        var content = _registry.Get("WriteFile").Inputs.Single(i => i.Name == "content");
+        Assert.True(content.Multiline);
+        Assert.Equal(InputShape.Text, content.Shape);
+    }
+
+    [Fact]
     public void SetEnvironmentVariable_binds_scope_and_secret()
     {
         var with = new Dictionary<string, object?>
