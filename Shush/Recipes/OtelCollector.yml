@@ -4,9 +4,9 @@
 # rig_id/hostname when the app didn't set them). Deploy this alongside VrForagingDev, whose
 # clabe.yml points clabe at http://localhost:4318.
 #
-# Requires the deploy host to expose OPENOBSERVE_AUTH (e.g. in the --env-file .env) — the
-# "Basic <base64 of email:password>" string for the OpenObserve ingest user. It is written to
-# the rig's machine environment, never stored in this recipe.
+# The OpenObserve ingest auth ("Basic <base64 of email:password>") is hard-coded in the
+# OPENOBSERVE_AUTH step below and written to the rig's machine environment. secret: true keeps
+# it out of the deploy logs, but note it IS stored in this file (and its git history).
 #
 # The config body below mirrors kintoun/collector/otel-config.yaml (the source of truth) —
 # keep the two in sync. The collector's own env-var reads ("${env:...}") are written here with
@@ -101,7 +101,7 @@ steps:
                     attributes:
                       state: active
               - object: "Processor"
-                instances: [1, 2]
+                instances: ["1", "2"]
                 counters:
                   - name: "% Idle Time"
                     metric: processor.time
@@ -218,8 +218,8 @@ steps:
         - '[IO.File]::WriteAllText($cfg, $t)'
   # 4. Server endpoint + ingest auth as machine env vars (services read the machine environment).
   #    aibs_comp_id is expected to already be set on the rig (AIND standard); COMPUTERNAME is
-  #    provided by Windows. OPENOBSERVE_AUTH comes from the deploy host's environment and is
-  #    redacted from the deploy log via secret: true.
+  #    provided by Windows. OPENOBSERVE_AUTH is hard-coded below (secret: true keeps it out of
+  #    the deploy log).
   - type: SetEnvironmentVariable
     with:
       name: OPENOBSERVE_ENDPOINT
@@ -227,7 +227,7 @@ steps:
   - type: SetEnvironmentVariable
     with:
       name: OPENOBSERVE_AUTH
-      value: '${env("OPENOBSERVE_AUTH")}'
+      value: 'Basic YWRtaW5AYWxsZW5pbnN0aXR1dGUub3JnOktpbnRvdW4tZGV2LTEh'
       secret: true
   # 5. (Re)create and start the Windows service. Runs after setx so the fresh service process
   #    inherits the new machine environment.
