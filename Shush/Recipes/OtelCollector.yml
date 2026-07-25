@@ -21,7 +21,7 @@ params:
   serverEndpoint:
     type: string
     label: OpenObserve OTLP base (http://host:5080/api/<org>/)
-    default: http://10.128.53.12:5080/api/default/
+    default: http://aind-behavior.corp.alleninstitute.org:5080/api/default/
 vars:
   installDir: C:\otel-collector
 steps:
@@ -227,7 +227,7 @@ steps:
   - type: SetEnvironmentVariable
     with:
       name: OPENOBSERVE_AUTH
-      value: 'Basic YWRtaW5AYWxsZW5pbnN0aXR1dGUub3JnOktpbnRvdW4tZGV2LTEh'
+      value: 'Basic YnJ1bm8uY3J1ekBhbGxlbmluc3RpdHV0ZS5vcmc6S2ludG91bi1kZXYtMSE='
       secret: true
   # 5. (Re)create and start the Windows service. Runs after setx so the fresh service process
   #    inherits the new machine environment.
