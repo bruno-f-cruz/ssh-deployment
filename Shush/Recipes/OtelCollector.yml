@@ -31,6 +31,9 @@ steps:
       commands:
         - "$ErrorActionPreference = 'Stop'"
         - "$ProgressPreference = 'SilentlyContinue'"
+        # Stop the service first if this is a re-deploy: a running collector holds
+        # otelcol-contrib.exe open, so the tar extract below can't overwrite it.
+        - 'if (Get-Service otel-collector -ErrorAction SilentlyContinue) { Stop-Service otel-collector -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }'
         - 'New-Item -ItemType Directory -Force "${vars.installDir}" | Out-Null'
         - 'New-Item -ItemType Directory -Force "${vars.installDir}\queue" | Out-Null'
         - '$tgz = Join-Path $env:TEMP "otelcol-contrib.tar.gz"'
