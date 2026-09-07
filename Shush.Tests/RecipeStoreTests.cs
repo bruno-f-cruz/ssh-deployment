@@ -37,6 +37,8 @@ public class BuiltinRecipesTests
     [Theory]
     [InlineData("VrForaging.yml")]
     [InlineData("VrForagingDev.yml")]
+    [InlineData("VrForagingExperiment.yml")]
+    [InlineData("VrForagingExperimentDev.yml")]
     public void Builtin_recipe_validates(string file)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Recipes", file);

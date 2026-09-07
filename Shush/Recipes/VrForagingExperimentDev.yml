@@ -1,24 +1,22 @@
-name: VrForaging
+name: VrForagingExperimentDev
 params:
-  tag:
+  ref:
     type: string
-    label: Git Tag
-    default: v1.1.2
+    label: Git Ref
+    default: main
 vars:
   repoRoot: C:/git
-  scheduleTime: ${random.time("17:50", "18:10")}
 steps:
   - id: clone
     type: GitClone
     with:
-      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Behavior.VrForaging
+      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
       rootPath: ${vars.repoRoot}
+      folderName: Aind.Experiment.VrForaging-dev
   - type: GitCheckout
     with:
       path: ${clone.clonedPath}
-      reference: ${params.tag}
-      cleanExceptions:
-        - .cache_manager.json
+      reference: ${params.ref}
   - type: RunScript
     with:
       workingDirectory: ${clone.clonedPath}
@@ -28,10 +26,10 @@ steps:
         - .\scripts\deploy.ps1
   - type: CreateBatchFile
     with:
-      remotePath: C:\Users\Public\Desktop\VrForaging.cmd
+      remotePath: C:\Users\Public\Desktop\DEV-VrForagingExperiment.cmd
       lines:
         - cd /d ${clone.clonedPath}
-        - uv run clabe run .\scripts\aind.py
+        - uv run clabe run main.py
   - type: WriteFile
     with:
       targetPath: ${clone.clonedPath}/local/clabe.yml
@@ -41,10 +39,16 @@ steps:
         allow_dirty: false
         skip_hardware_validation: false
 
+        # main.py's curriculum-bearing experiments (vr-foraging, vr-foraging-fip) resolve the
+        # curriculum package from the VrForaging submodule, not this repo's own root.
+        curriculum:
+          script: "curriculum run"
+          project_directory: "Aind.Behavior.VrForaging/src/packages/aind_behavior_vr_foraging_curricula"
+
         otel:
           enabled: true
           endpoint: http://127.0.0.1:4318
-          software_name: aind-behavior-vr-foraging
+          software_name: aind-experiment-vr-foraging-fip
 
         watchdog:
           project_name: "Cognitive flexibility in patch foraging"
@@ -53,7 +57,7 @@ steps:
           job_type: "vr_foraging_v2"
           transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
           s3_bucket: "default"
-          schedule_time: "${vars.scheduleTime}"
+          schedule_time: "18:00:00"
 
         dataverse:
           tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
