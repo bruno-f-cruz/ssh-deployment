@@ -26,8 +26,10 @@ public sealed class RecipeValidator
         foreach (var (name, value) in document.Vars)
             ValidateString(value, errors, document, earlierSteps: null, context: $"vars.{name}");
 
-        // Step ids referenceable so far, mapped to their descriptor (null when the type is unknown).
-        var earlierSteps = new Dictionary<string, StepDescriptor?>(StringComparer.Ordinal);
+        // Step ids referenceable so far, mapped to their descriptor (null when the type is unknown)
+        // and whether the step is enabled — a disabled step's outputs are never captured at
+        // runtime, so referencing them is flagged just like an unknown/forward reference.
+        var earlierSteps = new Dictionary<string, (StepDescriptor? Descriptor, bool Enabled)>(StringComparer.Ordinal);
 
         for (var i = 0; i < document.Steps.Count; i++)
         {
@@ -47,7 +49,7 @@ public sealed class RecipeValidator
                 ValidateValue(value, errors, document, earlierSteps, label);
 
             if (step.Id is not null)
-                earlierSteps[step.Id] = descriptor;
+                earlierSteps[step.Id] = (descriptor, step.IsEnabled);
         }
 
         if (errors.Count > 0)
@@ -69,7 +71,7 @@ public sealed class RecipeValidator
 
     private void ValidateValue(
         object? value, List<string> errors, RecipeDocument document,
-        IReadOnlyDictionary<string, StepDescriptor?> earlierSteps, string context)
+        IReadOnlyDictionary<string, (StepDescriptor? Descriptor, bool Enabled)> earlierSteps, string context)
     {
         switch (value)
         {
@@ -89,7 +91,7 @@ public sealed class RecipeValidator
 
     private void ValidateString(
         string value, List<string> errors, RecipeDocument document,
-        IReadOnlyDictionary<string, StepDescriptor?>? earlierSteps, string context)
+        IReadOnlyDictionary<string, (StepDescriptor? Descriptor, bool Enabled)>? earlierSteps, string context)
     {
         IReadOnlyList<ReferenceResolver.ReferenceToken> tokens;
         try
@@ -130,10 +132,12 @@ public sealed class RecipeValidator
                 default:
                     if (inVars)
                         errors.Add($"{context}: a var cannot reference step output '{token.Namespace}.{token.Member}'.");
-                    else if (!earlierSteps!.TryGetValue(token.Namespace, out var stepDescriptor))
+                    else if (!earlierSteps!.TryGetValue(token.Namespace, out var earlier))
                         errors.Add($"{context}: unknown or forward reference to step '{token.Namespace}'.");
-                    else if (stepDescriptor is not null && stepDescriptor.Outputs.All(o => o.Name != token.Member))
+                    else if (earlier.Descriptor is not null && earlier.Descriptor.Outputs.All(o => o.Name != token.Member))
                         errors.Add($"{context}: step '{token.Namespace}' has no output '{token.Member}'.");
+                    else if (!earlier.Enabled)
+                        errors.Add($"{context}: step '{token.Namespace}' is disabled, so it never produces '{token.Member}'.");
                     break;
             }
         }

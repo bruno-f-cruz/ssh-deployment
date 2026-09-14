@@ -36,7 +36,7 @@ public class SerializedRecipeTests
         Assert.True(e.MoveNext());
         e.Current.CaptureOutputs(); // simulate clone having run
         Assert.True(e.MoveNext());
-        var checkout = e.Current.Step;
+        var checkout = e.Current.Step!;
 
         var path = checkout.GetType().GetProperty("Path")!.GetValue(checkout);
         Assert.Equal(@"C:/git\y-dev", path);
@@ -68,7 +68,7 @@ public class SerializedRecipeTests
         e.MoveNext();
         e.Current.CaptureOutputs();
         e.MoveNext();
-        var reference = e.Current.Step.GetType().GetProperty("Reference")!.GetValue(e.Current.Step);
+        var reference = e.Current.Step!.GetType().GetProperty("Reference")!.GetValue(e.Current.Step);
         Assert.Equal("v2.0.0", reference);
     }
 
@@ -105,8 +105,36 @@ public class SerializedRecipeTests
 
         using var e = recipe.CreatePlan().Steps().GetEnumerator();
         Assert.True(e.MoveNext());
-        var path = e.Current.Step.GetType().GetProperty("Path")!.GetValue(e.Current.Step);
+        var path = e.Current.Step!.GetType().GetProperty("Path")!.GetValue(e.Current.Step);
         Assert.Equal("C:/x", path);
+    }
+
+    [Fact]
+    public void Disabled_step_is_skipped_without_being_bound()
+    {
+        var recipe = Recipe("""
+            name: T
+            steps:
+              - id: clone
+                type: GitClone
+                enabled: false
+                with:
+                  repositoryUrl: https://x/y
+                  rootPath: C:/git
+              - type: DeleteDirectory
+                with:
+                  path: C:/tmp
+            """);
+
+        using var e = recipe.CreatePlan().Steps().GetEnumerator();
+        Assert.True(e.MoveNext());
+        Assert.False(e.Current.Enabled);
+        Assert.Null(e.Current.Step);
+        e.Current.CaptureOutputs(); // no-op; must not throw even though it's never invoked by a runner
+
+        Assert.True(e.MoveNext());
+        Assert.True(e.Current.Enabled);
+        Assert.NotNull(e.Current.Step);
     }
 
     [Fact]

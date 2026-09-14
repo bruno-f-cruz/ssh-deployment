@@ -645,6 +645,10 @@ input[type=text], input:not([type]), select, .machines-table input {
     margin-bottom: 0.5rem;
 }
 
+.step-row--disabled { opacity: 0.55; }
+.step-row--disabled .step-row__type { text-decoration: line-through; }
+.step-row__eye--off { color: #ef4444; }
+
 .step-row__type { font-weight: 600; }
 .step-row__spacer { flex: 1 1 auto; }
 .step-inputs { display: grid; gap: 0.5rem; }

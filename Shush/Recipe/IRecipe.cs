@@ -21,4 +21,5 @@ public interface IRecipeExecutionPlan
     IEnumerable<PlannedStep> Steps();
 }
 
-public sealed record PlannedStep(string DisplayName, string? Id, IRecipeStep Step, Action CaptureOutputs);
+/// <param name="Step">Null when <paramref name="Enabled"/> is false — a disabled step is never resolved or bound.</param>
+public sealed record PlannedStep(string DisplayName, string? Id, IRecipeStep? Step, bool Enabled, Action CaptureOutputs);
