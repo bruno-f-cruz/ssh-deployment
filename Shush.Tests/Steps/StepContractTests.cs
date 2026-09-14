@@ -17,8 +17,22 @@ public class StepContractTests
     [InlineData("CreateShortcut")]
     [InlineData("DeleteDirectory")]
     [InlineData("SetEnvironmentVariable")]
+    [InlineData("Reboot")]
     public void Step_is_registered(string typeName) =>
         Assert.NotNull(_registry.Get(typeName));
+
+    [Fact]
+    public void Reboot_defaults_delay_and_binds_override()
+    {
+        var descriptor = _registry.Get("Reboot");
+
+        var defaulted = (Shush.Recipe.Steps.RebootStep)StepBinder.Bind(descriptor, new Dictionary<string, object?>());
+        Assert.Equal(5, defaulted.DelaySeconds);
+
+        var overridden = (Shush.Recipe.Steps.RebootStep)StepBinder.Bind(
+            descriptor, new Dictionary<string, object?> { ["delaySeconds"] = 30 });
+        Assert.Equal(30, overridden.DelaySeconds);
+    }
 
     [Fact]
     public void WriteFile_content_is_a_multiline_text_input()
