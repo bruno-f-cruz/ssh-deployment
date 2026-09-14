@@ -266,7 +266,7 @@
                 {
                     @foreach (var (step, index) in _session.Document.Steps.Select((s, i) => (s, i)))
                     {
-                        <div class="step-row @(_dragIndex == index ? "step-row--dragging" : "") @(_dragOverIndex == index ? "step-row--dragover" : "")"
+                        <div class="step-row @(_dragIndex == index ? "step-row--dragging" : "") @(_dragOverIndex == index ? "step-row--dragover" : "") @(step.IsEnabled ? "" : "step-row--disabled")"
                              @ondragover:preventDefault="true"
                              @ondrop:preventDefault="true"
                              @ondrop="() => OnStepDrop(index)"
@@ -282,12 +282,21 @@
                                 {
                                     <span class="text-danger">(unknown step type)</span>
                                 }
+                                @if (!step.IsEnabled)
+                                {
+                                    <span class="text-muted">(disabled)</span>
+                                }
                                 @if (!string.IsNullOrEmpty(step.Id))
                                 {
                                     <span class="step-row__summary">#@step.Id</span>
                                 }
                                 <span class="help-icon" title="@StepTooltip(step.Type)">&#9432;</span>
                                 <span class="step-row__spacer"></span>
+                                <button type="button" class="btn btn--icon @(step.IsEnabled ? "" : "step-row__eye--off")"
+                                        @onclick="() => ToggleStepEnabled(step)"
+                                        aria-pressed="@(!step.IsEnabled)"
+                                        aria-label="@(step.IsEnabled ? "Disable step" : "Enable step")"
+                                        title="@(step.IsEnabled ? "Disable step (skip it without removing it)" : "Enable step")">&#128065;</button>
                                 <button type="button" class="btn btn--icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)" aria-label="Move up">&#8593;</button>
                                 <button type="button" class="btn btn--icon" disabled="@(index == _session.Document.Steps.Count - 1)" @onclick="() => MoveStep(index, 1)" aria-label="Move down">&#8595;</button>
                                 <button type="button" class="btn btn--icon" @onclick="() => RemoveStep(index)" aria-label="Remove step">&#10005;</button>
@@ -906,6 +915,17 @@
     {
         var value = e.Value?.ToString();
         step.Id = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        Revalidate();
+    }
+
+    /// <summary>
+    /// Flips the step's enabled state. Re-enabling clears the field back to null (rather than
+    /// setting it true) so an enabled step's YAML stays clean — only a disabled step gets an
+    /// explicit `enabled: false` line.
+    /// </summary>
+    private void ToggleStepEnabled(StepSpec step)
+    {
+        step.Enabled = step.IsEnabled ? false : null;
         Revalidate();
     }
 

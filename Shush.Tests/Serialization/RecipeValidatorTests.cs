@@ -82,6 +82,24 @@ public class RecipeValidatorTests
     }
 
     [Fact]
+    public void Reference_to_disabled_step_output_is_reported()
+    {
+        var doc = Doc(
+            new StepSpec { Id = "clone", Type = "GitClone", Enabled = false, With = new() { ["repositoryUrl"] = "u", ["rootPath"] = "C:/git" } },
+            new StepSpec { Type = "GitCheckout", With = new() { ["path"] = "${clone.clonedPath}", ["reference"] = "main" } });
+        var ex = Assert.Throws<RecipeValidationException>(() => Validator.Validate(doc));
+        Assert.Contains(ex.Errors, e => e.Contains("clone") && e.Contains("disabled"));
+    }
+
+    [Fact]
+    public void Disabled_step_is_still_validated_on_its_own_terms()
+    {
+        var ex = Assert.Throws<RecipeValidationException>(
+            () => Validator.Validate(Doc(new StepSpec { Type = "GitClone", Enabled = false, With = new() { ["repositoryUrl"] = "u" } })));
+        Assert.Contains(ex.Errors, e => e.Contains("rootPath"));
+    }
+
+    [Fact]
     public void Unknown_function_is_reported()
     {
         var doc = new RecipeDocument

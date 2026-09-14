@@ -74,6 +74,16 @@ public sealed class SerializedRecipe : IRecipe
         {
             foreach (var spec in _document.Steps)
             {
+                var displayName = spec.Id ?? spec.Type;
+
+                // A disabled step is never resolved or bound — it can't reference outputs that
+                // will never be captured, and there's nothing useful to construct.
+                if (!spec.IsEnabled)
+                {
+                    yield return new PlannedStep(displayName, spec.Id, Step: null, Enabled: false, CaptureOutputs: () => { });
+                    continue;
+                }
+
                 var descriptor = _registry.Get(spec.Type);
                 var resolvedWith = ReferenceResolver.ResolveWith(spec.With, _scope, _functions);
                 var step = StepBinder.Bind(descriptor, resolvedWith);
@@ -91,7 +101,7 @@ public sealed class SerializedRecipe : IRecipe
                     _scope.SetStepOutputs(id, outputs);
                 }
 
-                yield return new PlannedStep(spec.Id ?? spec.Type, id, step, CaptureOutputs);
+                yield return new PlannedStep(displayName, id, step, Enabled: true, CaptureOutputs);
             }
         }
     }

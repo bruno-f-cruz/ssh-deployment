@@ -58,12 +58,20 @@ public class RecipeRunner
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var stepName = planned.DisplayName;
+
+                    if (!planned.Enabled)
+                    {
+                        _logger.LogInformation("[{BoxId}] Skipping step: {Step} (disabled).", boxId, stepName);
+                        _display?.ReportStep(boxId, success: true, $"{stepName} (skipped)");
+                        continue;
+                    }
+
                     _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, stepName);
                     _display?.ReportStepStart(boxId, stepName);
 
                     try
                     {
-                        await planned.Step.ExecuteAsync(context, cancellationToken);
+                        await planned.Step!.ExecuteAsync(context, cancellationToken);
                         planned.CaptureOutputs();
                         _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
                         _display?.ReportStep(boxId, success: true, stepName);

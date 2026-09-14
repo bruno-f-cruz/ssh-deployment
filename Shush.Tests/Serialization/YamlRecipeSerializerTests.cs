@@ -50,4 +50,27 @@ public class YamlRecipeSerializerTests
         Assert.Equal(doc.Name, again.Name);
         Assert.Equal(doc.Steps.Count, again.Steps.Count);
     }
+
+    [Fact]
+    public void Step_is_enabled_by_default_and_omitted_from_yaml()
+    {
+        var doc = YamlRecipeSerializer.Deserialize(Yaml);
+
+        Assert.True(doc.Steps[0].IsEnabled);
+        Assert.Null(doc.Steps[0].Enabled);
+        Assert.DoesNotContain("enabled", YamlRecipeSerializer.Serialize(doc));
+    }
+
+    [Fact]
+    public void Disabled_step_roundtrips_explicitly()
+    {
+        var doc = YamlRecipeSerializer.Deserialize(Yaml);
+        doc.Steps[0].Enabled = false;
+
+        var serialized = YamlRecipeSerializer.Serialize(doc);
+        Assert.Contains("enabled: false", serialized);
+
+        var again = YamlRecipeSerializer.Deserialize(serialized);
+        Assert.False(again.Steps[0].IsEnabled);
+    }
 }

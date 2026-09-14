@@ -204,6 +204,7 @@ step catalog with inputs and outputs.
 | `CreateShortcut` | `cmdPath`, `shortcutDirectory`, `shortName` | — |
 | `DeleteDirectory` | `path` | — |
 | `SetEnvironmentVariable` | `name`, `value`, `scope?`, `secret?` | — |
+| `Reboot` | `delaySeconds?` | — |
 
 Adding a step type is: implement `IRecipeStep`, annotate it with `[Step]`/`[Input]`/`[Output]`, and
 it appears automatically in the CLI, validation, and the web editor's palette and tooltips.

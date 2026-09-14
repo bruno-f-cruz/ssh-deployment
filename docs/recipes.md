@@ -28,7 +28,24 @@ steps:                       # ordered; each has a type and its inputs under `wi
     with:
       path: ${clone.clonedPath}
       reference: ${params.tag}
+  - type: RunScript           # temporarily switched off — stays in the recipe, doesn't run
+    enabled: false
+    with:
+      commands: ["Restart-Computer -Force"]
 ```
+
+## Enabling/disabling steps
+
+Every step runs unless it's explicitly turned off with `enabled: false`. Steps are enabled by
+default, so `enabled` is omitted from YAML entirely in the common case — only a disabled step
+gets the explicit line (and the web editor's per-step eye toggle only writes it when you turn a
+step off).
+
+A disabled step is skipped at deploy time (logged and reported as `<name> (skipped)`, counted as
+a successful step for progress purposes) rather than removed, so re-enabling it later doesn't
+lose its configuration. Because it never runs, its outputs are never captured — a later step
+referencing `${disabledId.output}` fails validation up front, same as an unknown or forward
+reference.
 
 ## References: `${...}`
 
@@ -84,6 +101,7 @@ with:
 | `CreateShortcut` | `cmdPath`*, `shortcutDirectory`*, `shortName`* | — |
 | `DeleteDirectory` | `path`* | — |
 | `SetEnvironmentVariable` | `name`*, `value`*, `scope`, `secret` (bool) | — |
+| `Reboot` | `delaySeconds` (default 5) | — |
 
 The catalog is populated by reflection over `[Step]`-annotated `IRecipeStep` types
 (`StepRegistry`), so adding a step type is: implement `IRecipeStep`, annotate it with
