@@ -31,6 +31,19 @@ public sealed class RecipeEditSession
         return new RecipeEditSession(name, document, baseDir, userDir, new RecipeValidator(registry, functions));
     }
 
+    /// <summary>
+    /// Starts a brand-new recipe — nothing is written to disk until <see cref="Save"/> is called.
+    /// Callers should check <see cref="Exists"/> first to avoid silently shadowing another recipe
+    /// of the same name.
+    /// </summary>
+    public static RecipeEditSession CreateNew(
+        string name, string baseDir, string userDir, StepRegistry registry, FunctionLibrary functions) =>
+        new(name, new RecipeDocument { Name = name }, baseDir, userDir, new RecipeValidator(registry, functions));
+
+    /// <summary>True if a recipe (built-in or user) already claims this name.</summary>
+    public static bool Exists(string name, string baseDir, string userDir) =>
+        LoadByName(name, userDir) is not null || LoadByName(name, baseDir) is not null;
+
     public string ToYaml() => YamlRecipeSerializer.Serialize(Document);
 
     public IReadOnlyList<string> Validate()
@@ -91,6 +104,9 @@ public sealed class RecipeEditSession
     }
 
     public bool HasUserCopy() => File.Exists(UserPath());
+
+    /// <summary>False for a recipe created via <see cref="CreateNew"/> — there's nothing to reset to.</summary>
+    public bool HasBaseCopy() => LoadByName(RecipeName, _baseDir) is not null;
 
     private string UserPath() =>
         Path.Combine(_userDir, string.Concat(RecipeName.Split(Path.GetInvalidFileNameChars())) + ".yml");

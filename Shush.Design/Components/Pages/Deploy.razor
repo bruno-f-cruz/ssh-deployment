@@ -38,6 +38,20 @@
                 }
             </select>
         </div>
+        @if (_creatingRecipe)
+        {
+            <form class="inline-add" @onsubmit="CreateRecipe" @onsubmit:preventDefault="true">
+                <label for="new-recipe-name" class="visually-hidden">New recipe name</label>
+                <input id="new-recipe-name" placeholder="Recipe name" autocomplete="off"
+                       @bind="_newRecipeName" @bind:event="oninput" />
+                <button type="submit" class="btn btn--secondary">Create</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _creatingRecipe = false">Cancel</button>
+            </form>
+        }
+        else
+        {
+            <button type="button" class="btn btn--ghost" @onclick="StartCreateRecipe">＋ New recipe</button>
+        }
         <label class="btn btn--ghost file-btn">
             Import recipe
             <InputFile OnChange="OnRecipeUpload" accept=".yml,.yaml" class="visually-hidden" />
@@ -228,7 +242,10 @@
                     <button type="button" class="btn @(_rawMode ? "btn--secondary" : "btn--ghost")" @onclick="() => SetRawMode(true)">Raw YAML</button>
                     <span class="spacer"></span>
                     <button type="button" class="btn btn--ghost" @onclick="ExportRecipe">Export</button>
-                    <button type="button" class="btn btn--ghost" @onclick="ResetRecipe">Reset to default</button>
+                    @if (_session.HasBaseCopy())
+                    {
+                        <button type="button" class="btn btn--ghost" @onclick="ResetRecipe">Reset to default</button>
+                    }
                     <button type="button" class="btn btn--secondary" disabled="@(_validationErrors.Count > 0)" @onclick="SaveRecipe">Save recipe</button>
                 </div>
 
@@ -535,6 +552,8 @@
 
     private List<string> _recipeNames = [];
     private RecipeEditSession? _session;
+    private bool _creatingRecipe;
+    private string _newRecipeName = string.Empty;
     private List<RecipeField> _fields = [];
     private readonly Dictionary<string, string> _paramValues = new();
     private IReadOnlyList<string> _validationErrors = [];
@@ -820,6 +839,75 @@
         RebuildFields();
         Revalidate();
     }
+
+    private void StartCreateRecipe()
+    {
+        _errorMessage = null;
+        _newRecipeName = string.Empty;
+        _creatingRecipe = true;
+    }
+
+    /// <summary>
+    /// A blank recipe has no params/vars UI in the structured editor (there's nowhere to add
+    /// one), so a new recipe opens straight into Raw YAML with a commented scaffold — the only
+    /// place those can actually be authored. Nothing is written to disk until "Save recipe".
+    /// </summary>
+    private void CreateRecipe()
+    {
+        _errorMessage = null;
+        var name = _newRecipeName.Trim();
+
+        if (string.IsNullOrEmpty(name))
+        {
+            _errorMessage = "Enter a name for the new recipe.";
+            return;
+        }
+
+        if (RecipeEditSession.Exists(name, Paths.BaseDir, Paths.UserDir))
+        {
+            _errorMessage = $"A recipe named '{name}' already exists.";
+            return;
+        }
+
+        _session = RecipeEditSession.CreateNew(name, Paths.BaseDir, Paths.UserDir, Registry, Functions);
+        _machines = [];
+        _progress = null;
+        _expanded.Clear();
+        RebuildFields();
+        Revalidate();
+
+        _rawYaml = ScaffoldYaml(name);
+        _rawMode = true;
+        _rawNeedsHighlightInit = true;
+
+        _creatingRecipe = false;
+    }
+
+    private static string ScaffoldYaml(string name) => $$"""
+        name: {{name}}
+
+        # Uncomment and fill in as needed — see docs/recipes.md for the full reference.
+
+        # params:                       # user-editable values, surfaced as form fields
+        #   tag:
+        #     type: string               # string | dropdown | collection
+        #     label: Git Tag
+        #     default: v1.2.0rc1
+
+        # vars:                         # internal values, resolved once before any step runs
+        #   repoRoot: C:/git
+
+        # steps:                        # ordered; each has a type and its inputs under `with`
+        #   - id: clone                 # optional; required only if later steps reference its outputs
+        #     type: GitClone
+        #     with:
+        #       repositoryUrl: https://github.com/<org>/<repo>
+        #       rootPath: ${vars.repoRoot}
+        #   - type: GitCheckout
+        #     with:
+        #       path: ${clone.clonedPath}
+        #       reference: ${params.tag}
+        """;
 
     private void RebuildFields()
     {

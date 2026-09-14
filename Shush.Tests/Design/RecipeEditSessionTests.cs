@@ -71,4 +71,41 @@ public class RecipeEditSessionTests
         Assert.True(ok);
         Assert.Empty(errors);
     }
+
+    [Fact]
+    public void CreateNew_starts_a_blank_document_and_writes_nothing_until_saved()
+    {
+        var baseDir = TestDir.New();
+        var userDir = TestDir.New();
+        var session = RecipeEditSession.CreateNew("Brand New", baseDir, userDir, Registry, FunctionLibrary.Default);
+
+        Assert.Equal("Brand New", session.Document.Name);
+        Assert.Empty(session.Document.Steps);
+        Assert.False(session.HasUserCopy());
+        Assert.False(session.HasBaseCopy());
+        Assert.False(File.Exists(Path.Combine(userDir, "Brand New.yml")));
+
+        session.Save();
+
+        Assert.True(File.Exists(Path.Combine(userDir, "Brand New.yml")));
+    }
+
+    [Fact]
+    public void Exists_finds_a_name_in_either_directory()
+    {
+        var baseDir = TestDir.WithFiles(("VrForaging.yml", "name: VrForaging\nsteps: []"));
+        var userDir = TestDir.WithFiles(("Mine.yml", "name: Mine\nsteps: []"));
+
+        Assert.True(RecipeEditSession.Exists("VrForaging", baseDir, userDir));
+        Assert.True(RecipeEditSession.Exists("Mine", baseDir, userDir));
+        Assert.False(RecipeEditSession.Exists("Nope", baseDir, userDir));
+    }
+
+    [Fact]
+    public void HasBaseCopy_is_true_only_for_a_recipe_opened_from_base()
+    {
+        var baseDir = TestDir.WithFiles(("VrForaging.yml", "name: VrForaging\nsteps: []"));
+        Assert.True(Open(baseDir, TestDir.New()).HasBaseCopy());
+        Assert.False(RecipeEditSession.CreateNew("New", baseDir, TestDir.New(), Registry, FunctionLibrary.Default).HasBaseCopy());
+    }
 }

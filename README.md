@@ -80,10 +80,13 @@ the currently executing step.
 A Blazor Server app for running recipes from a browser instead of the CLI:
 
 - **Sign in** with your SSH username/password (see [Authentication](#authentication-read-this-first)).
+- **New recipe** starts a blank one from scratch (just pick a name) — it opens straight into Raw
+  YAML with a commented scaffold, since params/vars can currently only be authored there. Nothing
+  is written to disk until you hit **Save recipe**. Or **Import recipe** an existing `.yml`.
 - Pick a recipe, set its **Parameters**, and edit its **Steps** — a structured editor
   (add/remove/reorder steps, per-input fields, drag-to-reorder, tooltips) with a **Raw YAML**
   toggle for direct editing. Editing a built-in recipe saves a **user copy** (the shipped recipe
-  stays pristine); "Reset to default" removes it. Import/export recipes as `.yml`.
+  stays pristine); "Reset to default" removes it (only shown for a recipe that has one). Import/export recipes as `.yml`.
 - Add/remove target machines (or bulk-load them from a YAML file) and **Deploy** with a live
   per-machine progress view. Deploy is disabled until you're signed in and the recipe is valid.
 
