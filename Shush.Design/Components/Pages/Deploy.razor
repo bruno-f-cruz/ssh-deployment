@@ -883,30 +883,39 @@
         _creatingRecipe = false;
     }
 
+    // NOTE: every commented example line below is a bare '#' immediately followed by the real
+    // YAML text — no space after it. That's deliberate: deleting just the leading '#' (the
+    // natural way to "uncomment" a line by hand) then reproduces correctly indented YAML. A "# "
+    // (hash + space) prefix looks nicer, but deleting only the '#' leaves a stray leading space
+    // that breaks YAML's block-mapping indentation — a real trap we hit once already.
     private static string ScaffoldYaml(string name) => $$"""
         name: {{name}}
 
-        # Uncomment and fill in as needed — see docs/recipes.md for the full reference.
+        # Fill in what you need below — delete the leading '#' from each line you use (nothing
+        # else) and it's valid, correctly indented YAML. See docs/recipes.md for the full
+        # reference, including the step catalog: each step type has its own `with` inputs, so
+        # swapping a step's `type` means swapping its `with` keys too — check the catalog (or the
+        # Structured view's tooltips) rather than reusing another step's inputs as-is.
 
-        # params:                       # user-editable values, surfaced as form fields
-        #   tag:
-        #     type: string               # string | dropdown | collection
-        #     label: Git Tag
-        #     default: v1.2.0rc1
+        #params:
+        #  tag:
+        #    type: string
+        #    label: Git Tag
+        #    default: v1.2.0rc1
 
-        # vars:                         # internal values, resolved once before any step runs
-        #   repoRoot: C:/git
+        #vars:
+        #  repoRoot: C:/git
 
-        # steps:                        # ordered; each has a type and its inputs under `with`
-        #   - id: clone                 # optional; required only if later steps reference its outputs
-        #     type: GitClone
-        #     with:
-        #       repositoryUrl: https://github.com/<org>/<repo>
-        #       rootPath: ${vars.repoRoot}
-        #   - type: GitCheckout
-        #     with:
-        #       path: ${clone.clonedPath}
-        #       reference: ${params.tag}
+        #steps:
+        #  - id: clone
+        #    type: GitClone
+        #    with:
+        #      repositoryUrl: https://github.com/<org>/<repo>
+        #      rootPath: ${vars.repoRoot}
+        #  - type: GitCheckout
+        #    with:
+        #      path: ${clone.clonedPath}
+        #      reference: ${params.tag}
         """;
 
     private void RebuildFields()
@@ -1141,6 +1150,14 @@
     private void SaveRecipe()
     {
         if (_session is null) return;
+
+        // In Raw YAML mode the textarea — not the last-applied Document — is what the user
+        // thinks they're saving. Apply it first so Save persists what's actually on screen;
+        // if it doesn't parse/validate, stop here (errors are already shown via _validationErrors)
+        // rather than silently saving the stale Document underneath it.
+        if (_rawMode && !ApplyRawYamlInternal())
+            return;
+
         try
         {
             _session.Save();
@@ -1174,6 +1191,11 @@
     private async Task ExportRecipe()
     {
         if (_session is null) return;
+
+        // Same staleness risk as Save: export what's on screen, not a stale parsed Document.
+        if (_rawMode && !ApplyRawYamlInternal())
+            return;
+
         await JS.InvokeVoidAsync("downloadFile", $"{_session.RecipeName}.yml", _session.ToYaml(), "text/yaml");
     }
 
