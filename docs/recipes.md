@@ -98,7 +98,7 @@ with:
 | `WriteFile` | `content`*, `targetPath`* | — |
 | `CreateBatchFile` | `remotePath`*, `lines`* (list) | — |
 | `CopyFiles` | `sourceDirectory`*, `remoteBaseDirectory`* | — |
-| `CreateShortcut` | `cmdPath`*, `shortcutDirectory`*, `shortName`* | — |
+| `CreateShortcut` | `cmdPath`*, `shortcutDirectory`*, `shortName`*, `iconPath` | — |
 | `DeleteDirectory` | `path`* | — |
 | `SetEnvironmentVariable` | `name`*, `value`*, `scope`, `secret` (bool) | — |
 | `Reboot` | `delaySeconds` (default 5) | — |

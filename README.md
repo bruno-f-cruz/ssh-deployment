@@ -204,7 +204,7 @@ step catalog with inputs and outputs.
 | `WriteFile` | `content`, `targetPath` | — |
 | `CreateBatchFile` | `remotePath`, `lines[]` | — |
 | `CopyFiles` | `sourceDirectory`, `remoteBaseDirectory` | — |
-| `CreateShortcut` | `cmdPath`, `shortcutDirectory`, `shortName` | — |
+| `CreateShortcut` | `cmdPath`, `shortcutDirectory`, `shortName`, `iconPath?` | — |
 | `DeleteDirectory` | `path` | — |
 | `SetEnvironmentVariable` | `name`, `value`, `scope?`, `secret?` | — |
 | `Reboot` | `delaySeconds?` | — |

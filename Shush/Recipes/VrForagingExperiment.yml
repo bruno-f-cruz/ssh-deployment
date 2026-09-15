@@ -24,12 +24,12 @@ steps:
         - "$ErrorActionPreference = 'Stop'"
         - "$ProgressPreference = 'SilentlyContinue'"
         - .\scripts\deploy.ps1
-  - type: CreateBatchFile
+  - type: CreateShortcut
     with:
-      remotePath: C:\Users\Public\Desktop\VrForagingExperiment.cmd
-      lines:
-        - cd /d ${clone.clonedPath}
-        - uv run clabe run main.py
+      cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
+      shortcutDirectory: C:\Users\Public\Desktop
+      shortName: VrForagingExperiment
+      iconPath: ${clone.clonedPath}/assets/icon.ico
   - type: WriteFile
     with:
       targetPath: ${clone.clonedPath}/local/clabe.yml
