@@ -16,16 +16,10 @@ public class CleanDesktopStep : IRecipeStep
         var patterns = string.Join(", ", Exclude.Select(p => $"'{Escape(p)}'"));
         var dryRun = DryRun ? "$true" : "$false";
 
-        // Written multi-line for readability, but the remote exec shell (cmd.exe) truncates
-        // its command line at the first raw newline — so this has to travel to MachineContext
-        // as a single physical line, with ';' standing in for the line breaks below.
         string script = $$"""
             $owner = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
             if (-not $owner) { throw 'No interactive user is currently logged in on this machine.' }
             $username = $owner.Split('\')[-1]
-            # Explorer shows "the Desktop" as a merge of the per-user folder and the shared
-            # Public one (e.g. machine-wide installs like Chrome put their icon in Public), so
-            # both have to be scanned for this step to match what's actually visible on screen.
             $desktopPaths = @("C:\Users\$username\Desktop", 'C:\Users\Public\Desktop') | Where-Object { Test-Path $_ }
             if ($desktopPaths.Count -eq 0) { throw "No desktop path found for user '$username'." }
 
