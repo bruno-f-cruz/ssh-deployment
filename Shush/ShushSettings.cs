@@ -9,4 +9,7 @@ public sealed class ShushSettings
 
     // Shush.Design only
     public string DataDirectoryName { get; set; } = ".shush";
+
+    /// <summary>Path the app is served under behind a reverse proxy (e.g. "/shush"). Empty means root.</summary>
+    public string BasePath { get; set; } = "";
 }

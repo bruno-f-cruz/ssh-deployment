@@ -1,10 +1,11 @@
-﻿<!DOCTYPE html>
+﻿@using Microsoft.AspNetCore.Http
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    <base href="@BaseHref" />
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Shush.Design.styles.css"]" />
@@ -21,3 +22,11 @@
 </body>
 
 </html>
+
+@code {
+    // Set when the app runs behind a reverse proxy via app.UsePathBase (see Program.cs); empty
+    // at the root, so this is a no-op for every deployment that doesn't set BasePath.
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    private string BaseHref => $"{HttpContext.Request.PathBase}/";
+}

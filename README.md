@@ -50,6 +50,7 @@ There's no `Shush__` prefix — these bind directly at the configuration root.
 | `MachineRegistryUrl` | `http://mpe-computers/v2.0` | both | Endpoint used to resolve machine names to hostnames |
 | `MachineRegistryCacheSeconds` | `60` | both | How long the registry response is cached in memory |
 | `DataDirectoryName` | `.shush` | Shush.Design | Folder (next to the app) holding autosaved state, user recipes, and logs |
+| `BasePath` | *(none, root)* | Shush.Design | Serves the app under a subpath (e.g. `/shush`) behind a reverse proxy that doesn't strip the prefix. Leave unset for root hosting. |
 
 ## Usage (CLI)
 
@@ -145,6 +146,15 @@ docker run -d -p 5036:8080 \
 ```
 
 Then open `http://<vm-host>:5036`. Put it behind a TLS-terminating reverse proxy for real use.
+
+If the host already runs a shared Traefik reverse proxy on a Docker network (e.g. the pattern used
+by `aind-behavior-vm-infra`), use `docker-compose.proxy.yml` instead of `docker-compose.yml` — it
+joins that network, adds the Traefik routing labels, and sets `BasePath` so the app serves
+correctly under a subpath instead of publishing its own direct host port:
+
+```bash
+docker compose -f docker-compose.proxy.yml up -d --build
+```
 
 One thing to verify for your environment: the container needs network access to `mpe-computers`
 (the machine registry) and to each target rig over SSH — on a VM this usually means the VM's normal

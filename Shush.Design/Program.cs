@@ -58,6 +58,16 @@ builder.Services.AddSingleton(new DeployStateStore(
 
 var app = builder.Build();
 
+// Lets the app be served under a subpath behind a reverse proxy (e.g. Traefik PathPrefix
+// routing without stripping the prefix) — <base href> is derived from this at render time.
+// UseRouting must come right after UsePathBase, or routes (and antiforgery, which depends on
+// the matched endpoint) see the pre-rewrite path: https://learn.microsoft.com/aspnet/core/blazor/host-and-deploy/app-base-path
+if (!string.IsNullOrEmpty(shushSettings.BasePath))
+{
+    app.UsePathBase(shushSettings.BasePath);
+    app.UseRouting();
+}
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
