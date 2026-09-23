@@ -56,7 +56,20 @@ public class MachineContext : IAsyncDisposable
     /// omitted from the failure log) so secrets never reach the deploy log. When null, the
     /// commands are logged verbatim as before.
     /// </param>
-    public Task RunCommandsAsync(string[] commands, CancellationToken ct = default, string? logAs = null)
+    public Task RunCommandsAsync(string[] commands, CancellationToken ct = default, string? logAs = null) =>
+        ExecuteAsync(commands, ct, logAs);
+
+    /// <summary>
+    /// Same as <see cref="RunCommandsAsync"/>, but returns the command's stdout so the caller can
+    /// parse and log a structured report (e.g. a dry-run preview) instead of the raw text.
+    /// </summary>
+    public Task<string> RunCommandsWithOutputAsync(string[] commands, CancellationToken ct = default, string? logAs = null) =>
+        ExecuteAsync(commands, ct, logAs);
+
+    /// <summary>Lets a step add its own line to the deploy log (e.g. a dry-run report entry).</summary>
+    public void Log(string message) => _logger.LogInformation("[{BoxId}] {Message}", BoxId, message);
+
+    private Task<string> ExecuteAsync(string[] commands, CancellationToken ct, string? logAs)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -100,7 +113,7 @@ public class MachineContext : IAsyncDisposable
             display,
             result);
 
-        return Task.CompletedTask;
+        return Task.FromResult(result);
     }
 
     public async Task UploadFileAsync(FileInfo localFile, string remotePath, CancellationToken ct = default)

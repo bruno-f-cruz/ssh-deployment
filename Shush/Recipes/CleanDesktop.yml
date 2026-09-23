@@ -1,0 +1,7 @@
+name: CleanDesktop
+steps:
+- type: CleanDesktop
+  with:
+    exclude: []
+    dryRun: true
+  isEnabled: true

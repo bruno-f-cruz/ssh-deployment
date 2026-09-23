@@ -18,8 +18,24 @@ public class StepContractTests
     [InlineData("DeleteDirectory")]
     [InlineData("SetEnvironmentVariable")]
     [InlineData("Reboot")]
+    [InlineData("CleanDesktop")]
     public void Step_is_registered(string typeName) =>
         Assert.NotNull(_registry.Get(typeName));
+
+    [Fact]
+    public void CleanDesktop_defaults_to_dry_run_with_no_exclusions()
+    {
+        var descriptor = _registry.Get("CleanDesktop");
+
+        var defaulted = (Shush.Recipe.Steps.CleanDesktopStep)StepBinder.Bind(descriptor, new Dictionary<string, object?>());
+        Assert.True(defaulted.DryRun);
+        Assert.Empty(defaulted.Exclude);
+
+        var overridden = (Shush.Recipe.Steps.CleanDesktopStep)StepBinder.Bind(
+            descriptor, new Dictionary<string, object?> { ["dryRun"] = false, ["exclude"] = new List<object?> { "DEV-*" } });
+        Assert.False(overridden.DryRun);
+        Assert.Equal(["DEV-*"], overridden.Exclude);
+    }
 
     [Fact]
     public void Reboot_defaults_delay_and_binds_override()
