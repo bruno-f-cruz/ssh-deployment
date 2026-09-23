@@ -1,0 +1,21 @@
+# Traefik overlay — loaded alongside docker-compose.yml when hosting behind a shared Traefik
+# instance (e.g. aind-behavior-vm-infra) instead of publishing a direct host port.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
+services:
+  shush-design:
+    ports: !reset []
+    environment:
+      - BasePath=/shush
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.shush-design.rule=PathPrefix(`/shush`)
+      - traefik.http.routers.shush-design.entrypoints=web
+      - traefik.http.services.shush-design.loadbalancer.server.port=8080
+
+networks:
+  proxy:
+    external: true
