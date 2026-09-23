@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Shush.Recipe.Steps;
 
-[Step("CleanDesktop", Description = "Delete every item from the interactively logged-in user's desktop, except items matching an exclusion pattern.")]
+[Step("CleanDesktop", Description = "Delete every item from the interactively logged-in user's desktop and the shared Public desktop, except items matching an exclusion pattern.")]
 public class CleanDesktopStep : IRecipeStep
 {
     [Input(Description = "Wildcard patterns (PowerShell -like syntax, e.g. \"DEV-*\", \"*.ico\") for items to keep.")]
@@ -23,29 +23,34 @@ public class CleanDesktopStep : IRecipeStep
             $owner = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
             if (-not $owner) { throw 'No interactive user is currently logged in on this machine.' }
             $username = $owner.Split('\')[-1]
-            $desktopPath = "C:\Users\$username\Desktop"
-            if (-not (Test-Path $desktopPath)) { throw "Desktop path not found: $desktopPath" }
+            # Explorer shows "the Desktop" as a merge of the per-user folder and the shared
+            # Public one (e.g. machine-wide installs like Chrome put their icon in Public), so
+            # both have to be scanned for this step to match what's actually visible on screen.
+            $desktopPaths = @("C:\Users\$username\Desktop", 'C:\Users\Public\Desktop') | Where-Object { Test-Path $_ }
+            if ($desktopPaths.Count -eq 0) { throw "No desktop path found for user '$username'." }
 
             $excludePatterns = @({{patterns}})
             $dryRun = {{dryRun}}
 
-            $report = @(foreach ($item in Get-ChildItem -Path $desktopPath) {
-                $type = if ($item.PSIsContainer) { 'Directory' } else { 'File' }
-                $excluded = $false
-                foreach ($pattern in $excludePatterns) {
-                    if ($item.Name -like $pattern) { $excluded = $true; break }
-                }
+            $report = @(foreach ($desktopPath in $desktopPaths) {
+                foreach ($item in Get-ChildItem -Path $desktopPath) {
+                    $type = if ($item.PSIsContainer) { 'Directory' } else { 'File' }
+                    $excluded = $false
+                    foreach ($pattern in $excludePatterns) {
+                        if ($item.Name -like $pattern) { $excluded = $true; break }
+                    }
 
-                if ($excluded) {
-                    [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Kept'; Error = $null }
-                } elseif ($dryRun) {
-                    [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'WouldDelete'; Error = $null }
-                } else {
-                    try {
-                        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
-                        [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Deleted'; Error = $null }
-                    } catch {
-                        [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Failed'; Error = $_.Exception.Message }
+                    if ($excluded) {
+                        [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Kept'; Error = $null }
+                    } elseif ($dryRun) {
+                        [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'WouldDelete'; Error = $null }
+                    } else {
+                        try {
+                            Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+                            [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Deleted'; Error = $null }
+                        } catch {
+                            [pscustomobject]@{ Name = $item.Name; Type = $type; Action = 'Failed'; Error = $_.Exception.Message }
+                        }
                     }
                 }
             })
