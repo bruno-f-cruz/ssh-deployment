@@ -1,0 +1,6 @@
+name: Reboot
+steps:
+- type: Reboot
+  with:
+    delaySeconds: 2
+  isEnabled: true

@@ -1,65 +1,65 @@
 name: VrForagingExperiment
 params:
   ref:
-    type: string
+    type: String
     label: Git Ref
     default: main
 vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
 steps:
-  - id: clone
-    type: GitClone
-    with:
-      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
-      rootPath: ${vars.repoRoot}
-  - type: GitCheckout
-    with:
-      path: ${clone.clonedPath}
-      reference: ${params.ref}
-  - type: RunScript
-    with:
-      workingDirectory: ${clone.clonedPath}
-      commands:
-        - "$ErrorActionPreference = 'Stop'"
-        - "$ProgressPreference = 'SilentlyContinue'"
-        - .\scripts\deploy.ps1
-  - type: CreateShortcut
-    with:
-      cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
-      shortcutDirectory: C:\Users\Public\Desktop
-      shortName: VrForagingExperiment
-      iconPath: ${clone.clonedPath}/assets/icon.ico
-  - type: WriteFile
-    with:
-      targetPath: ${clone.clonedPath}/local/clabe.yml
-      content: |
-        # In order to get picked up, move this file to the root of the project or ./local
+- id: clone
+  type: GitClone
+  with:
+    repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
+    rootPath: ${vars.repoRoot}
+  isEnabled: true
+- type: GitCheckout
+  with:
+    path: ${clone.clonedPath}
+    reference: ${params.ref}
+  isEnabled: true
+- type: RunScript
+  with:
+    workingDirectory: ${clone.clonedPath}
+    commands:
+    - $ErrorActionPreference = 'Stop'
+    - $ProgressPreference = 'SilentlyContinue'
+    - .\scripts\deploy.ps1
+  isEnabled: true
+- type: CreateShortcut
+  with:
+    cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
+    shortcutDirectory: C:\Users\Public\Desktop
+    shortName: VrForagingExperiment
+    iconPath: ${clone.clonedPath}/assets/icon.ico
+  isEnabled: true
+- type: WriteFile
+  with:
+    targetPath: ${clone.clonedPath}/local/clabe.yml
+    content: >-
+      curriculum:
+        script: ["curriculum", "run"]
+        project_directory: "Aind.Behavior.VrForaging"
 
-        allow_dirty: false
-        skip_hardware_validation: false
+      otel:
+        enabled: true
+        endpoint: "http://localhost:4318"
+        service_name: "aind-behavior-vr-foraging"
+        software_name: "aind-behavior-vr-foraging"
 
-        # main.py's curriculum-bearing experiments (vr-foraging, vr-foraging-fip) resolve the
-        # curriculum package from the VrForaging submodule, not this repo's own root.
-        curriculum:
-          script: "curriculum run"
-          project_directory: "Aind.Behavior.VrForaging/src/packages/aind_behavior_vr_foraging_curricula"
 
-        otel:
-          enabled: true
-          endpoint: http://127.0.0.1:4318
-          software_name: aind-experiment-vr-foraging-fip
+      watchdog:
+        project_name: "Cognitive flexibility in patch foraging"
+        destination: '\\allen\\aind\\stage\\vr-foraging\\data'
+        delete_modalities_source_after_success: true
+        job_type: "vr_foraging_v2"
+        transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
+        s3_bucket: "default"
+        schedule_time: "${vars.scheduleTime}"
 
-        watchdog:
-          project_name: "Cognitive flexibility in patch foraging"
-          destination: '\\allen\\aind\\stage\\vr-foraging\\data'
-          delete_modalities_source_after_success: true
-          job_type: "vr_foraging_v2"
-          transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
-          s3_bucket: "default"
-          schedule_time: "${vars.scheduleTime}"
-
-        dataverse:
-          tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
-          client_id: "df37356e-3316-484a-b732-319b6b4ad464"
-          org: "org5d93e08d"
+      dataverse:
+        tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
+        client_id: "df37356e-3316-484a-b732-319b6b4ad464"
+        org: "org5d93e08d"
+  isEnabled: true
