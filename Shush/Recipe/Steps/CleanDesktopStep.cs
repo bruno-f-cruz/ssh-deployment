@@ -16,9 +16,10 @@ public class CleanDesktopStep : IRecipeStep
         var patterns = string.Join(", ", Exclude.Select(p => $"'{Escape(p)}'"));
         var dryRun = DryRun ? "$true" : "$false";
 
-        string[] commands =
-        [
-            $$"""
+        // Written multi-line for readability, but the remote exec shell (cmd.exe) truncates
+        // its command line at the first raw newline — so this has to travel to MachineContext
+        // as a single physical line, with ';' standing in for the line breaks below.
+        string script = $$"""
             $owner = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
             if (-not $owner) { throw 'No interactive user is currently logged in on this machine.' }
             $username = $owner.Split('\')[-1]
@@ -49,9 +50,10 @@ public class CleanDesktopStep : IRecipeStep
                 }
             })
 
-            ConvertTo-Json -InputObject $report -Compress
-            """,
-        ];
+            if ($report.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject $report -Compress }
+            """;
+
+        string[] commands = [script.ReplaceLineEndings("; ")];
 
         var output = await context.RunCommandsWithOutputAsync(commands, cancellationToken);
         var items = ParseReport(output);
