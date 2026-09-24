@@ -8,6 +8,12 @@ vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
 steps:
+- type: RunScript
+  with:
+    commands:
+    - git config --global --unset-all safe.directory 2>$null; if ($LASTEXITCODE -eq 5) { $global:LASTEXITCODE = 0 }
+    - git config --global --add safe.directory '*'
+  isEnabled: true
 - id: clone
   type: GitClone
   with:
