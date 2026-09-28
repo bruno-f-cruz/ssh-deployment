@@ -24,6 +24,8 @@ steps:
   with:
     path: ${clone.clonedPath}
     reference: ${params.ref}
+    cleanExceptions:
+    - .cache_manager.json
   isEnabled: true
 - type: RunScript
   with:

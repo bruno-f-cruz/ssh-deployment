@@ -1170,9 +1170,15 @@
     private static string GetScalar(StepSpec step, string name) =>
         step.With.TryGetValue(name, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
 
+    /// <summary>A cleared field removes the input rather than storing "", so optional inputs fall
+    /// back to their defaults (e.g. GitClone's folderName → repo name) instead of binding an empty string.</summary>
     private void SetScalar(StepSpec step, string name, ChangeEventArgs e)
     {
-        step.With[name] = e.Value?.ToString() ?? string.Empty;
+        var value = e.Value?.ToString();
+        if (string.IsNullOrEmpty(value))
+            step.With.Remove(name);
+        else
+            step.With[name] = value;
         Revalidate();
     }
 

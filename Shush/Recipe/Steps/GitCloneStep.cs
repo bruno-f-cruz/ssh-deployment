@@ -13,7 +13,8 @@ public class GitCloneStep : IRecipeStep
     public string? FolderName { get; init; }
 
     [Output(Description = "Absolute path of the cloned working tree.")]
-    public string ClonedPath => $"{RootPath.TrimEnd('/', '\\')}\\{FolderName ?? DeriveFolder(RepositoryUrl)}";
+    public string ClonedPath =>
+        $"{RootPath.TrimEnd('/', '\\')}\\{(string.IsNullOrWhiteSpace(FolderName) ? DeriveFolder(RepositoryUrl) : FolderName.Trim())}";
 
     public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
