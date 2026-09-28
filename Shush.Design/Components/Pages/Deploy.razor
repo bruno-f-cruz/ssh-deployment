@@ -3,11 +3,13 @@
 @using Shush.Recipe
 @using Shush.Recipe.Serialization
 @using Shush.Design.Services
+@using Shush.Groups
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject RecipeStore RecipeStore
 @inject StepRegistry Registry
 @inject FunctionLibrary Functions
 @inject RecipePaths Paths
+@inject GroupStore GroupStore
 @inject MachineRegistryService MachineRegistry
 @inject DeployStateStore StateStore
 @inject DeploymentOrchestrator Orchestrator
@@ -119,6 +121,14 @@
         <div class="alert alert--error" role="alert">
             <span>@_errorMessage</span>
             <button type="button" class="btn btn--icon" @onclick="() => _errorMessage = null" aria-label="Dismiss error">&#10005;</button>
+        </div>
+    }
+
+    @if (_statusMessage is not null)
+    {
+        <div class="alert alert--success toast" role="status">
+            <span>@_statusMessage</span>
+            <button type="button" class="btn btn--icon" @onclick="() => _statusMessage = null" aria-label="Dismiss">&#10005;</button>
         </div>
     }
 
@@ -394,6 +404,49 @@
 
                 @if (SectionOpen("machines"))
                 {
+                    <div class="group-bar">
+                        <div class="field">
+                            <label for="group-select">Group</label>
+                            <select id="group-select" value="@(_activeGroup ?? string.Empty)" disabled="@_deploying" @onchange="OnGroupSelected">
+                                <option value="">Select group…</option>
+                                @foreach (var group in _groups)
+                                {
+                                    <option value="@group.Name">@group.Name</option>
+                                }
+                            </select>
+                        </div>
+                        @if (_creatingGroup)
+                        {
+                            <form class="inline-add" @onsubmit="CreateGroup" @onsubmit:preventDefault="true">
+                                <label for="new-group-name" class="visually-hidden">New group name</label>
+                                <input id="new-group-name" placeholder="New group name" autocomplete="off"
+                                       @bind="_newGroupName" @bind:event="oninput" />
+                                <button type="submit" class="btn btn--secondary">Create</button>
+                                <button type="button" class="btn btn--ghost" @onclick="() => _creatingGroup = false">Cancel</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn--ghost" disabled="@_deploying" @onclick="StartCreateGroup">＋ New group</button>
+                            @if (_activeGroup is not null && !_deploying)
+                            {
+                                @if (!GroupStore.IsBuiltIn(_activeGroup))
+                                {
+                                    <button type="button" class="btn btn--ghost" @onclick="DeleteActiveGroup">Delete group</button>
+                                }
+                                else if (GroupStore.HasUserCopy(_activeGroup))
+                                {
+                                    <button type="button" class="btn btn--ghost" @onclick="DeleteActiveGroup"
+                                            title="Discard your edits and restore the version shipped with the app.">Reset to default</button>
+                                }
+                            }
+                        }
+                        @if (_activeGroup is not null)
+                        {
+                            <p class="group-bar__hint text-muted">Adding or removing machines updates <strong>@_activeGroup</strong> for every recipe. Changes save automatically.</p>
+                        }
+                    </div>
+
                     <form class="inline-add" @onsubmit="AddMachine" @onsubmit:preventDefault="true">
                         <label for="machine-name" class="visually-hidden">Machine name</label>
                         <input id="machine-name" placeholder="e.g. FRG.4-A or 10.128.133.74" autocomplete="off" list="machine-options"
@@ -680,6 +733,14 @@
     private BlazorDeploymentProgress? _progress;
     private bool _deploying;
     private string? _errorMessage;
+    private string? _statusMessage;
+    private CancellationTokenSource? _statusMessageCts;
+
+    private List<GroupDocument> _groups = [];
+    private string? _activeGroup;
+    private int _machineLoadVersion;
+    private bool _creatingGroup;
+    private string _newGroupName = string.Empty;
 
     private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0
         && Credentials.IsSignedIn
@@ -706,6 +767,7 @@
     protected override async Task OnInitializedAsync()
     {
         LoadRecipeNames();
+        LoadGroups();
 
         try
         {
@@ -728,6 +790,45 @@
             Logger.LogError(ex, "Couldn't discover recipes.");
             _errorMessage = $"Couldn't load recipes: {ex.Message}";
         }
+    }
+
+    private void LoadGroups()
+    {
+        try
+        {
+            _groups = GroupStore.GetAll();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't discover machine groups.");
+            _errorMessage = $"Couldn't load machine groups: {ex.Message}";
+        }
+    }
+
+    /// <summary>Shows a dismissible status message that clears itself after a few seconds.
+    /// Cancels any previous pending clear so back-to-back saves don't race each other.</summary>
+    private void ShowStatusMessage(string message)
+    {
+        _statusMessageCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _statusMessageCts = cts;
+        _statusMessage = message;
+        _ = ClearStatusMessageAfterDelay(cts.Token);
+    }
+
+    private async Task ClearStatusMessageAfterDelay(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        _statusMessage = null;
+        await InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -834,6 +935,8 @@
 
         _rawMode = false;
         _machines = [];
+        _machineLoadVersion++;
+        _activeGroup = null;
         _progress = null;
         _expanded.Clear();
         RebuildFields();
@@ -871,6 +974,8 @@
 
         _session = RecipeEditSession.CreateNew(name, Paths.BaseDir, Paths.UserDir, Registry, Functions);
         _machines = [];
+        _machineLoadVersion++;
+        _activeGroup = null;
         _progress = null;
         _expanded.Clear();
         RebuildFields();
@@ -938,21 +1043,56 @@
         foreach (var (key, value) in state.ParamOverrides)
             _paramValues[key] = value;
 
+        // A group that was deleted since falls back to the recipe's last ad-hoc list.
+        var group = state.Group is null ? null : GroupStore.Get(state.Group);
+        _activeGroup = group?.Name;
+        await ReplaceMachinesAsync(group?.Machines ?? state.Machines);
+    }
+
+    /// <summary>Swaps the machine table for <paramref name="names"/>, resolving and probing each.
+    /// A newer call (e.g. switching groups quickly) abandons an older one mid-resolve.</summary>
+    private async Task ReplaceMachinesAsync(IEnumerable<string> names)
+    {
+        var version = ++_machineLoadVersion;
+        _machines = [];
+        _expanded.Clear();
+        _progress = null;
+
         try
         {
-            foreach (var machineName in state.Machines)
+            foreach (var machineName in names.Distinct().ToList())
             {
-                if (_machines.Any(m => m.Name == machineName)) continue;
                 var row = await MachineRegistry.ResolveAsync(machineName);
+                if (version != _machineLoadVersion) return;
                 _machines.Add(row);
                 ProbeMachine(row);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Couldn't resolve machines for recipe '{Recipe}'.", _session.RecipeName);
+            Logger.LogError(ex, "Couldn't resolve machines.");
             _errorMessage = $"Couldn't reach the machine registry: {ex.Message}";
         }
+    }
+
+    /// <summary>Persists the machine list: into the active group (shared by all recipes) and the recipe's deploy state.</summary>
+    private void PersistMachines()
+    {
+        if (_activeGroup is not null)
+        {
+            try
+            {
+                GroupStore.Save(new GroupDocument { Name = _activeGroup, Machines = _machines.Select(m => m.Name).ToList() });
+                LoadGroups();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Couldn't save group '{Group}'.", _activeGroup);
+                _errorMessage = $"Couldn't save group '{_activeGroup}': {ex.Message}";
+            }
+        }
+
+        SaveState();
     }
 
     private void Revalidate() => _validationErrors = _session?.Validate() ?? [];
@@ -965,6 +1105,7 @@
         {
             StateStore.Save(_session.RecipeName, new DeployState
             {
+                Group = _activeGroup,
                 Machines = _machines.Select(m => m.Name).ToList(),
                 ParamOverrides = new Dictionary<string, string>(_paramValues),
             });
@@ -1162,6 +1303,7 @@
         {
             _session.Save();
             LoadRecipeNames();
+            ShowStatusMessage("Recipe saved.");
         }
         catch (Exception ex)
         {
@@ -1254,7 +1396,7 @@
             _machines.Add(row);
             ProbeMachine(row);
             _newMachineName = string.Empty;
-            SaveState();
+            PersistMachines();
         }
         catch (Exception ex)
         {
@@ -1291,7 +1433,7 @@
     private void RemoveMachine(MachineRow machine)
     {
         _machines.Remove(machine);
-        SaveState();
+        PersistMachines();
     }
 
     private async Task OnYamlUpload(InputFileChangeEventArgs e)
@@ -1310,13 +1452,122 @@
                 ProbeMachine(row);
             }
 
-            SaveState();
+            PersistMachines();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Couldn't load machines from uploaded YAML file '{FileName}'.", e.File.Name);
             _errorMessage = $"Couldn't load machines from that file: {ex.Message}";
         }
+    }
+
+    private void StartCreateGroup()
+    {
+        _errorMessage = null;
+        _newGroupName = string.Empty;
+        _creatingGroup = true;
+    }
+
+    private void CreateGroup()
+    {
+        _errorMessage = null;
+        var name = _newGroupName.Trim();
+
+        if (string.IsNullOrEmpty(name))
+        {
+            _errorMessage = "Enter a name for the new group.";
+            return;
+        }
+
+        if (_groups.Any(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _errorMessage = $"A group named '{name}' already exists.";
+            return;
+        }
+
+        try
+        {
+            GroupStore.Save(new GroupDocument { Name = name });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't create group '{Group}'.", name);
+            _errorMessage = $"Couldn't create group: {ex.Message}";
+            return;
+        }
+
+        _creatingGroup = false;
+        LoadGroups();
+        _activeGroup = name;
+        _machineLoadVersion++;
+        _machines = [];
+        _expanded.Clear();
+        _progress = null;
+        SaveState();
+        ShowStatusMessage($"Group '{name}' created. Add machines below.");
+    }
+
+    /// <summary>Switching to a group shows its machines. Switching to "no group" keeps the
+    /// current list as an ad-hoc copy for this recipe, so nothing disappears unexpectedly.</summary>
+    private async Task OnGroupSelected(ChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _creatingGroup = false;
+        var name = e.Value?.ToString();
+
+        if (string.IsNullOrEmpty(name))
+        {
+            _activeGroup = null;
+            SaveState();
+            return;
+        }
+
+        var group = GroupStore.Get(name);
+        if (group is null)
+        {
+            _errorMessage = $"Group '{name}' no longer exists.";
+            LoadGroups();
+            return;
+        }
+
+        _activeGroup = group.Name;
+        SaveState();
+        await ReplaceMachinesAsync(group.Machines);
+    }
+
+    private async Task DeleteActiveGroup()
+    {
+        if (_activeGroup is not { } name) return;
+
+        var builtIn = GroupStore.IsBuiltIn(name);
+        var prompt = builtIn
+            ? $"Reset '{name}' to the version shipped with the app? Your edits to it will be lost."
+            : $"Delete group '{name}'? This affects every recipe that uses it.";
+        if (!await JS.InvokeAsync<bool>("confirm", prompt)) return;
+
+        try
+        {
+            GroupStore.Delete(name);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Couldn't delete group '{Group}'.", name);
+            _errorMessage = $"Couldn't delete group: {ex.Message}";
+            return;
+        }
+
+        LoadGroups();
+        if (builtIn)
+        {
+            await ReplaceMachinesAsync(GroupStore.Get(name)?.Machines ?? []);
+            ShowStatusMessage($"Group '{name}' reset to default.");
+        }
+        else
+        {
+            _activeGroup = null;
+            ShowStatusMessage($"Group '{name}' deleted.");
+        }
+        SaveState();
     }
 
     private async Task ExportMachines()

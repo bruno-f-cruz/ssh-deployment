@@ -2,6 +2,13 @@ name: CleanDesktop
 steps:
 - type: CleanDesktop
   with:
-    exclude: []
+    exclude:
+    - Microsoft Edge.lnk
+    - Google Chrome.lnk
+    - waterlog.lnk
+    - VrForagingExperiment.lnk
+    - DEV-VrForagingExperiment.lnk
+    - StageWidget.lnk
+    - Input Director.lnk
     dryRun: true
   isEnabled: true

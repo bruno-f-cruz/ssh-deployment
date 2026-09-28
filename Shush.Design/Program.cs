@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 using Shush;
 using Shush.Design.Components;
 using Shush.Design.Services;
+using Shush.Groups;
 using Shush.Recipe;
 using Shush.Recipe.Serialization;
 
@@ -55,6 +56,12 @@ builder.Services.AddSingleton(new RecipePaths(
     UserDir: ShushPaths.GetUserRecipesDirectory(builder.Environment, shushSettings)));
 builder.Services.AddSingleton(new DeployStateStore(
     Path.Combine(ShushPaths.GetShushDirectory(builder.Environment, shushSettings), "state")));
+
+// Machine groups: named, reusable lists of machines to deploy to (same base+user overlay
+// pattern as recipes above).
+builder.Services.AddSingleton(new GroupStore(
+    baseDir: Path.Combine(AppContext.BaseDirectory, "Groups"),
+    userDir: ShushPaths.GetUserGroupsDirectory(builder.Environment, shushSettings)));
 
 var app = builder.Build();
 

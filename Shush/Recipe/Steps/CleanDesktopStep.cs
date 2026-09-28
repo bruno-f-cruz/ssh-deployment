@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Shush.Recipe.Steps;
 
-[Step("CleanDesktop", Description = "Delete every item from the interactively logged-in user's desktop and the shared Public desktop, except items matching an exclusion pattern.")]
+[Step("CleanDesktop", Description = "Delete every item from the SSH user's desktop and the shared Public desktop, except items matching an exclusion pattern.")]
 public class CleanDesktopStep : IRecipeStep
 {
     [Input(Description = "Wildcard patterns (PowerShell -like syntax, e.g. \"DEV-*\", \"*.ico\") for items to keep.")]
@@ -17,9 +17,7 @@ public class CleanDesktopStep : IRecipeStep
         var dryRun = DryRun ? "$true" : "$false";
 
         string script = $$"""
-            $owner = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
-            if (-not $owner) { throw 'No interactive user is currently logged in on this machine.' }
-            $username = $owner.Split('\')[-1]
+            $username = $env:USERNAME
             $desktopPaths = @("C:\Users\$username\Desktop", 'C:\Users\Public\Desktop') | Where-Object { Test-Path $_ }
             if ($desktopPaths.Count -eq 0) { throw "No desktop path found for user '$username'." }
 

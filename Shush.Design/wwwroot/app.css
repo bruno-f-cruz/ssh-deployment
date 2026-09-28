@@ -152,18 +152,53 @@ body {
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    border: 1px solid var(--danger);
-    background: var(--danger-bg);
-    color: var(--danger);
+    border: 1px solid transparent;
     border-radius: var(--radius);
     padding: .75rem 1rem;
     font-size: .9rem;
+}
+
+.alert--error {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.alert--success {
+    border-color: var(--success);
+    background: var(--success-bg);
+    color: var(--success);
 }
 
     .alert .btn--icon {
         color: inherit;
         flex-shrink: 0;
     }
+
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    align-items: center;
+    min-width: min(20rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    box-shadow: 0 4px 12px rgba(16, 24, 40, .18);
+    animation: toast-in .2s ease-out;
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, .75rem);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(-50%);
+    }
+}
 
 /* ---------- Cards ---------- */
 
@@ -227,6 +262,28 @@ input[type=text], input:not([type]), select, .machines-table input {
     flex-wrap: wrap;
     align-items: center;
     gap: .5rem;
+}
+
+.group-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: .5rem .75rem;
+    padding: .75rem 1rem;
+    margin-bottom: 1rem;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+    .group-bar .field {
+        flex: 0 1 280px;
+    }
+
+.group-bar__hint {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: .8rem;
 }
 
 .chip-list {

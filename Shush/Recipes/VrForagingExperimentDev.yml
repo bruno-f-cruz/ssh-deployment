@@ -39,7 +39,7 @@ steps:
     cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
     shortcutDirectory: C:\Users\Public\Desktop
     shortName: DEV-VrForagingExperiment
-    iconPath: ${clone.clonedPath}/assets/icon.ico
+    iconPath: ${clone.clonedPath}/assets/icon_dev.ico
   isEnabled: true
 - type: WriteFile
   with:

@@ -6,6 +6,8 @@ namespace Shush.Recipe.Serialization;
 /// <summary>Per-recipe deploy session state: which machines are selected and any param overrides.</summary>
 public sealed class DeployState
 {
+    /// <summary>Active machine group. When set, the group is the source of machines and <see cref="Machines"/> is ignored.</summary>
+    public string? Group { get; set; }
     public List<string> Machines { get; set; } = [];
     public Dictionary<string, string> ParamOverrides { get; set; } = new();
 }
