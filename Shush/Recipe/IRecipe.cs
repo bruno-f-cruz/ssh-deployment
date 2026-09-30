@@ -14,6 +14,12 @@ public interface IRecipe
 public interface IRecipeExecutionPlan
 {
     /// <summary>
+    /// ACL grants the runner must apply, in order, before executing the first step — files
+    /// created by any step then inherit the access.
+    /// </summary>
+    IReadOnlyList<SharedAccessGrant> SharedAccess { get; }
+
+    /// <summary>
     /// Yields steps in order. Each step is resolved and bound lazily against the outputs
     /// captured from earlier steps, so callers must invoke <see cref="PlannedStep.CaptureOutputs"/>
     /// after executing a step before advancing to the next.

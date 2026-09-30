@@ -7,6 +7,12 @@ public sealed class ShushSettings
     public string MachineRegistryUrl { get; set; } = "http://mpe-computers/v2.0";
     public int MachineRegistryCacheSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// Machine-wide access granted on these roots before every recipe runs (env: SharedAccess__Paths__0=C:/git).
+    /// Recipes can add more roots with their own <c>sharedAccess</c> block. No paths means nothing is granted.
+    /// </summary>
+    public Shush.Recipe.Serialization.SharedAccessSpec SharedAccess { get; set; } = new();
+
     // Shush.Design only
     public string DataDirectoryName { get; set; } = ".shush";
 

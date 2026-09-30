@@ -102,7 +102,7 @@ rootCommand.SetHandler(async (string recipeName, string machinesPath, string? en
 
     var display = new Shush.DeploymentDisplay(machines.Keys.ToList());
 
-    var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory, display);
+    var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory, display, settings.SharedAccess.ToGrants());
 
     try
     {

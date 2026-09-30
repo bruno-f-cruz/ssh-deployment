@@ -66,6 +66,28 @@ public class MachineContext : IAsyncDisposable
     public Task<string> RunCommandsWithOutputAsync(string[] commands, CancellationToken ct = default, string? logAs = null) =>
         ExecuteAsync(commands, ct, logAs);
 
+    /// <summary>
+    /// Creates <paramref name="grant"/>'s directory if needed and adds an inheritable ACL entry
+    /// (object + container inherit) so files and folders created beneath it later are accessible
+    /// to the principal. Idempotent. Files that are moved in (rather than created or copied) keep
+    /// their old ACL, and a subfolder with inheritance disabled breaks the flow.
+    /// </summary>
+    public Task EnsureSharedAccessAsync(SharedAccessGrant grant, CancellationToken ct = default)
+    {
+        var errors = grant.Validate();
+        if (errors.Count > 0)
+            throw new InvalidOperationException(string.Join(" ", errors));
+
+        var recurse = grant.ApplyToExisting ? " /T" : "";
+        string[] commands =
+        [
+            $"New-Item -ItemType Directory -Force -Path '{grant.Path}' | Out-Null",
+            $"icacls '{grant.Path}' /grant '{grant.Principal}:(OI)(CI){grant.Rights.ToUpperInvariant()}'{recurse}",
+        ];
+
+        return RunCommandsAsync(commands, ct);
+    }
+
     /// <summary>Lets a step add its own line to the deploy log (e.g. a dry-run report entry).</summary>
     public void Log(string message) => _logger.LogInformation("[{BoxId}] {Message}", BoxId, message);
 

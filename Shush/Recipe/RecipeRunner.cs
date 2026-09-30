@@ -13,14 +13,24 @@ public class RecipeRunner
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<RecipeRunner> _logger;
     private readonly IDeploymentProgress? _display;
+    private readonly IReadOnlyList<SharedAccessGrant> _machineWideAccess;
 
+    /// <param name="machineWideAccess">
+    /// Grants applied on every machine before any recipe-declared ones (from <see cref="ShushSettings.SharedAccess"/>).
+    /// </param>
     public RecipeRunner(
         IRecipe recipe,
         Dictionary<string, MachineInfo> machines,
         Secrets secrets,
         ILoggerFactory loggerFactory,
-        IDeploymentProgress? display = null)
+        IDeploymentProgress? display = null,
+        IReadOnlyList<SharedAccessGrant>? machineWideAccess = null)
     {
+        _machineWideAccess = machineWideAccess ?? [];
+        var errors = _machineWideAccess.SelectMany(g => g.Validate()).ToList();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(machineWideAccess));
+
         _recipe = recipe;
         _machines = machines;
         _secrets = secrets;
@@ -53,6 +63,17 @@ public class RecipeRunner
                 await using var context = await MachineContext.ConnectAsync(boxId, machineInfo, _secrets, _loggerFactory, cancellationToken);
 
                 var plan = _recipe.CreatePlan();
+
+                // Grant before any step creates files: new files inherit the ACL of their parent.
+                foreach (var grant in _machineWideAccess.Concat(plan.SharedAccess).Distinct())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _logger.LogInformation(
+                        "[{BoxId}] Granting {Principal}:{Rights} on '{Path}' (inherited).",
+                        boxId, grant.Principal, grant.Rights, grant.Path);
+                    await context.EnsureSharedAccessAsync(grant, cancellationToken);
+                }
+
                 foreach (var planned in plan.Steps())
                 {
                     cancellationToken.ThrowIfCancellationRequested();

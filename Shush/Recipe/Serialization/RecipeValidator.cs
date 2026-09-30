@@ -26,6 +26,26 @@ public sealed class RecipeValidator
         foreach (var (name, value) in document.Vars)
             ValidateString(value, errors, document, earlierSteps: null, context: $"vars.{name}");
 
+        // sharedAccess is applied before any step, so like vars it may use params + vars only.
+        if (document.SharedAccess is { } access)
+        {
+            if (access.Paths.Count == 0)
+                errors.Add("sharedAccess.paths must list at least one path.");
+
+            // No steps have run yet, so an empty step map makes any step-output reference an error.
+            var noSteps = new Dictionary<string, (StepDescriptor?, bool)>();
+            foreach (var path in access.Paths)
+            {
+                ValidateString(path, errors, document, noSteps, "sharedAccess.paths");
+
+                // References are re-validated once resolved (see SerializedRecipe.CreatePlan).
+                if (!path.Contains("${"))
+                    errors.AddRange(new SharedAccessGrant(path).Validate());
+            }
+
+            errors.AddRange(new SharedAccessGrant("x", access.Principal, access.Rights).Validate());
+        }
+
         // Step ids referenceable so far, mapped to their descriptor (null when the type is unknown)
         // and whether the step is enabled — a disabled step's outputs are never captured at
         // runtime, so referencing them is flagged just like an unknown/forward reference.

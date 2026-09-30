@@ -34,6 +34,38 @@ steps:                       # ordered; each has a type and its inputs under `wi
       commands: ["Restart-Computer -Force"]
 ```
 
+## Shared access (`sharedAccess`)
+
+Windows has no umask: a new file inherits its ACL from its parent folder, and files created over
+SSH are owned by the SSH user. To make everything a recipe creates usable by any local user,
+list the roots the steps write into; the runner grants an **inheritable** ACL entry on each one
+before the first step runs (creating the folder if needed), so every later step is covered.
+
+```yaml
+sharedAccess:
+  paths: [${vars.repoRoot}]   # params/vars and functions only — no step outputs
+  principal: "*S-1-5-32-545"  # default: BUILTIN\Users (SID, so it isn't locale-dependent)
+  rights: M                   # default: Modify. One of F, M, RX, R, W
+  applyToExisting: false      # true adds /T to re-ACL children that already exist
+```
+
+**Machine-wide default.** To apply this to every recipe without editing each one, set
+`ShushSettings.SharedAccess` (same fields; in the CLI via environment variables, e.g.
+`SharedAccess__Paths__0=C:/git`). Those grants always run first, then the recipe's own
+`sharedAccess` paths. With no paths configured, nothing is granted.
+
+Equivalent to `icacls '<path>' /grant '*S-1-5-32-545:(OI)(CI)M'`, which is idempotent. Caveats:
+
+- Only the listed roots are covered. Steps that write elsewhere (e.g. `CreateShortcut` on a
+  desktop, `SetEnvironmentVariable`) need their target folder listed too.
+- A file *moved* in keeps its old ACL, and a subfolder with inheritance disabled breaks the
+  flow. Fix either with `icacls <path> /inheritance:e` or `/reset /T`.
+- Prefer `M`/`RX` over `F`, and Users over Everyone (`*S-1-1-0`).
+
+`GitClone` also takes `safeDirectoryScope` (`global` default, or `system`). `global` only writes
+the SSH user's `.gitconfig`, so other users running git in the clone still hit "dubious
+ownership"; `system` fixes that but requires the SSH user to be an administrator.
+
 ## Enabling/disabling steps
 
 Every step runs unless it's explicitly turned off with `enabled: false`. Steps are enabled by

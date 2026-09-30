@@ -36,7 +36,7 @@ public sealed class DeploymentOrchestrator
             .BuildServiceProvider();
 
         var loggerFactory = services.GetRequiredService<ILoggerFactory>();
-        var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory, progress);
+        var runner = new RecipeRunner(recipe, machines, secrets, loggerFactory, progress, _settings.SharedAccess.ToGrants());
 
         try
         {

@@ -12,6 +12,9 @@ public class GitCloneStep : IRecipeStep
     [Input(Description = "Override the folder name (defaults to the repo name).")]
     public string? FolderName { get; init; }
 
+    [Input(Description = "Where safe.directory is recorded: 'global' (SSH user only, default) or 'system' (all users; needs admin).")]
+    public string SafeDirectoryScope { get; init; } = "global";
+
     [Output(Description = "Absolute path of the cloned working tree.")]
     public string ClonedPath =>
         $"{RootPath.TrimEnd('/', '\\')}\\{(string.IsNullOrWhiteSpace(FolderName) ? DeriveFolder(RepositoryUrl) : FolderName.Trim())}";
@@ -19,9 +22,13 @@ public class GitCloneStep : IRecipeStep
     public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
         var clonedPath = ClonedPath;
+        var scope = SafeDirectoryScope.Trim().ToLowerInvariant();
+        if (scope is not ("global" or "system"))
+            throw new InvalidOperationException($"SafeDirectoryScope must be 'global' or 'system', not '{SafeDirectoryScope}'.");
+
         string[] commands =
         [
-            $"git config --global --add safe.directory '{clonedPath}'",
+            $"git config --{scope} --add safe.directory '{clonedPath}'",
             $"if (-not (Test-Path '{clonedPath}')) {{ git clone {RepositoryUrl} '{clonedPath}' }} else {{ Write-Host 'Repository already cloned, skipping.' }}",
         ];
 

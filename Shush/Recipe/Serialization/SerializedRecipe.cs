@@ -52,7 +52,21 @@ public sealed class SerializedRecipe : IRecipe
         foreach (var (name, expr) in _document.Vars)
             scope.SetVar(name, ReferenceResolver.ResolveString(expr, scope, _functions));
 
-        return new Plan(_document, _registry, _functions, scope);
+        return new Plan(_document, _registry, _functions, scope, ResolveSharedAccess(scope));
+    }
+
+    private IReadOnlyList<SharedAccessGrant> ResolveSharedAccess(ResolutionScope scope)
+    {
+        if (_document.SharedAccess is not { } spec)
+            return [];
+
+        var grants = spec.ToGrants(p => ReferenceResolver.ResolveString(p, scope, _functions));
+
+        var errors = grants.SelectMany(g => g.Validate()).ToList();
+        if (errors.Count > 0)
+            throw new RecipeValidationException(errors);
+
+        return grants;
     }
 
     private sealed class Plan : IRecipeExecutionPlan
@@ -62,13 +76,18 @@ public sealed class SerializedRecipe : IRecipe
         private readonly FunctionLibrary _functions;
         private readonly ResolutionScope _scope;
 
-        public Plan(RecipeDocument document, StepRegistry registry, FunctionLibrary functions, ResolutionScope scope)
+        public Plan(
+            RecipeDocument document, StepRegistry registry, FunctionLibrary functions, ResolutionScope scope,
+            IReadOnlyList<SharedAccessGrant> sharedAccess)
         {
             _document = document;
             _registry = registry;
             _functions = functions;
             _scope = scope;
+            SharedAccess = sharedAccess;
         }
+
+        public IReadOnlyList<SharedAccessGrant> SharedAccess { get; }
 
         public IEnumerable<PlannedStep> Steps()
         {
