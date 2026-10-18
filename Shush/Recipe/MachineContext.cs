@@ -41,7 +41,10 @@ public class MachineContext : IAsyncDisposable
             logger.LogWarning("[{BoxId}] {Details} — using {Address}.", boxId, probe.Describe(), address);
 
         var sshClient = new SshClient(address, secrets.Username, secrets.Password);
-        var scpClient = new ScpClient(address, secrets.Username, secrets.Password);
+        // The rigs run Windows OpenSSH, whose scp sink is invoked through cmd.exe, so remote paths
+        // are double-quoted (the only quoting cmd.exe understands). Paths are also checked with
+        // EnsureSafeRemotePath, since a double quote is the one character that escapes it.
+        var scpClient = new ScpClient(address, secrets.Username, secrets.Password, RemotePathTransformation.DoubleQuote);
 
         logger.LogInformation("[{BoxId}] Connecting SSH and SCP clients to {Hostname} ({Address}).", boxId, machine.hostname, address);
         await sshClient.ConnectAsync(ct);
@@ -138,9 +141,21 @@ public class MachineContext : IAsyncDisposable
         return Task.FromResult(result);
     }
 
+    /// <summary>
+    /// Rejects remote paths containing a double quote. Such a path is never a valid Windows path,
+    /// and it would close the quoting around the path in both the scp command and the
+    /// New-Item command below, letting the rest of the path run as a command on the rig.
+    /// </summary>
+    public static void EnsureSafeRemotePath(string remotePath)
+    {
+        if (remotePath.Contains('"'))
+            throw new ArgumentException($"Remote path must not contain a double quote: {remotePath}", nameof(remotePath));
+    }
+
     public async Task UploadFileAsync(FileInfo localFile, string remotePath, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        EnsureSafeRemotePath(remotePath);
 
         string remoteDir = (Path.GetDirectoryName(remotePath) ?? string.Empty).Replace('\\', '/');
 
@@ -158,6 +173,7 @@ public class MachineContext : IAsyncDisposable
     public async Task UploadContentAsync(string content, string remotePath, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        EnsureSafeRemotePath(remotePath);
 
         string remoteDir = (Path.GetDirectoryName(remotePath) ?? string.Empty).Replace('\\', '/');
 
