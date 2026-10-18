@@ -147,14 +147,8 @@ docker run -d -p 5036:8080 \
 
 Then open `http://<vm-host>:5036`. Put it behind a TLS-terminating reverse proxy for real use.
 
-If the host already runs a shared Traefik reverse proxy on a Docker network (e.g. the pattern used
-by `aind-behavior-vm-infra`), layer `docker-compose.traefik.yml` on top of the base file — it joins
-that network, adds the Traefik routing labels, sets `BasePath`, and drops the direct host port
-publish, instead of publishing its own direct host port:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
-```
+To serve it under a subpath behind a reverse proxy (e.g. a Traefik `PathPrefix` rule for `/shush`), set
+`BasePath=/shush`. CI publishes the image to `ghcr.io/bruno-f-cruz/ssh-deployment`.
 
 One thing to verify for your environment: the container needs network access to `mpe-computers`
 (the machine registry) and to each target rig over SSH — on a VM this usually means the VM's normal
