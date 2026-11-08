@@ -34,6 +34,15 @@ public sealed class MachineRow
         get { lock (_stepsLock) return _completedSteps.Count; }
     }
 
+    /// <summary>Returns a finished row to <see cref="RowStatus.Ready"/> so it can be deployed again.</summary>
+    public void ResetForRetry()
+    {
+        lock (_stepsLock) _completedSteps.Clear();
+        Status = RowStatus.Ready;
+        Error = null;
+        CurrentStep = string.Empty;
+    }
+
     public void AddCompletedStep(bool success, string stepName)
     {
         lock (_stepsLock) _completedSteps.Add((success, stepName));

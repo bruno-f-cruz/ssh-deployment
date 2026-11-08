@@ -566,6 +566,12 @@
                                             }
                                             else
                                             {
+                                                @if (machine.Status == RowStatus.Failed)
+                                                {
+                                                    <button type="button" class="btn btn--secondary" disabled="@(!CanRun)"
+                                                            @onclick="() => RetryMachine(machine)"
+                                                            aria-label="@($"Retry {machine.Name}")">&#8635; Retry</button>
+                                                }
                                                 <button type="button" class="btn btn--link" @onclick="() => ToggleExpand(machine.Name)" aria-expanded="@_expanded.Contains(machine.Name)">
                                                     @(_expanded.Contains(machine.Name) ? "Hide log" : "View log")
                                                 </button>
@@ -589,6 +595,12 @@
 
                 <div class="deploy-bar">
                     <p class="deploy-summary" aria-live="polite">@DeploySummary</p>
+                    @if (FailedMachineCount > 0)
+                    {
+                        <button type="button" class="btn btn--secondary" disabled="@(!CanRun)" @onclick="RetryFailed">
+                            &#8635; Retry failed (@FailedMachineCount)
+                        </button>
+                    }
                     <button type="button" class="btn btn--primary" disabled="@(!CanDeploy)" @onclick="StartDeployment">
                         @(_deploying ? "Deploying…" : "Deploy")
                     </button>
@@ -742,10 +754,13 @@
     private bool _creatingGroup;
     private string _newGroupName = string.Empty;
 
-    private bool CanDeploy => _session is not null && !_deploying && _validationErrors.Count == 0
+    private bool CanRun => _session is not null && !_deploying && _validationErrors.Count == 0
         && Credentials.IsSignedIn
-        && !_fields.Any(f => f.Required && string.IsNullOrEmpty(ParamValue(f)))
-        && _machines.Any(m => m.Status == RowStatus.Ready);
+        && !_fields.Any(f => f.Required && string.IsNullOrEmpty(ParamValue(f)));
+
+    private bool CanDeploy => CanRun && _machines.Any(m => m.Status == RowStatus.Ready);
+
+    private int FailedMachineCount => _machines.Count(m => m.Status == RowStatus.Failed);
 
     private string DeploySummary
     {
@@ -894,6 +909,7 @@
     {
         Credentials.SignOut();
         _passwordInput = string.Empty;
+        _showPassword = false;
         try
         {
             await SessionStore.DeleteAsync("shush.password");
@@ -1584,13 +1600,26 @@
 
     // ---- Deployment ----
 
-    private async Task StartDeployment()
+    private Task StartDeployment() =>
+        DeployAsync(_machines.Where(m => m.Status == RowStatus.Ready).ToList());
+
+    private Task RetryMachine(MachineRow machine) => RetryAsync([machine]);
+
+    private Task RetryFailed() => RetryAsync(_machines.Where(m => m.Status == RowStatus.Failed).ToList());
+
+    private Task RetryAsync(List<MachineRow> rows)
     {
-        if (_session is null) return;
+        // Always deploys with the *current* credentials, so fixing a wrong password then retrying works.
+        foreach (var row in rows) row.ResetForRetry();
+        return DeployAsync(rows);
+    }
+
+    private async Task DeployAsync(List<MachineRow> toDeploy)
+    {
+        if (_session is null || toDeploy.Count == 0) return;
 
         _errorMessage = null;
         _deploying = true;
-        var toDeploy = _machines.Where(m => m.Status == RowStatus.Ready).ToList();
 
         var recipe = new SerializedRecipe(_session.Document, Registry, Functions, new Dictionary<string, string>(_paramValues));
         var totalSteps = _session.Document.Steps.Count;
