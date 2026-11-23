@@ -1,51 +1,31 @@
-name: VrForagingExperimentEphysDev
+name: VrForagingExperimentDev
 params:
   ref:
     type: String
     label: Git Ref
     default: main
-  clabeVersion:
-    type: String
-    label: clabe daemon version ("lock" = the version the checkout's uv.lock pins)
-    default: lock
-  forceDaemonRestart:
-    type: Dropdown
-    label: Interrupt a running session to deploy
-    default: "false"
-    options: ["false", "true"]
 vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
 steps:
-# Stop the daemon before anything changes: deploy.ps1 recreates .venv, which a session uses. clabe refuses while a
-# session runs (unless forceDaemonRestart), and no session can start during the deploy. The last step starts it again.
-# A clabe without `daemon stop` (older than the installer fix): only check that no session runs.
-- type: RunScript
-  with:
-    commands:
-    - $env:PATH = (Join-Path $env:USERPROFILE '.local\bin') + ';' + $env:PATH; $force = '${params.forceDaemonRestart}' -eq 'true'
-    - $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source; $c = ''; if ($uv) { $c = Join-Path (& $uv tool dir --bin | Select-Object -Last 1).Trim() 'clabe.exe' }
-    - $hasTask = [bool](Get-ScheduledTask -TaskName 'clabe-daemon' -ErrorAction SilentlyContinue); $hasStop = $false
-    - if ($hasTask -and $c -and (Test-Path $c)) { & $c daemon stop --help *> $null; $hasStop = $LASTEXITCODE -eq 0; $global:LASTEXITCODE = 0 }
-    - if ($hasStop -and $force) { & $c daemon stop --force } elseif ($hasStop) { & $c daemon stop }
-    - $p = [Environment]::GetEnvironmentVariable('DAEMON_CLABE_PORT', 'User'); if (-not $p) { $p = 24070 }
-    - $s = $null; if (-not $hasStop) { try { $s = (Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p + '/api/daemon/info') -TimeoutSec 3).status } catch { $s = $null } }
-    - if ($s -in @('busy', 'leased') -and -not $force) { throw ('The clabe daemon is ' + $s + ': a session would be interrupted. Deploy later, or interrupt it.') }
 - type: RunScript
   with:
     commands:
     - git config --global --unset-all safe.directory 2>$null; if ($LASTEXITCODE -eq 5) { $global:LASTEXITCODE = 0 }
     - git config --global --add safe.directory '*'
+  isEnabled: true
 - id: clone
   type: GitClone
   with:
     repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
     rootPath: ${vars.repoRoot}
     folderName: Aind.Experiment.VrForaging-dev
+  isEnabled: true
 - type: GitCheckout
   with:
     path: ${clone.clonedPath}
     reference: ${params.ref}
+  isEnabled: true
 - type: RunScript
   with:
     workingDirectory: ${clone.clonedPath}
@@ -53,57 +33,40 @@ steps:
     - $ErrorActionPreference = 'Stop'
     - $ProgressPreference = 'SilentlyContinue'
     - .\scripts\deploy.ps1
+  isEnabled: true
 - type: CreateShortcut
   with:
     cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
     shortcutDirectory: C:\Users\Public\Desktop
     shortName: DEV-VrForagingExperiment
     iconPath: ${clone.clonedPath}/assets/icon_dev.ico
-# The experiments' clabe.yml. The upload groups match examples/clabe.yml of #50 (feat-add-async-uploads): behavior
-# and the metadata record right away, every other modality (videos, FIP, the Open Ephys recording...) appended at
-# the rig's scheduleTime. A literal block (|), so YAML keeps the lines as written.
+  isEnabled: true
 - type: WriteFile
   with:
     targetPath: ${clone.clonedPath}/local/clabe.yml
-    content: |
+    content: >-
       curriculum:
         script: ["curriculum", "run"]
         project_directory: "Aind.Behavior.VrForaging"
 
       otel:
         enabled: true
-        endpoint: "http://localhost:4317"
+        endpoint: "http://localhost:4318"
         service_name: "aind-behavior-vr-foraging"
         software_name: "aind-behavior-vr-foraging"
+
 
       watchdog:
         project_name: "Cognitive flexibility in patch foraging"
         destination: '\\allen\\aind\\stage\\vr-foraging\\data'
+        delete_modalities_source_after_success: true
+        job_type: "vr_foraging_v2"
         transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
         s3_bucket: "default"
-        upload_groups:
-          - name: 1_of_2
-            job_type: "vr_foraging_async_0"
-            creates_record: true
-            modalities: [behavior]
-            schedule_time: null
-            delete_modalities_source_after_success: true
-          - name: 2_of_2
-            job_type: "vr_foraging_async_1"
-            modalities: "*"
-            schedule_time: "${vars.scheduleTime}"
-            delete_modalities_source_after_success: true
+        schedule_time: "${vars.scheduleTime}"
 
       dataverse:
         tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
         client_id: "df37356e-3316-484a-b732-319b6b4ad464"
         org: "org5d93e08d"
-# Installs the clabe the checkout pins (or clabeVersion) with clabe's installer, or only restarts the daemon when
-# it is already installed. Runs as the SSH user: that must be the user logged on to the rig (the daemon runs in
-# their session).
-- type: RunScript
-  with:
-    workingDirectory: ${clone.clonedPath}
-    commands:
-    - $ErrorActionPreference = 'Stop'
-    - .\scripts\deploy-daemon.ps1 -Version '${params.clabeVersion}' -Force:('${params.forceDaemonRestart}' -eq 'true')
+  isEnabled: true
