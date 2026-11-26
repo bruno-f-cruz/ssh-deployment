@@ -1,31 +1,40 @@
 name: VrForagingExperimentDev
 params:
-  ref:
+  clabeVersion:
     type: String
-    label: Git Ref
-    default: main
+    label: clabe version
+    help: The clabe release the rig's daemon runs, e.g. 0.18.0rc2. "lock" runs the release the experiment's uv.lock pins.
+    default: lock
+    optionsFrom: clabe.versions
 vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
+# Deploys Aind.Experiment.VrForaging to the behavior rigs, and the clabe daemon that serves each rig's runs and enrolls
+# the rig with the hub. Runs as the SSH user: that must be the user logged on to the rig (the daemon runs in their
+# session).
 steps:
+# Stop the daemon before anything changes: deploy.ps1 recreates .venv, and no session may start meanwhile. Refused
+# while a session runs; nothing to stop on a new rig. The last step starts it again.
+- type: DeployClabeDaemon
+  with:
+    stopOnly: true
 - type: RunScript
   with:
     commands:
     - git config --global --unset-all safe.directory 2>$null; if ($LASTEXITCODE -eq 5) { $global:LASTEXITCODE = 0 }
     - git config --global --add safe.directory '*'
-  isEnabled: true
 - id: clone
   type: GitClone
   with:
     repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
     rootPath: ${vars.repoRoot}
-    folderName: Aind.Experiment.VrForaging-dev
-  isEnabled: true
 - type: GitCheckout
   with:
     path: ${clone.clonedPath}
-    reference: ${params.ref}
-  isEnabled: true
+    reference: main
+    cleanExceptions:
+    - .cache_manager.json
+# Sets up the Bonsai environments and recreates .venv.
 - type: RunScript
   with:
     workingDirectory: ${clone.clonedPath}
@@ -33,40 +42,54 @@ steps:
     - $ErrorActionPreference = 'Stop'
     - $ProgressPreference = 'SilentlyContinue'
     - .\scripts\deploy.ps1
-  isEnabled: true
 - type: CreateShortcut
   with:
     cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
     shortcutDirectory: C:\Users\Public\Desktop
-    shortName: DEV-VrForagingExperiment
-    iconPath: ${clone.clonedPath}/assets/icon_dev.ico
-  isEnabled: true
+    shortName: VrForagingExperiment
+    iconPath: ${clone.clonedPath}/assets/icon.ico
+# The experiments' clabe.yml. Behavior and the metadata record upload right away; every other modality (videos...) is
+# appended at the rig's scheduleTime. A literal block (|), so YAML keeps the lines as written.
 - type: WriteFile
   with:
     targetPath: ${clone.clonedPath}/local/clabe.yml
-    content: >-
+    content: |
       curriculum:
         script: ["curriculum", "run"]
         project_directory: "Aind.Behavior.VrForaging"
 
       otel:
         enabled: true
-        endpoint: "http://localhost:4318"
+        endpoint: "http://localhost:4317"
         service_name: "aind-behavior-vr-foraging"
         software_name: "aind-behavior-vr-foraging"
-
 
       watchdog:
         project_name: "Cognitive flexibility in patch foraging"
         destination: '\\allen\\aind\\stage\\vr-foraging\\data'
-        delete_modalities_source_after_success: true
-        job_type: "vr_foraging_v2"
         transfer_endpoint: "http://aind-data-transfer-service/api/v2/submit_jobs"
         s3_bucket: "default"
-        schedule_time: "${vars.scheduleTime}"
+        upload_groups:
+          - name: 1_of_2
+            job_type: "vr_foraging_async_0"
+            creates_record: true
+            modalities: [behavior]
+            schedule_time: null
+            delete_modalities_source_after_success: true
+          - name: 2_of_2
+            job_type: "vr_foraging_async_1"
+            modalities: "*"
+            schedule_time: "${vars.scheduleTime}"
+            delete_modalities_source_after_success: true
 
       dataverse:
         tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
         client_id: "df37356e-3316-484a-b732-319b6b4ad464"
         org: "org5d93e08d"
-  isEnabled: true
+# The daemon runs clabeVersion, enrolled with the hub, and starts again. Installed next to the clabe it ran before;
+# when it already runs that clabe with this hub, it only starts.
+- type: DeployClabeDaemon
+  with:
+    version: ${params.clabeVersion}
+    lockRepository: ${clone.clonedPath}
+    hubs: http://aind-behavior.corp.alleninstitute.org/clabe/

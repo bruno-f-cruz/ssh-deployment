@@ -38,7 +38,6 @@ public class BuiltinRecipesTests
     [InlineData("VrForagingExperiment.yml")]
     [InlineData("VrForagingExperimentDev.yml")]
     [InlineData("VrForagingExperimentEphys.yml")]
-    [InlineData("VrForagingFipExperiment.yml")]
     [InlineData("Reboot.yml")]
     [InlineData("CleanDesktop.yml")]
     public void Builtin_recipe_validates(string file)

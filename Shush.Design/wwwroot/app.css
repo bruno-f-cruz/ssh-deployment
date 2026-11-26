@@ -232,21 +232,44 @@ body {
 
 .field-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1rem 1.25rem;
+    align-items: start; /* fields of a row start level, whatever their help text below */
 }
 
 .field {
     display: flex;
     flex-direction: column;
     gap: .375rem;
+    min-width: 0;
 }
 
     .field label {
         font-size: .825rem;
         font-weight: 600;
         color: var(--text-muted);
+        /* One line, so every input of a row sits at the same height; the full text is in the tooltip. */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
+
+    .field-grid .field input,
+    .field-grid .field select {
+        width: 100%;
+        box-sizing: border-box;
+        height: 2.375rem;
+    }
+
+    .field-grid .field select {
+        background: var(--surface-muted);
+    }
+
+.field__help {
+    font-size: .775rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
 
 input[type=text], input:not([type]), select, .machines-table input {
     background: var(--surface-muted);

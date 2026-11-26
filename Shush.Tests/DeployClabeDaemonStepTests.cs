@@ -126,12 +126,16 @@ public class DeployClabeDaemonStepTests
             name: R
             params:
               clabeVersion:
+                label: clabe version
+                help: The release the daemon runs.
                 default: lock
                 optionsFrom: clabe.versions
             steps: []
             """;
         var document = YamlRecipeSerializer.Deserialize(YamlRecipeSerializer.Serialize(YamlRecipeSerializer.Deserialize(yaml)));
-        Assert.Equal("clabe.versions", RecipeFormBinder.GetFields(document).Single().OptionsFrom);
+        var field = RecipeFormBinder.GetFields(document).Single();
+        Assert.Equal("clabe.versions", field.OptionsFrom);
+        Assert.Equal("The release the daemon runs.", field.Help);
     }
 
     [Fact]
