@@ -14,6 +14,7 @@ params:                      # user-editable values, surfaced as form fields
     label: Git Tag           # optional; defaults to a humanized name
     default: v1.2.0rc1
     options: [a, b]          # dropdown only
+    optionsFrom: clabe.versions  # string only: suggest a source's values (see "Suggested values")
 vars:                        # internal values, resolved once before any step runs
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
@@ -134,11 +135,56 @@ with:
 | `DeleteDirectory` | `path`* | — |
 | `SetEnvironmentVariable` | `name`*, `value`*, `scope`, `secret` (bool) | — |
 | `Reboot` | `delaySeconds` (default 5) | — |
+| `DeployClabeDaemon` | `version` (default `latest`), `lockRepository`, `hubs`, `force` (bool), `stopOnly` (bool), `installer` (default `main`) | — |
 
 The catalog is populated by reflection over `[Step]`-annotated `IRecipeStep` types
 (`StepRegistry`), so adding a step type is: implement `IRecipeStep`, annotate it with
 `[Step]`/`[Input]`/`[Output]`, and it appears in the CLI, validation, and the web editor's
 palette and tooltips automatically.
+
+### `DeployClabeDaemon` (deploy clabe-daemon)
+
+Runs [clabe's installer](https://github.com/AllenNeuralDynamics/clabe/blob/main/docs/articles/deployment.md) on the
+rig: installs uv and the `clabe` command if needed, then `clabe daemon deploy`. The requested release installs next to
+the one running, then the daemon switches to it and starts; when it already runs that release with these hubs, the
+step changes nothing. Refused while the daemon runs a session, unless `force`. Run it as the rig's logged-on user.
+
+| Input | Meaning |
+|-------|---------|
+| `version` | A clabe release (e.g. `0.19.0`); `lock`: the release `lockRepository`'s `uv.lock` pins; `latest` or empty: the newest release. Suggestions: the releases with builds |
+| `lockRepository` | The repository `lock` follows, e.g. `${clone.clonedPath}` |
+| `hubs` | Hubs to enroll with, `;`-separated; `none`: no hub; empty: unchanged |
+| `force` | Interrupt a running session |
+| `stopOnly` | Only stop the daemon (before rebuilding an experiment's environment); a later `DeployClabeDaemon` starts it |
+| `installer` | The installer's version: a release tag (e.g. `v0.19.0`) or `main`. Suggestions: the tags whose installer deploys |
+
+A release without builds (no wheel attached to its GitHub release, so not on PyPI) is refused before the rig is touched.
+If GitHub cannot be reached, the step goes on and the rig's install reports a missing release.
+
+```yaml
+- type: DeployClabeDaemon      # first: stop the daemon so no session starts mid-deploy
+  with:
+    stopOnly: true
+# ... clone, checkout, rebuild the environment ...
+- type: DeployClabeDaemon      # last: run the release the checkout locks, enrolled with the hub
+  with:
+    version: lock
+    lockRepository: ${clone.clonedPath}
+    hubs: http://hub-vm/clabe/
+```
+
+## Suggested values (`optionsFrom`)
+
+A string param (`optionsFrom:` in the recipe) or step input (`[Input(OptionsFrom = ...)]`) can name an option
+source. The web editor then suggests that source's values as you type; any other value can still be entered.
+
+| Source | Values |
+|--------|--------|
+| `clabe.versions` | `lock`, `latest`, then each clabe release with builds (a wheel attached to its GitHub release), newest first |
+| `clabe.installers` | `main`, then the recent clabe release tags whose installer deploys the daemon |
+
+The clabe sources read GitHub's API, cached for 10 minutes. Unauthenticated, GitHub allows 60 requests an hour per
+address; set `GITHUB_TOKEN` on the Shush host to raise that. Without GitHub, the fields show only the fixed values.
 
 ## Discovery & editing
 

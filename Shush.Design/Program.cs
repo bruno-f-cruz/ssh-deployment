@@ -50,6 +50,8 @@ builder.Services.AddScoped<CredentialStore>();
 // Recipe engine wiring: step catalog, functions, YAML discovery, and per-recipe deploy state.
 builder.Services.AddSingleton(new StepRegistry(typeof(IRecipe).Assembly));
 builder.Services.AddSingleton(FunctionLibrary.Default);
+// Suggested values for inputs and params that name a source (e.g. clabe.versions: the clabe releases with builds).
+builder.Services.AddSingleton(Shush.Recipe.Options.OptionSourceRegistry.Default);
 builder.Services.AddSingleton<RecipeStore>();
 builder.Services.AddSingleton(new RecipePaths(
     BaseDir: Path.Combine(AppContext.BaseDirectory, "Recipes"),
