@@ -167,7 +167,7 @@
                         {
                             var missing = field.Required && string.IsNullOrEmpty(ParamValue(field));
                             <div class="field">
-                                <label for="@($"prop-{field.Name}")">
+                                <label for="@($"prop-{field.Name}")" title="@field.Label">
                                     @field.Label
                                     @if (field.Required)
                                     {
@@ -192,6 +192,10 @@
                                 {
                                     <input id="@($"prop-{field.Name}")" value="@ParamValue(field)" list="@OptionsListId(field.OptionsFrom)"
                                            autocomplete="off" @onchange="e => OnParamChanged(field, e)" />
+                                }
+                                @if (field.Help is not null)
+                                {
+                                    <small class="field__help">@field.Help</small>
                                 }
                                 @if (missing)
                                 {

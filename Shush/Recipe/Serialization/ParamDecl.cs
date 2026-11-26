@@ -6,6 +6,9 @@ public sealed class ParamDecl
 {
     public ParamType Type { get; set; } = ParamType.String;
     public string? Label { get; set; }
+
+    /// <summary>A sentence shown under the field (what the value means); keeps <see cref="Label"/> short.</summary>
+    public string? Help { get; set; }
     public string? Default { get; set; }
     public List<string>? Options { get; set; }
 

@@ -11,7 +11,8 @@ name: VrForagingDev          # unique recipe name (used for selection + state)
 params:                      # user-editable values, surfaced as form fields
   tag:
     type: string             # string | dropdown | collection
-    label: Git Tag           # optional; defaults to a humanized name
+    label: Git Tag           # optional; defaults to a humanized name. Keep it short: it is one line
+    help: The tag to deploy.  # optional; shown under the field — the place for a longer explanation
     default: v1.2.0rc1
     options: [a, b]          # dropdown only
     optionsFrom: clabe.versions  # string only: suggest a source's values (see "Suggested values")

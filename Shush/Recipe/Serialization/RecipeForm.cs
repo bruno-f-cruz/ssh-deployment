@@ -16,6 +16,10 @@ public sealed class RecipeField
     public required string Label { get; init; }
     public required PropertyEditorKind Kind { get; init; }
     public string? Default { get; init; }
+
+    /// <summary>Shown under the field.</summary>
+    public string? Help { get; init; }
+
     public IReadOnlyList<string> Options { get; init; } = [];
 
     /// <summary>A text field's suggestions, from this option source (e.g. <c>clabe.versions</c>).</summary>
@@ -44,6 +48,7 @@ public static partial class RecipeFormBinder
                     _ => PropertyEditorKind.Text,
                 },
                 Default = kv.Value.Default,
+                Help = string.IsNullOrWhiteSpace(kv.Value.Help) ? null : kv.Value.Help.Trim(),
                 Options = kv.Value.Options ?? [],
                 OptionsFrom = kv.Value.OptionsFrom,
             })
