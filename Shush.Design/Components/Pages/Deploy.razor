@@ -8,6 +8,7 @@
 @inject RecipeStore RecipeStore
 @inject StepRegistry Registry
 @inject FunctionLibrary Functions
+@inject Shush.Recipe.Options.OptionSourceRegistry OptionSources
 @inject RecipePaths Paths
 @inject GroupStore GroupStore
 @inject MachineRegistryService MachineRegistry
@@ -189,8 +190,8 @@
                                 }
                                 else
                                 {
-                                    <input id="@($"prop-{field.Name}")" value="@ParamValue(field)"
-                                           @onchange="e => OnParamChanged(field, e)" />
+                                    <input id="@($"prop-{field.Name}")" value="@ParamValue(field)" list="@OptionsListId(field.OptionsFrom)"
+                                           autocomplete="off" @onchange="e => OnParamChanged(field, e)" />
                                 }
                                 @if (missing)
                                 {
@@ -353,7 +354,8 @@
                                                 @switch (input.Shape)
                                                 {
                                                     case InputShape.Scalar:
-                                                        <input value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)" />
+                                                        <input value="@GetScalar(step, input.Name)" list="@OptionsListId(input.OptionsFrom)" autocomplete="off"
+                                                               @onchange="e => SetScalar(step, input.Name, e)" />
                                                         break;
                                                     case InputShape.Text:
                                                         <textarea class="file-input" rows="18" spellcheck="false" wrap="off"
@@ -608,9 +610,43 @@
             </section>
         </main>
     }
+    @* One suggestion list per option source (e.g. the clabe releases with builds), shared by every field naming it. *@
+    @foreach (var (source, options) in _options)
+    {
+        <datalist id="@OptionsListId(source)">
+            @foreach (var option in options)
+            {
+                <option value="@option.Value">@(option.Label ?? option.Value)</option>
+            }
+        </datalist>
+    }
 </div>
 
 @code {
+    // Suggested values by option source name, loaded in the background (a source may be remote, e.g. GitHub).
+    private readonly Dictionary<string, IReadOnlyList<Shush.Recipe.Options.InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string? OptionsListId(string? source) =>
+        string.IsNullOrWhiteSpace(source) ? null : $"options-{source.Replace('.', '-')}";
+
+    private async Task LoadOptionsAsync()
+    {
+        foreach (var name in OptionSources.Names)
+        {
+            if (!OptionSources.TryGet(name, out var source))
+                continue;
+            try
+            {
+                _options[name] = await source.GetOptionsAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Couldn't load the {Source} suggestions.", name);
+            }
+        }
+    }
+
     private string _usernameInput = string.Empty;
     private string _passwordInput = string.Empty;
     private bool _showPassword;
@@ -783,6 +819,7 @@
     {
         LoadRecipeNames();
         LoadGroups();
+        _ = LoadOptionsAsync(); // suggestions appear when they arrive; the page does not wait for GitHub
 
         try
         {

@@ -20,6 +20,12 @@ public sealed class InputAttribute : Attribute
     /// meaningful for <see cref="string"/> inputs.
     /// </summary>
     public bool Multiline { get; init; }
+
+    /// <summary>
+    /// The name of an option source (see <c>OptionSourceRegistry</c>, e.g. <c>clabe.versions</c>) whose values the
+    /// editor suggests for this input. Any other value can still be typed. Only meaningful for string inputs.
+    /// </summary>
+    public string? OptionsFrom { get; init; }
 }
 
 [AttributeUsage(AttributeTargets.Property)]

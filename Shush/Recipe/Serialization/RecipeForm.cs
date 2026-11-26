@@ -18,6 +18,9 @@ public sealed class RecipeField
     public string? Default { get; init; }
     public IReadOnlyList<string> Options { get; init; } = [];
 
+    /// <summary>A text field's suggestions, from this option source (e.g. <c>clabe.versions</c>).</summary>
+    public string? OptionsFrom { get; init; }
+
     /// <summary>A param with no declared default is required — the operator must supply a value.</summary>
     public bool Required => Default is null;
 }
@@ -42,6 +45,7 @@ public static partial class RecipeFormBinder
                 },
                 Default = kv.Value.Default,
                 Options = kv.Value.Options ?? [],
+                OptionsFrom = kv.Value.OptionsFrom,
             })
             .ToList();
 

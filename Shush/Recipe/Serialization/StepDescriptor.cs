@@ -16,6 +16,9 @@ public sealed class InputDescriptor
     /// <summary>A multi-line string input: edited as a full text area rather than a single line.</summary>
     public bool Multiline { get; init; }
 
+    /// <summary>The option source whose values the editor suggests (e.g. <c>clabe.versions</c>), if any.</summary>
+    public string? OptionsFrom { get; init; }
+
     public Type PropertyType => Property.PropertyType;
 
     public InputShape Shape
@@ -66,6 +69,7 @@ public sealed class StepDescriptor
                 Required = x.attr.Required,
                 Description = x.attr.Description,
                 Multiline = x.attr.Multiline,
+                OptionsFrom = x.attr.OptionsFrom,
             })
             .ToList();
 
