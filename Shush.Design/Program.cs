@@ -50,7 +50,8 @@ builder.Services.AddDataProtection()
 builder.Services.AddSingleton<ISecretProtector, SecretProtector>();
 
 // The database: one SQLite file in the data folder.
-builder.Services.AddDbContextFactory<ShushDbContext>(o => o.UseSqlite($"Data Source={paths.DatabaseFile}"));
+builder.Services.AddDbContextFactory<ShushDbContext>(o =>
+    o.UseSqlite($"Data Source={paths.DatabaseFile}", sqlite => sqlite.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
 
 // The recipe engine: step catalog, functions, and suggested values for inputs (e.g. clabe releases, git refs).
 builder.Services.AddSingleton(new StepRegistry(typeof(IRecipe).Assembly));

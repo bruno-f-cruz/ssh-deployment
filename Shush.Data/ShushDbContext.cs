@@ -20,7 +20,8 @@ public sealed class ShushDbContext(DbContextOptions<ShushDbContext> options) : D
 
     /// <summary>Opens (and migrates) the database file at <paramref name="path"/>.</summary>
     public static DbContextOptions<ShushDbContext> OptionsFor(string path) =>
-        new DbContextOptionsBuilder<ShushDbContext>().UseSqlite($"Data Source={path}").Options;
+        new DbContextOptionsBuilder<ShushDbContext>()
+            .UseSqlite($"Data Source={path}", sqlite => sqlite.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)).Options;
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {

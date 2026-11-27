@@ -94,7 +94,8 @@ else if (_run is not null)
                 <div class="stack" style="gap: 6px">
                     <h2 id="rig-h" style="font-size: 22px"><a href="machines/@Uri.EscapeDataString(machine.MachineName)" style="text-decoration: none">@machine.MachineName</a></h2>
                     <p class="@mTone.Text" style="font-weight: 500">@RigBoard.StatusLine(machine)</p>
-                    @if (!string.IsNullOrEmpty(machine.Error))
+                    @* The pre-flight list below already explains a pre-flight failure; don't repeat it. *@
+                    @if (!string.IsNullOrEmpty(machine.Error) && Json.Read<PreflightResult?>(machine.PreflightJson, null) is not { HasErrors: true })
                     {
                         <p class="small t-fail">@machine.Error</p>
                     }

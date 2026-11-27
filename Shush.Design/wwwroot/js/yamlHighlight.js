@@ -7,8 +7,7 @@ window.shushYaml = {
         const pre = document.getElementById(preId);
         if (!ta || !pre) return;
         // Called again whenever the text is refilled: re-render, but attach the listeners once.
-        if (ta.dataset.shushYaml === '1') { pre.innerHTML = this.highlight(ta.value) + '
-'; return; }
+        if (ta.dataset.shushYaml === '1') { pre.innerHTML = this.highlight(ta.value) + '\n'; return; }
         ta.dataset.shushYaml = '1';
 
         const render = () => { pre.innerHTML = this.highlight(ta.value) + '\n'; };
