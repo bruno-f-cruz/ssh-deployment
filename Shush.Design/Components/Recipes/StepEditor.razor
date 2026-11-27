@@ -72,7 +72,7 @@
                 {
                     <span class="badge">disabled</span>
                 }
-                <button type="button" class="btn btn--icon" @onclick="() => ToggleEnabled(step)" aria-pressed="@(!step.IsEnabled ? "true" : "false")"
+                <button type="button" class="btn btn--icon" @onclick="() => ToggleEnabled(step)" aria-pressed="@Ui.Aria(!step.IsEnabled ? "true" : "false")"
                         aria-label="@(step.IsEnabled ? "Disable step" : "Enable step")"
                         title="@(step.IsEnabled ? "Disable: skip this step without removing it" : "Enable this step")">
                     <Icon Name="@(step.IsEnabled ? "eye" : "eye-off")" />

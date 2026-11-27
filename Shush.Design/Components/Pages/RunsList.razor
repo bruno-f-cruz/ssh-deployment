@@ -10,8 +10,8 @@
     <Lede>Every deploy, dry run, retry and rollback, newest first.</Lede>
     <Actions>
         <div class="toggles" role="group" aria-label="Show">
-            <button type="button" class="toggle" aria-pressed="@(!_hideDryRuns)" @onclick="() => SetDryRunsAsync(false)">Everything</button>
-            <button type="button" class="toggle" aria-pressed="@_hideDryRuns" @onclick="() => SetDryRunsAsync(true)">Hide dry runs</button>
+            <button type="button" class="toggle" aria-pressed="@Ui.Aria(!_hideDryRuns)" @onclick="() => SetDryRunsAsync(false)">Everything</button>
+            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_hideDryRuns)" @onclick="() => SetDryRunsAsync(true)">Hide dry runs</button>
         </div>
     </Actions>
 </PageHeader>

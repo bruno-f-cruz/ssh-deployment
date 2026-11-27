@@ -126,7 +126,7 @@ else
     <div class="tabs" role="tablist" aria-label="Recipe">
         @foreach (var (key, label) in Tabs)
         {
-            <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@(_tab == key ? "true" : "false")" aria-controls="panel-@key"
+            <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@Ui.Aria(_tab == key ? "true" : "false")" aria-controls="panel-@key"
                     @onclick="() => SelectTab(key)">
                 @label
                 @if (key == "editor" && Dirty)
@@ -143,8 +143,8 @@ else
             <div class="panel editor-bar">
                 <div class="row">
                     <div class="toggles" role="group" aria-label="Editor view">
-                        <button type="button" class="toggle" aria-pressed="@(!_raw ? "true" : "false")" @onclick="() => SetRaw(false)">Structured</button>
-                        <button type="button" class="toggle" aria-pressed="@(_raw ? "true" : "false")" @onclick="() => SetRaw(true)">Raw YAML</button>
+                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(!_raw ? "true" : "false")" @onclick="() => SetRaw(false)">Structured</button>
+                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_raw ? "true" : "false")" @onclick="() => SetRaw(true)">Raw YAML</button>
                     </div>
                     <span class="spacer"></span>
                     @if (Dirty)

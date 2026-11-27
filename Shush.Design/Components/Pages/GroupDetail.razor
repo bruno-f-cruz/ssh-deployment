@@ -90,11 +90,11 @@ else if (_group is not null)
     }
 
     <div class="tabs" role="tablist" aria-label="Group">
-        <button type="button" role="tab" id="tab-machines" class="tab" aria-selected="@(_tab == "machines")" aria-controls="panel-machines"
+        <button type="button" role="tab" id="tab-machines" class="tab" aria-selected="@Ui.Aria(_tab == "machines")" aria-controls="panel-machines"
                 @onclick='() => _tab = "machines"'>Machines (@_group.Members.Count)</button>
-        <button type="button" role="tab" id="tab-variables" class="tab" aria-selected="@(_tab == "variables")" aria-controls="panel-variables"
+        <button type="button" role="tab" id="tab-variables" class="tab" aria-selected="@Ui.Aria(_tab == "variables")" aria-controls="panel-variables"
                 @onclick="ShowVariablesAsync">Variables</button>
-        <button type="button" role="tab" id="tab-deployments" class="tab" aria-selected="@(_tab == "deployments")" aria-controls="panel-deployments"
+        <button type="button" role="tab" id="tab-deployments" class="tab" aria-selected="@Ui.Aria(_tab == "deployments")" aria-controls="panel-deployments"
                 @onclick='() => _tab = "deployments"'>Deployments (@(_deployments?.Count ?? 0))</button>
     </div>
 
@@ -278,11 +278,11 @@ else
                 @if (_group!.Members.Count <= 12)
                 {
                     <div class="toggles" role="group" aria-label="Show values as a rig would get them">
-                        <button type="button" class="toggle" aria-pressed="@(_previewMachine is null)" @onclick="() => PreviewAsync(null)">Any rig in the group</button>
+                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_previewMachine is null)" @onclick="() => PreviewAsync(null)">Any rig in the group</button>
                         @foreach (var member in _group.Members)
                         {
                             var name = member.MachineName;
-                            <button type="button" class="toggle" aria-pressed="@(string.Equals(_previewMachine, name, StringComparison.OrdinalIgnoreCase))"
+                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(string.Equals(_previewMachine, name, StringComparison.OrdinalIgnoreCase))"
                                     @onclick="() => PreviewAsync(name)">@name</button>
                         }
                     </div>

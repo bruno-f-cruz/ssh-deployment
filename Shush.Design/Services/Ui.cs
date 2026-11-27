@@ -20,6 +20,11 @@ public readonly record struct Tone(string Name, string Label)
 
 public static class Ui
 {
+    /// <summary>An ARIA state ("true"/"false"). Blazor renders a bool attribute as present-or-absent, which ARIA doesn't read.</summary>
+    public static string Aria(bool value) => value ? "true" : "false";
+
+    public static string Aria(string value) => value;
+
     public static Tone Of(RunStatus status) => status switch
     {
         RunStatus.Running => new("run", "Running"),

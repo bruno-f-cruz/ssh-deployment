@@ -70,7 +70,7 @@ else if (_deployment is not null && _document is not null)
     <div class="tabs" role="tablist" aria-label="Deployment">
         @foreach (var (key, label) in Tabs)
         {
-            <button type="button" role="tab" class="tab" aria-selected="@(_tab == key)" @onclick="() => _tab = key">@label</button>
+            <button type="button" role="tab" class="tab" aria-selected="@Ui.Aria(_tab == key)" @onclick="() => _tab = key">@label</button>
         }
     </div>
 

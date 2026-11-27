@@ -31,11 +31,11 @@
             <label class="visually-hidden" for="machine-search">Search machines</label>
             <input id="machine-search" type="search" placeholder="Search by name, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
             <div class="toggles" role="group" aria-label="Show machines">
-                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @(_machines?.Count ?? 0)</button>
-                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @(_machines?.Count ?? 0)</button>
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">
                     Not reachable @(_machines?.Count(m => m.Reachable == false) ?? 0)
                 </button>
-                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">
                     Low disk @(_machines?.Count(m => m.FreeGb < LowDiskGb) ?? 0)
                 </button>
             </div>

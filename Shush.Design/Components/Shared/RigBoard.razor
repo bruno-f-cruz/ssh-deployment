@@ -3,16 +3,16 @@
     <div class="panel__head">
         <h2>Rigs</h2>
         <div class="toggles" role="group" aria-label="Show rigs">
-            <button type="button" class="toggle" aria-pressed="@(_filter == "all")" @onclick='() => _filter = "all"'>All @Run.Machines.Count</button>
+            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "all")" @onclick='() => _filter = "all"'>All @Run.Machines.Count</button>
             @if (Count(MachineStatus.Running) > 0 || Count(MachineStatus.Waiting) > 0)
             {
-                <button type="button" class="toggle" aria-pressed="@(_filter == "active")" @onclick='() => _filter = "active"'>
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "active")" @onclick='() => _filter = "active"'>
                     In progress @(Count(MachineStatus.Running) + Count(MachineStatus.Waiting))
                 </button>
             }
             @if (Count(MachineStatus.Failed) > 0)
             {
-                <button type="button" class="toggle" aria-pressed="@(_filter == "failed")" @onclick='() => _filter = "failed"'>Failed @Count(MachineStatus.Failed)</button>
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "failed")" @onclick='() => _filter = "failed"'>Failed @Count(MachineStatus.Failed)</button>
             }
         </div>
     </div>
@@ -29,7 +29,7 @@
                         var segments = Segments(machine);
                         var (_, shortName) = Ui.Room(machine.MachineName);
                         <button type="button" class="tile @(machine.Status == MachineStatus.Failed ? "tile--fail" : "")"
-                                aria-pressed="@(string.Equals(Selected, machine.MachineName, StringComparison.OrdinalIgnoreCase))"
+                                aria-pressed="@Ui.Aria(string.Equals(Selected, machine.MachineName, StringComparison.OrdinalIgnoreCase))"
                                 aria-label="@($"{machine.MachineName}: {StatusLine(machine)}")"
                                 @onclick="() => OnSelect.InvokeAsync(machine.MachineName)">
                             <span class="tile__top">
