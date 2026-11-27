@@ -116,14 +116,14 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
     /// <paramref name="paramValues"/> (a new deployment needs its own fixed values). With <paramref name="recipeId"/>
     /// (a detached copy, deploying its own duplicate of the recipe) the overrides aren't copied: the new recipe has them built in.
     /// </summary>
-    public async Task<Deployment> DuplicateAsync(int id, string name, IReadOnlyDictionary<string, string> paramValues, int? recipeId = null)
+    public async Task<Deployment> DuplicateAsync(int id, string name, IReadOnlyDictionary<string, string> paramValues, int? recipeId = null, int? groupId = null)
     {
         Deployment source;
         await using (var db = await factory.CreateDbContextAsync())
             source = await db.Deployments.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id)
                 ?? throw new ShushDataException("That deployment no longer exists.");
 
-        var copy = await CreateAsync(name, recipeId ?? source.RecipeId, source.GroupId, paramValues, source.Description);
+        var copy = await CreateAsync(name, recipeId ?? source.RecipeId, groupId ?? source.GroupId, paramValues, source.Description);
         await using (var db = await factory.CreateDbContextAsync())
         {
             var created = await db.Deployments.FirstAsync(d => d.Id == copy.Id);
@@ -132,6 +132,18 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
             await db.SaveChangesAsync();
             return created;
         }
+    }
+
+    /// <summary>The group of rigs the deployment deploys to.</summary>
+    public async Task SetGroupAsync(int id, int groupId)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        if (!await db.Groups.AnyAsync(g => g.Id == groupId))
+            throw new ShushDataException("That group no longer exists.");
+        var deployment = await db.Deployments.FirstAsync(d => d.Id == id);
+        deployment.GroupId = groupId;
+        deployment.UpdatedAt = Clock.UtcNow();
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Points the deployment at another recipe (e.g. its own detached copy) and clears its overrides.</summary>

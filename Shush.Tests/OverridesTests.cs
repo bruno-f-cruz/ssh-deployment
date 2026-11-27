@@ -178,4 +178,20 @@ public class DeploymentCopyTests : DataTestBase
         Assert.Equal([new KeyValuePair<string, string>("Install folder", "App-dev")], summary.Fixed);
         Assert.Equal(1, summary.OverrideCount);
     }
+
+    [Fact]
+    public async Task A_deployment_can_move_to_another_group_and_a_copy_can_target_one()
+    {
+        var recipe = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
+        var rigsA = await Groups.CreateAsync("A", machines: ["RIG-1"]);
+        var rigsB = await Groups.CreateAsync("B", machines: ["RIG-2", "RIG-3"]);
+        var prod = await Deployments.CreateAsync("prod", recipe.Id, rigsA.Id, new Dictionary<string, string>());
+
+        var copy = await Deployments.DuplicateAsync(prod.Id, "prod B", new Dictionary<string, string>(), groupId: rigsB.Id);
+        Assert.Equal(rigsB.Id, (await Deployments.GetAsync(copy.Id))!.GroupId);
+
+        await Deployments.SetGroupAsync(prod.Id, rigsB.Id);
+        Assert.Equal(2, (await Deployments.GetAsync(prod.Id))!.Group.Members.Count);
+        await Assert.ThrowsAsync<ShushDataException>(() => Deployments.SetGroupAsync(prod.Id, 999));
+    }
 }

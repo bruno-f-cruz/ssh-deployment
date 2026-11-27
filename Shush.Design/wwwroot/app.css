@@ -628,3 +628,10 @@ tr.is-link:hover .row-btn { text-decoration: underline; }
 
 .meta a { text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .meta a:hover { text-decoration-color: currentColor; }
+
+/* Deployment: Rigs tab */
+.rigs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+.rigs-bar label { font-weight: 600; font-size: 14px; }
+.rigs-bar select { min-width: 260px; max-width: 420px; flex: 1 1 260px; }
+.table th.rigs-switch, .table td.rigs-switch { width: 56px; padding-right: 0; }
+.table tr.is-off td:not(.rigs-switch) { opacity: 0.45; }

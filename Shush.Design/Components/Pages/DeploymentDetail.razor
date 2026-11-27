@@ -9,6 +9,7 @@
 @inject Notifier Notifier
 @inject ClientTime ClientTime
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>@(_deployment?.Name ?? "Deployment") · Shush</PageTitle>
 
@@ -32,6 +33,10 @@ else if (_deployment is not null && _document is not null)
                     <span><button type="button" class="link-btn t-changed" title="Steps turned off or inputs changed for this deployment only" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "change")</button></span>
                 }
                 <span><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</span>
+                @if (_off.Count > 0)
+                {
+                    <span><button type="button" class="link-btn t-warn" @onclick="@(() => _tab = "rigs")">@Ui.Plural(_off.Count, "rig") off for this deploy</button></span>
+                }
                 @if (_deployment.SshUser is { } user)
                 {
                     <span title="The SSH account this deployment connects as">as @user</span>
@@ -45,7 +50,7 @@ else if (_deployment is not null && _document is not null)
         <Actions>
             <button type="button" class="btn" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.DryRun)">Dry run</button>
             <button type="button" class="btn btn--primary" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.Deploy)">
-                Deploy to @Ui.Plural(_deployment.Group.Members.Count, "rig")
+                Deploy to @(_off.Count == 0 ? Ui.Plural(Members.Count, "rig") : $"{OnCount} of {Ui.Plural(Members.Count, "rig")}")
             </button>
             <Menu>
                 <button type="button" class="menu__item" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate…</button>
@@ -118,6 +123,15 @@ else if (_deployment is not null && _document is not null)
                     <label for="dup-name">Name</label>
                     <input id="dup-name" @bind="_dupName" @bind:event="oninput" />
                 </div>
+                <div class="field">
+                    <label for="dup-group">Group</label>
+                    <select id="dup-group" @bind="_dupGroupId">
+                        @foreach (var group in _groups)
+                        {
+                            <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                        }
+                    </select>
+                </div>
                 @if (_dupDetach)
                 {
                     <div class="field">
@@ -181,14 +195,43 @@ else if (_deployment is not null && _document is not null)
 
         case "rigs":
             <section class="panel panel--flush" aria-label="Rigs">
+                <div class="rigs-bar">
+                    <label for="rigs-group">Group</label>
+                    <select id="rigs-group" value="@_deployment.GroupId" @onchange="ChangeGroupAsync">
+                        @foreach (var group in _groups)
+                        {
+                            <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                        }
+                    </select>
+                    <span class="grow small muted">
+                        @if (_off.Count > 0)
+                        {
+                            <text>@OnCount of @Ui.Plural(Members.Count, "rig") on. Switches reset after the deploy. </text>
+                            <button type="button" class="link-btn" @onclick="_off.Clear">Turn all on</button>
+                        }
+                        else
+                        {
+                            <text>Turn a rig off to skip it in the next deploy only.</text>
+                        }
+                    </span>
+                    <button type="button" class="btn btn--small" @onclick="DuplicateForOtherRigs"><Icon Name="copy" Size="16" />Duplicate for other rigs</button>
+                </div>
                 <div class="table-wrap">
                     <table class="table">
-                        <thead><tr><th scope="col">Rig</th><th scope="col">Last deployed</th><th scope="col">Values</th><th scope="col">Commit</th></tr></thead>
+                        <thead><tr><th scope="col" class="rigs-switch"><span class="visually-hidden">Deploy</span></th><th scope="col">Rig</th><th scope="col">Last deployed</th><th scope="col">Values</th><th scope="col">Commit</th></tr></thead>
                         <tbody>
                             @foreach (var member in _deployment.Group.Members.OrderBy(m => m.MachineName, MachineNameComparer.Instance))
                             {
                                 var last = _lastDeployed.FirstOrDefault(l => string.Equals(l.MachineName, member.MachineName, StringComparison.OrdinalIgnoreCase));
-                                <tr>
+                                var name = member.MachineName;
+                                var on = !_off.Contains(name);
+                                <tr class="@(on ? "" : "is-off")">
+                                    <td class="rigs-switch">
+                                        <label class="switch" title="@(on ? "Deploys to this rig" : "Skipped in the next deploy")">
+                                            <input type="checkbox" role="switch" checked="@on" @onchange="e => SetRig(name, e.Value is true)" aria-label="@($"Deploy to {name}")" />
+                                            <span class="switch__track" aria-hidden="true"></span>
+                                        </label>
+                                    </td>
                                     <td><RigName Name="@member.MachineName" Lookup="true" /></td>
                                     @if (last is null)
                                     {
@@ -250,15 +293,6 @@ else if (_deployment is not null && _document is not null)
                         <input id="dep-name" @bind="_name" />
                     </div>
                     <div class="field">
-                        <label for="dep-group">Group</label>
-                        <select id="dep-group" @bind="_groupId">
-                            @foreach (var group in _groups)
-                            {
-                                <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="field">
                         <label for="dep-ssh">SSH account</label>
                         <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="The signed-in account" autocomplete="off" />
                         <datalist id="dep-ssh-accounts">
@@ -299,6 +333,13 @@ else if (_deployment is not null && _document is not null)
     private string _name = "";
     private string? _description;
     private int _groupId;
+    private int _dupGroupId;
+
+    /// <summary>Rigs switched off for the next deploy or dry run only. Never saved: reset on load and after each start.</summary>
+    private readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
+
+    private List<string> Members => _deployment?.Group.Members.OrderBy(m => m.Position).Select(m => m.MachineName).ToList() ?? [];
+    private int OnCount => Members.Count(m => !_off.Contains(m));
     private bool _starting;
     private int? _loadedId;
     private RecipeOverrides _overrides = new();
@@ -318,13 +359,13 @@ else if (_deployment is not null && _document is not null)
 
     /// <summary>An attached copy with the same fixed values would install over this deployment.</summary>
     private string? DuplicateClash =>
-        !_dupDetach && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
+        !_dupDetach && _dupGroupId == _deployment?.GroupId && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
         && _document.Params.Where(p => p.Value.IsFixed).All(p => _dupValues.GetValueOrDefault(p.Key) == _values.GetValueOrDefault(p.Key))
             ? "The fixed values are the same as this deployment's, so the copy would install over it. Change at least one (e.g. the install folder)."
             : null;
 
     private bool CanRun => Credentials.CanDeployAs(_deployment?.SshUser) && !_starting && _document is not null && ParamForm.IsComplete(_document, _values)
-                           && _deployment?.Group.Members.Count > 0;
+                           && OnCount > 0;
 
     private int? LatestSuccessId => _history.FirstOrDefault(r => r.Kind != RunKind.DryRun && r.Status == RunStatus.Succeeded)?.Id;
 
@@ -361,6 +402,7 @@ else if (_deployment is not null && _document is not null)
         _name = _deployment.Name;
         _description = _deployment.Description;
         _groupId = _deployment.GroupId;
+        _off.Clear();
         _sshUser = _deployment.SshUser;
         _overrides = RecipeOverrides.FromJson(_deployment.OverridesJson);
         _groups = await Groups.ListAsync();
@@ -454,6 +496,40 @@ else if (_deployment is not null && _document is not null)
         _confirm = null;
         await confirm.Action();
     }
+    private void SetRig(string machine, bool on)
+    {
+        if (on)
+            _off.Remove(machine);
+        else
+            _off.Add(machine);
+    }
+
+    private async Task ChangeGroupAsync(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var groupId) || groupId == _deployment?.GroupId)
+            return;
+        try
+        {
+            await Deployments.SetGroupAsync(Id, groupId);
+            _loadedId = null;
+            await OnParametersSetAsync();
+            _tab = "rigs";
+            Notifier.Success($"Now deploys to {_deployment?.Group.Name}.");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+    }
+
+    private async Task DuplicateForOtherRigs()
+    {
+        if (!_duplicating)
+            ToggleDuplicate();
+        _dupGroupId = _groups.FirstOrDefault(g => g.Id != _deployment?.GroupId)?.Id ?? _dupGroupId;
+        await JS.InvokeVoidAsync("scrollTo", 0, 0);
+    }
+
     private void ToggleDuplicate()
     {
         _confirm = null;
@@ -464,6 +540,7 @@ else if (_deployment is not null && _document is not null)
         _dupName = $"{_deployment.Name} copy";
         _dupRecipeName = $"{_deployment.Recipe.Name} ({_dupName})";
         _dupValues = new Dictionary<string, string>(_values);
+        _dupGroupId = _deployment.GroupId;
     }
 
     private async Task DuplicateAsync()
@@ -481,7 +558,7 @@ else if (_deployment is not null && _document is not null)
                 recipeId = recipe.Id;
             }
 
-            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, recipeId);
+            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, recipeId, _dupGroupId);
             Notifier.Success($"Created '{copy.Name}'.");
             _duplicating = false;
             Nav.NavigateTo($"deployments/{copy.Id}");
@@ -548,7 +625,9 @@ else if (_deployment is not null && _document is not null)
         try
         {
             var values = kind is RunKind.Deploy or RunKind.DryRun ? _values : null;
-            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, Params: values, SourceRunId: sourceRunId), secrets, secrets.Username);
+            var machines = _off.Count > 0 && kind is RunKind.Deploy or RunKind.DryRun ? Members.Where(m => !_off.Contains(m)).ToList() : null;
+            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, machines, values, sourceRunId), secrets, secrets.Username);
+            _off.Clear();
             Nav.NavigateTo($"runs/{id}");
         }
         catch (RecipeValidationException ex)
