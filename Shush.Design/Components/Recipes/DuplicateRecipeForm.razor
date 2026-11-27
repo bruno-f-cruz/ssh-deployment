@@ -14,7 +14,7 @@
         }
         else
         {
-            <span class="field__hint">@(Hint ?? $"Copies v{SourceVersion} of {SourceName} into a new recipe of your own, starting at v1.")</span>
+            <span class="field__hint">@(Hint ?? $"Copies v{SourceVersion} into a new recipe.")</span>
         }
     </div>
     <button type="submit" class="btn btn--primary" disabled="@(Disabled || _busy)"><Icon Name="copy" />Duplicate</button>

@@ -1,34 +1,36 @@
 @using System.Text.RegularExpressions
 
-@* The recipe's parameters (add, edit, rename, remove) and a read-only list of its vars. *@
-<div class="stack">
+@* The recipe's parameters (add, edit, rename, remove) and, when it has any, a read-only list of its vars. *@
+<div class="stack recipe-params">
     <div class="row">
         <h2>Parameters</h2>
-        <span class="muted small">Values asked for when deploying, read as <code>${params.name}</code>.</span>
+        <span class="muted small" title="Values asked for when deploying, read in steps as ${params.name}.">asked when deploying</span>
     </div>
 
     @if (Params.Count == 0)
     {
-        <p class="muted">No parameters.</p>
+        <EmptyState Title="No parameters." />
     }
 
+    <div class="step-list">
     @foreach (var (name, decl) in Params.ToList())
     {
         var open = _open.Contains(name);
         var prefix = "param-" + name;
-        <div @key="decl" class="step-card">
-            <div class="step-card__head param-head">
+        <div @key="decl" class="step-card @(open ? "step-card--open" : "")">
+            <div class="step-card__head">
                 <button type="button" class="step-card__toggle" @onclick="() => Toggle(name)" aria-expanded="@(open ? "true" : "false")"
-                        title="@decl.Label">
+                        title="@(decl.Label ?? name)">
                     <span class="chev @(open ? "chev--open" : "")"><Icon Name="chevron" Size="16" /></span>
                     <span class="step-card__type mono">@name</span>
                 </button>
-                <span class="badge badge--kind">@TypeLabel(decl.Type)</span>
-                @if (decl.IsFixed)
-                {
-                    <span class="locked">fixed</span>
-                }
-                <button type="button" class="btn btn--icon btn--danger" @onclick="() => Remove(name)" aria-label="Remove parameter @name"><Icon Name="trash" /></button>
+                <span class="step-card__tags">
+                    <span>@TypeLabel(decl.Type)</span>
+                    @if (decl.IsFixed)
+                    {
+                        <span title="Set once per deployment, then read-only when deploying">fixed</span>
+                    }
+                </span>
             </div>
 
             @if (open)
@@ -43,7 +45,7 @@
                         }
                         else
                         {
-                            <span class="field__hint">Renaming doesn't update <code>${params.@name}</code> references; fix them in the steps.</span>
+                            <span class="field__hint">Renaming doesn't update <code>${params.@name}</code> in the steps.</span>
                         }
                     </div>
                     <div class="field">
@@ -57,18 +59,15 @@
                     <div class="field">
                         <label for="@prefix-label">Label</label>
                         <input id="@prefix-label" value="@decl.Label" placeholder="@name" autocomplete="off" @onchange="e => Set(() => decl.Label = Clean(e))" />
-                        <span class="field__hint">A short name for the field on the deploy screen.</span>
                     </div>
                     <div class="field">
                         <label for="@prefix-default">Default</label>
                         <input id="@prefix-default" value="@decl.Default" placeholder="none (required)" autocomplete="off" spellcheck="false"
                                @onchange="e => Set(() => decl.Default = Clean(e))" />
-                        <span class="field__hint">Leave empty to make the parameter required.</span>
                     </div>
-                    <div class="field wide-field">
+                    <div class="field">
                         <label for="@prefix-help">Help</label>
-                        <input id="@prefix-help" value="@decl.Help" autocomplete="off" @onchange="e => Set(() => decl.Help = Clean(e))" />
-                        <span class="field__hint">A sentence shown under the field: what the value means.</span>
+                        <input id="@prefix-help" value="@decl.Help" placeholder="Shown under the field when deploying" autocomplete="off" @onchange="e => Set(() => decl.Help = Clean(e))" />
                     </div>
                     @if (decl.Type == ParamType.Dropdown)
                     {
@@ -76,52 +75,51 @@
                             <label for="@prefix-options">Options</label>
                             <textarea id="@prefix-options" rows="4" spellcheck="false" placeholder="One option per line"
                                       value="@string.Join("\n", decl.Options ?? [])" @onchange="e => SetOptions(decl, e)"></textarea>
-                            <span class="field__hint">One option per line.</span>
                         </div>
                     }
                     @if (decl.Type == ParamType.String)
                     {
                         <div class="field">
                             <label for="@prefix-from">Suggestions from</label>
-                            <input id="@prefix-from" class="mono" value="@decl.OptionsFrom" placeholder="none" autocomplete="off" spellcheck="false"
+                            <input id="@prefix-from" class="mono" value="@decl.OptionsFrom" placeholder="none, or e.g. clabe.versions" autocomplete="off" spellcheck="false"
+                                   title="An option source. Any other value can still be typed."
                                    @onchange="e => Set(() => decl.OptionsFrom = Clean(e))" />
-                            <span class="field__hint">An option source such as <code>clabe.versions</code>. Any other value can still be typed.</span>
                         </div>
                     }
-                    <div class="field wide-field">
-                        <label class="checkbox">
+                    <div class="field">
+                        <label class="checkbox" title="For values that decide where an install goes, such as its folder, so two deployments never collide.">
                             <input type="checkbox" checked="@decl.IsFixed" @onchange="e => Set(() => decl.Fixed = e.Value is true ? true : null)" />
-                            Fixed: set once per deployment, then read-only when deploying
+                            Fixed per deployment
                         </label>
-                        <span class="field__hint">For values that decide where an install goes, such as its folder, so two deployments never collide.</span>
+                        <span class="field__hint">Set once, then read-only when deploying.</span>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn--small btn--ghost btn--danger" @onclick="() => Remove(name)"><Icon Name="trash" />Remove parameter</button>
                     </div>
                 </div>
             }
         </div>
     }
+    </div>
 
     <form class="inline-form" @onsubmit="Add" @onsubmit:preventDefault="true">
         <div class="field">
-            <label for="new-param">New parameter</label>
-            <input id="new-param" class="mono" @bind="_newName" placeholder="for example tag" autocomplete="off" spellcheck="false" />
+            <label for="new-param" class="visually-hidden">New parameter name</label>
+            <input id="new-param" class="mono" @bind="_newName" placeholder="New parameter, e.g. tag" autocomplete="off" spellcheck="false" />
             @if (_addError is not null)
             {
                 <span class="field__error">@_addError</span>
             }
         </div>
-        <button type="submit" class="btn"><Icon Name="plus" />Add parameter</button>
+        <button type="submit" class="btn"><Icon Name="plus" />Add</button>
     </form>
 
-    <div class="row vars-head">
-        <h2>Vars</h2>
-        <span class="muted small">Computed once per machine before the steps, read as <code>${vars.name}</code>. Edit them in Raw YAML.</span>
-    </div>
-    @if (Draft.Document.Vars.Count == 0)
+    @if (Draft.Document.Vars.Count > 0)
     {
-        <p class="muted">No vars.</p>
-    }
-    else
-    {
+        <div class="row recipe-vars-head">
+            <h2>Vars</h2>
+            <span class="muted small" title="Computed once per machine before the steps, read as ${vars.name}. Edit them in YAML.">computed per machine · edit in YAML</span>
+        </div>
         <dl class="kv">
             @foreach (var (name, value) in Draft.Document.Vars)
             {
