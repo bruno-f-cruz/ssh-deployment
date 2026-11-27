@@ -449,7 +449,7 @@ h1:focus, h1:focus-visible { outline: none; }
 .switch input:checked + .switch__track { background: var(--teal); }
 .switch input:checked + .switch__track::after { transform: translateX(16px); }
 .switch input:focus-visible + .switch__track { outline: 2px solid var(--ink); outline-offset: 2px; }
-.switch__label { min-width: 11ch; color: var(--ink-2); }
+.switch__label { min-width: 152px; color: var(--ink-2); }
 
 /* Duplicating a deployment: attached or detached. */
 .choice { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -467,3 +467,5 @@ h1:focus, h1:focus-visible { outline: none; }
 .badge--button { cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; margin-left: 6px; }
 .badge--button:hover { border-color: var(--purple); }
 .stack-sm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+.alert .signin { max-width: 380px; }

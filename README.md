@@ -8,7 +8,10 @@ A web app for deploying software to many Windows lab rigs at once over SSH.
   global → group → machine, can be pushed to the rig as environment variables, and can be secret.
 - **Deployments** are a recipe deployed to a group. They remember the values you last used, so deploying
   again is one click. One recipe can have several deployments on the same rigs (e.g. prod and dev, side by
-  side) as long as their *fixed* values (install folder, shortcut) differ.
+  side) as long as their *fixed* values (install folder, shortcut) differ. **Duplicate** a deployment to make
+  another (e.g. VrForaging → VrForaging dev). A deployment can turn recipe steps off or change step inputs for
+  itself only (its **Recipe** tab) and keep following the recipe's new versions, or **detach** into its own copy
+  of the recipe.
 - **Runs** show live per-rig, per-step progress on a rig board. Every run is kept: the last deploy of every
   deployment on every rig, the commit it checked out, what changed since the previous run, and one-click
   retry and rollback. A **dry run** checks every rig and shows the exact plan without changing anything.
@@ -18,10 +21,15 @@ the recipe language in [docs/recipes.md](docs/recipes.md).
 
 ## Signing in
 
-Operators sign in with their SSH (rig) username and password, in the side bar. The credentials are kept in
-server memory for that browser tab only, copied into a run for its duration, and never stored. The username
-is remembered in the browser; the password lasts until the tab closes. There is no other app-level user
-management: the app is meant for a trusted internal network, and a deploy only works with valid rig
+Operators sign in with their SSH (rig) username and password, in the side bar, and can sign in several accounts
+at once. A deployment can name the account it connects as (Settings tab, e.g. a service account); the others use
+the default (first) account. If the account a deployment needs isn't signed in, its page asks for that password.
+
+The server never stores a password: it holds the accounts in memory for that browser tab, and copies one into a
+run for its duration. The browser keeps them across reloads, for the tab only, or, with **Remember on this
+browser**, until signed out. Either way, what the browser holds is encrypted with the server's keys
+(`.shush/keys`), so it's unreadable anywhere else. "Forget all" signs everything out. There is no other app-level
+user management: the app is meant for a trusted internal network, and a deploy only works with valid rig
 credentials.
 
 > The password travels from the browser to the server, so serve the app over **HTTPS** in any real
