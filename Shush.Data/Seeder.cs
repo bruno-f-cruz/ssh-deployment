@@ -38,10 +38,15 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
     /// <summary>
     /// Every shipped recipe exists and is marked built-in. When the shipped YAML changed: if nobody edited the
     /// recipe since the last shipped version, the new one becomes the current version; otherwise it's only kept
-    /// for "Reset to default", and the recipe list says an update is available.
+    /// for "Reset to default", and the recipe list says an update is available. A built-in recipe whose file no
+    /// longer ships is retired (see <see cref="RetireUnshippedRecipesAsync"/>).
     /// </summary>
     private async Task SeedRecipesAsync(string directory)
     {
+        // Names of every recipe that still ships, valid or not. Null when there's no shipped folder, or a file's
+        // name can't even be read, so nothing gets retired by mistake.
+        HashSet<string>? shippedNames = Directory.Exists(directory) ? new(StringComparer.OrdinalIgnoreCase) : null;
+
         foreach (var file in YamlFiles(directory))
         {
             var yaml = await File.ReadAllTextAsync(file);
@@ -53,8 +58,15 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
             catch (RecipeValidationException ex)
             {
                 logger.LogError("Shipped recipe '{File}' is invalid and was skipped: {Errors}", file, string.Join("; ", ex.Errors));
+                var name = NameIn(yaml);
+                if (name is null)
+                    shippedNames = null;
+                else
+                    shippedNames?.Add(name);
                 continue;
             }
+
+            shippedNames?.Add(document.Name);
 
             var hash = Hashing.Of(yaml);
             await using var db = await factory.CreateDbContextAsync();
@@ -83,6 +95,56 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
             recipe.ShippedYaml = yaml;
             recipe.ShippedHash = hash;
             await db.SaveChangesAsync();
+        }
+
+        if (shippedNames is not null)
+            await RetireUnshippedRecipesAsync(shippedNames);
+    }
+
+    /// <summary>
+    /// A built-in recipe the app no longer ships: deleted when no deployment or run refers to it; otherwise it stays
+    /// as an ordinary recipe of the operators' own, so they can repoint those deployments and delete it by hand.
+    /// </summary>
+    private async Task RetireUnshippedRecipesAsync(IReadOnlySet<string> shippedNames)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        var gone = (await db.Recipes.Where(r => r.IsBuiltIn).ToListAsync()).Where(r => !shippedNames.Contains(r.Name)).ToList();
+        if (gone.Count == 0)
+            return;
+
+        foreach (var recipe in gone)
+        {
+            var used = await db.Deployments.AnyAsync(d => d.RecipeId == recipe.Id) || await db.Runs.AnyAsync(r => r.RecipeId == recipe.Id);
+            if (used)
+            {
+                recipe.IsBuiltIn = false;
+                recipe.ShippedYaml = null;
+                recipe.ShippedHash = null;
+                logger.LogWarning(
+                    "Recipe '{Recipe}' no longer ships with the app. Deployments or runs use it, so it was kept as a recipe of your own; delete it once nothing needs it.",
+                    recipe.Name);
+            }
+            else
+            {
+                db.Recipes.Remove(recipe);
+                logger.LogInformation("Recipe '{Recipe}' no longer ships with the app and nothing used it, so it was deleted.", recipe.Name);
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>The <c>name:</c> of a shipped recipe file that doesn't validate, if it can be read at all.</summary>
+    private static string? NameIn(string yaml)
+    {
+        try
+        {
+            var name = YamlRecipeSerializer.Deserialize(yaml).Name;
+            return string.IsNullOrWhiteSpace(name) ? null : name;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

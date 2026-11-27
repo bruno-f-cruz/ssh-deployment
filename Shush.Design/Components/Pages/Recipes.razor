@@ -80,6 +80,7 @@
                         <th scope="col">Version</th>
                         <th scope="col">Updated</th>
                         <th scope="col" class="num">Deployments</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -111,7 +112,22 @@
                                     <span class="muted">0</span>
                                 }
                             </td>
+                            <td class="actions-cell">
+                                <button type="button" class="btn btn--small btn--ghost" @onclick="() => StartDuplicate(recipe.Id)"
+                                        disabled="@(_duplicatingId == recipe.Id)" aria-label="@($"Duplicate {recipe.Name}")">
+                                    <Icon Name="copy" />Duplicate
+                                </button>
+                            </td>
                         </tr>
+                        @if (_duplicatingId == recipe.Id)
+                        {
+                            <tr class="table__form-row">
+                                <td colspan="5">
+                                    <DuplicateRecipeForm @key="recipe.Id" RecipeId="recipe.Id" SourceName="@recipe.Name" SourceVersion="recipe.Version"
+                                                         OnCancel="() => _duplicatingId = null" />
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
             </table>
@@ -126,6 +142,7 @@
     private string _newName = "";
     private string? _createError;
     private (string Title, IReadOnlyList<string> Errors)? _importErrors;
+    private int? _duplicatingId;
 
     protected override async Task OnInitializedAsync() => _recipes = await RecipeService.ListAsync();
 
@@ -133,7 +150,14 @@
     {
         _newName = "";
         _createError = null;
+        _duplicatingId = null;
         _creating = true;
+    }
+
+    private void StartDuplicate(int recipeId)
+    {
+        _creating = false;
+        _duplicatingId = recipeId;
     }
 
     private async Task Create()

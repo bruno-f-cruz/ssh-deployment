@@ -156,17 +156,14 @@ public sealed class RecipeService(IDbContextFactory<ShushDbContext> factory, Ste
 
     public async Task RenameAsync(int recipeId, string newName, string? user)
     {
-        newName = newName.Trim();
-        if (newName.Length == 0)
-            throw new ShushDataException("Enter a name.");
+        newName = RequireName(newName);
 
         await using var db = await factory.CreateDbContextAsync();
         var recipe = await db.Recipes.FirstOrDefaultAsync(r => r.Id == recipeId)
             ?? throw new ShushDataException("That recipe no longer exists.");
         if (recipe.IsBuiltIn)
             throw new ShushDataException("A recipe that ships with the app keeps its name.");
-        if (await db.Recipes.AnyAsync(r => r.Name == newName && r.Id != recipeId))
-            throw new ShushDataException($"A recipe named '{newName}' already exists.");
+        await EnsureNameFreeAsync(db, newName, recipeId);
 
         var current = await db.RecipeVersions.Where(v => v.RecipeId == recipeId).OrderByDescending(v => v.Number).FirstAsync();
         var document = YamlRecipeSerializer.Deserialize(current.Yaml);
@@ -180,6 +177,40 @@ public sealed class RecipeService(IDbContextFactory<ShushDbContext> factory, Ste
         version.RecipeId = recipeId;
         db.RecipeVersions.Add(version);
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Copies a recipe's current version into a new recipe of your own, named <paramref name="newName"/> (the name
+    /// inside the YAML follows). <paramref name="transform"/> can change the copied document first, e.g. to bake a
+    /// deployment's values into it; the name is set again after it. The copy starts at v1 and remembers its source.
+    /// </summary>
+    public async Task<Recipe> DuplicateAsync(int recipeId, string newName, string? user, Func<RecipeDocument, RecipeDocument>? transform = null)
+    {
+        newName = RequireName(newName);
+
+        await using var db = await factory.CreateDbContextAsync();
+        var source = await db.Recipes.AsNoTracking().FirstOrDefaultAsync(r => r.Id == recipeId)
+            ?? throw new ShushDataException("That recipe no longer exists.");
+        await EnsureNameFreeAsync(db, newName, exceptId: null);
+
+        var current = await db.RecipeVersions.AsNoTracking().Where(v => v.RecipeId == recipeId).OrderByDescending(v => v.Number).FirstAsync();
+        var document = YamlRecipeSerializer.Deserialize(current.Yaml);
+        document.Name = newName;
+        if (transform is not null)
+        {
+            document = transform(document);
+            document.Name = newName;
+        }
+
+        var yaml = YamlRecipeSerializer.Serialize(document);
+        Parse(yaml);
+
+        var now = Clock.UtcNow();
+        var recipe = new Recipe { Name = newName, CopiedFrom = $"{source.Name} v{current.Number}", CreatedAt = now, UpdatedAt = now };
+        recipe.Versions.Add(NewVersion(1, yaml, VersionSource.Duplicate, user, now));
+        db.Recipes.Add(recipe);
+        await db.SaveChangesAsync();
+        return recipe;
     }
 
     /// <summary>Deletes a recipe of your own. Refused for a built-in one, or one deployments or runs use.</summary>
@@ -198,6 +229,21 @@ public sealed class RecipeService(IDbContextFactory<ShushDbContext> factory, Ste
 
         db.Recipes.Remove(recipe);
         await db.SaveChangesAsync();
+    }
+
+    private static string RequireName(string name)
+    {
+        name = name.Trim();
+        if (name.Length == 0)
+            throw new ShushDataException("Enter a name.");
+        return name;
+    }
+
+    /// <summary>Names are unique, ignoring case (the column is NOCASE).</summary>
+    private static async Task EnsureNameFreeAsync(ShushDbContext db, string name, int? exceptId)
+    {
+        if (await db.Recipes.AnyAsync(r => r.Name == name && r.Id != exceptId))
+            throw new ShushDataException($"A recipe named '{name}' already exists.");
     }
 
     internal static RecipeVersion NewVersion(int number, string yaml, VersionSource source, string? user, DateTime now) =>

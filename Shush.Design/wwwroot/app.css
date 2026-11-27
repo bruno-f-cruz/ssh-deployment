@@ -218,6 +218,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .table tbody tr.clickable:hover { background: var(--surface-2); }
 .table .title { font-weight: 600; text-decoration: none; }
 .table .sub { font-size: 14px; color: var(--muted); margin-top: 2px; }
+/* An inline form opened under a row (e.g. "Duplicate"): reads as part of that row, set back from the others. */
+.table tr:has(+ .table__form-row) td { border-bottom-color: transparent; }
+.table .table__form-row td { background: var(--surface-2); border-bottom: 1px solid var(--line-soft); padding-top: 14px; padding-bottom: 16px; }
 
 /* ---------- Status ---------- */
 
