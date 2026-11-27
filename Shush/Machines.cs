@@ -10,19 +10,6 @@ public static class MachineLoader
     private static Dictionary<string, MachineInfo>? _cachedRegistry;
     private static DateTime _cachedAt;
 
-    public static async Task<Dictionary<string, MachineInfo>> LoadAsync(string yamlPath, ShushSettings settings)
-    {
-        var machineNames = ParseNames(File.ReadAllText(yamlPath));
-        var registry = await GetRegistryAsync(settings);
-
-        var missing = machineNames.Except(registry.Keys).ToList();
-        if (missing.Count > 0)
-            throw new InvalidOperationException(
-                $"The following machine names were not found in the registry: {string.Join(", ", missing)}");
-
-        return machineNames.ToDictionary(name => name, name => registry[name]);
-    }
-
     public static List<string> ParseNames(string yamlContent)
     {
         var deserializer = new DeserializerBuilder()

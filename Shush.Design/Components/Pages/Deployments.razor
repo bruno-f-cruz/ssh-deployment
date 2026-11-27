@@ -1,0 +1,183 @@
+@page "/"
+@page "/deployments"
+@implements IDisposable
+@inject DeploymentService DeploymentData
+@inject RunService RunData
+@inject MachineService MachineData
+@inject RunCoordinator Coordinator
+@inject HealthChecker Health
+@inject ClientTime ClientTime
+
+<PageTitle>Deployments · Shush</PageTitle>
+
+<PageHeader Title="Deployments">
+    <Facts>
+        <p class="meta">
+            <span>@(_active.Count == 0 ? "Nothing running" : Ui.Plural(_active.Count, "run") + " in progress")</span>
+            <span class="@(Attention == 0 ? "t-ok" : _failures.Count > 0 ? "t-fail" : "t-warn")">@(Attention == 0 ? "All rigs healthy" : Ui.Plural(Attention, "rig") + (Attention == 1 ? " needs" : " need") + " attention")</span>
+        </p>
+    </Facts>
+    <Actions><a class="btn btn--primary" href="deployments/new"><Icon Name="plus" Size="16" />New deployment</a></Actions>
+</PageHeader>
+@if (_active.Count > 0)
+{
+    <section class="panel" aria-labelledby="now-h">
+        <h2 id="now-h">Running now</h2>
+        @foreach (var run in _active)
+        {
+            var done = run.Machines.Count(m => m.Status == MachineStatus.Succeeded);
+            var running = run.Machines.Count(m => m.Status == MachineStatus.Running);
+            var failed = run.Machines.Count(m => m.Status == MachineStatus.Failed);
+            <a class="live-run" href="runs/@run.Id">
+                <span class="live-run__head">
+                    <strong>@run.DeploymentName</strong>
+                    <span class="small muted">@Ui.Kind(run.Kind) · @done of @run.Machines.Count done@(failed > 0 ? $" · {failed} failed" : "")@(run.StartedBy is null ? "" : $" · {run.StartedBy}")</span>
+                </span>
+                <RunBar Succeeded="done" Running="running" Failed="failed" Total="run.Machines.Count" />
+            </a>
+        }
+    </section>
+}
+
+@if (Attention > 0)
+{
+    <section class="panel panel--flush" aria-labelledby="att-h">
+        <div class="panel__head"><h2 id="att-h">Needs attention</h2></div>
+        <ul class="attention">
+            @foreach (var failure in _failures)
+            {
+                <li>
+                    <Icon Name="x" Color="var(--crimson)" Stroke="2.4" Size="18" />
+                    <RigName Name="@failure.Machine" Host="_hosts.GetValueOrDefault(failure.Machine)" />
+                    <span class="grow attention__why" title="@failure.Error">
+                        <span class="t-fail">Failed in @failure.DeploymentName</span>
+                        @if (!string.IsNullOrEmpty(failure.Error))
+                        {
+                            <span class="muted"> · @Shorten(failure.Error)</span>
+                        }
+                    </span>
+                    <a class="small" href="runs/@failure.RunId">Run #@failure.RunId</a>
+                </li>
+            }
+            @foreach (var machine in _unreachable)
+            {
+                <li>
+                    <Icon Name="warn" Color="var(--gold-text)" Size="18" />
+                    <RigName Name="@machine.Name" Machine="machine" />
+                    <span class="grow attention__why">
+                        <span class="t-warn">Not answering</span>
+                        <span class="muted"> · @(machine.LastSeenAt is { } seen ? $"last seen {Ui.Ago(seen)}" : "never seen")</span>
+                    </span>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+<section class="panel panel--flush" aria-label="Deployments">
+    @if (_deployments is null)
+    {
+        <p class="empty">Loading…</p>
+    }
+    else if (_deployments.Count == 0)
+    {
+        <EmptyState Title="No deployments yet." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Deployment</th>
+                        <th scope="col">Group</th>
+                        <th scope="col">Last run</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in _deployments)
+                    {
+                        <tr class="is-link">
+                            <td>
+                                <a class="row-link" href="deployments/@d.Id">@d.Name</a>
+                                <div class="sub">
+                                    @d.RecipeName
+                                    @if (d.OverrideCount > 0)
+                                    {
+                                        <span class="t-changed" title="Recipe steps this deployment skips"> · @Ui.Plural(d.OverrideCount, "step") off</span>
+                                    }
+                                </div>
+                                @if (d.Fixed is { Count: > 0 } fixedValues)
+                                {
+                                    <div class="fixed-values" title="Fixed values: what sets this deployment apart from others of the same recipe">
+                                        @string.Join(" · ", fixedValues.Select(f => f.Value))
+                                    </div>
+                                }
+                            </td>
+                            <td>@d.GroupName<div class="sub">@Ui.Plural(d.MachineCount, "rig")</div></td>
+                            <td>
+                                @if (d.LastRun is { } run)
+                                {
+                                    <StatusText Tone="Ui.Of(run.Status)" Label="@Summary(run)" />
+                                    <div class="sub" title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)</div>
+                                }
+                                else
+                                {
+                                    <span class="muted">Never deployed</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+@code {
+    private List<DeploymentSummary>? _deployments;
+    private List<Run> _active = [];
+    private List<(string Machine, int RunId, string DeploymentName, string? Error, DateTime At)> _failures = [];
+    private List<Machine> _unreachable = [];
+    private Dictionary<string, RigHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
+    private LiveRefresh? _live;
+
+    private int Attention => _failures.Count + _unreachable.Count;
+
+    public static string Summary(LastRunSummary run) => run.Status switch
+    {
+        RunStatus.Running => $"Running, {run.Succeeded} of {run.Machines} done",
+        RunStatus.Succeeded => $"Succeeded on {run.Succeeded} of {run.Machines}",
+        RunStatus.Failed => $"Failed on {run.Failed} of {run.Machines}",
+        _ => Ui.Of(run.Status).Label,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnChanged;
+        Health.Probed += OnProbed;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _deployments = await DeploymentData.ListAsync();
+        _active = await RunData.ActiveAsync();
+        _failures = await RunData.RecentFailuresAsync();
+        _unreachable = (await MachineData.ListAsync()).Where(m => m.Reachable == false).ToList();
+        _hosts = await MachineData.HostnamesAsync(_failures.Select(f => f.Machine));
+    }
+
+    private static string Shorten(string text) => text.Length > 90 ? text[..87] + "…" : text;
+
+    private void OnChanged(int _) => _live?.Mark();
+
+    private void OnProbed() => _live?.Mark();
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnChanged;
+        Health.Probed -= OnProbed;
+        _live?.Dispose();
+    }
+}

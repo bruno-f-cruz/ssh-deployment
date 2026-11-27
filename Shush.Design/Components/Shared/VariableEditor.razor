@@ -1,0 +1,279 @@
+@* The variables of one scope (global, a group, or a machine): a table plus an add/edit form. *@
+@inject VariableService Variables
+
+<section class="panel panel--flush" aria-labelledby="@($"{_uid}-h")">
+    <div class="panel__head">
+        <div class="stack variable-editor__intro">
+            <h2 id="@($"{_uid}-h")">@Title</h2>
+            @if (Help is not null)
+            {
+                <p class="panel__sub">@Help</p>
+            }
+        </div>
+        @if (!_formOpen)
+        {
+            <button type="button" class="btn btn--small" @onclick="StartAdd"><Icon Name="plus" />Add</button>
+        }
+    </div>
+
+    @if (_formOpen)
+    {
+        <form class="variable-editor__form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <h3>@(_editId is null ? "New variable" : $"Edit {_originalName}")</h3>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="@($"{_uid}-name")">Name <span class="req" aria-hidden="true">*</span></label>
+                    <input id="@($"{_uid}-name")" class="mono" type="text" @bind="_name" autocomplete="off" spellcheck="false" required
+                           placeholder="e.g. repoRoot" title="Letters, digits, _ or -, starting with a letter or _" />
+                    <span class="field__hint">Steps read it as <code>${group.@(string.IsNullOrWhiteSpace(_name) ? "NAME" : _name.Trim())}</code></span>
+                </div>
+                <div class="field">
+                    <label for="@($"{_uid}-description")">Description</label>
+                    <input id="@($"{_uid}-description")" type="text" @bind="_description" autocomplete="off" placeholder="What it's for (optional)" />
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="@($"{_uid}-value")">Value</label>
+                <textarea id="@($"{_uid}-value")" class="mono" rows="2" @bind="_value" spellcheck="false"
+                          placeholder="@(_editingSecret && _isSecret ? "Leave empty to keep the current value" : null)"
+                          autocomplete="off"></textarea>
+                @if (_isSecret)
+                {
+                    <span class="field__hint">Stored encrypted and never shown again.</span>
+                }
+            </div>
+
+            <div class="row variable-editor__options">
+                <label class="checkbox" title="Encrypted, never shown again, masked in logs">
+                    <input type="checkbox" @bind="_isSecret" />
+                    Secret
+                </label>
+                <label class="checkbox" title="Set before the recipe's steps run, on every machine that gets this value">
+                    <input type="checkbox" @bind="_applyAsEnv" />
+                    Set as environment variable
+                </label>
+                @if (_applyAsEnv)
+                {
+                    <label class="visually-hidden" for="@($"{_uid}-envscope")">Environment variable scope</label>
+                    <select id="@($"{_uid}-envscope")" class="variable-editor__envscope" @bind="_envScope">
+                        <option value="Machine">for the machine</option>
+                        <option value="User">for the SSH user</option>
+                    </select>
+                }
+                <label class="checkbox" title="The value is a folder on the rig: before each deploy it's created and every local user can change it (e.g. uv's tool folders, so any SSH account can update them)">
+                    <input type="checkbox" @bind="_isSharedFolder" />
+                    Shared folder
+                </label>
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert--error" role="alert">
+                    <Icon Name="warn" />
+                    <div class="grow">@_error</div>
+                </div>
+            }
+
+            <div class="row">
+                <button type="submit" class="btn btn--primary" disabled="@_busy">@(_editId is null ? "Add" : "Save")</button>
+                <button type="button" class="btn btn--ghost" @onclick="CloseForm">Cancel</button>
+            </div>
+        </form>
+    }
+
+    @if (_items is null)
+    {
+        <p class="empty">Loading…</p>
+    }
+    else if (_items.Count == 0)
+    {
+        @if (!_formOpen)
+        {
+            <EmptyState Title="@EmptyTitle">@EmptyText</EmptyState>
+        }
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Value</th>
+                        <th scope="col"><span class="visually-hidden">Delete</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr class="@(_editId == item.Id ? "is-editing" : null)">
+                            <td>
+                                <button type="button" class="link-btn mono variable-editor__name" title="Edit" @onclick="() => StartEdit(item)"
+                                        aria-label="@($"Edit {item.Name}")">@item.Name</button>
+                                @if (!string.IsNullOrWhiteSpace(item.Description))
+                                {
+                                    <div class="sub">@item.Description</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="row variable-editor__secret">
+                                    @if (item.IsSecret)
+                                    {
+                                        <span class="mono" aria-label="Hidden value">••••••••</span>
+                                        <span class="badge badge--secret">Secret</span>
+                                    }
+                                    else if (string.IsNullOrEmpty(item.Value))
+                                    {
+                                        <span class="muted small">Empty</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mono variable-editor__value">@item.Value</span>
+                                    }
+                                    <OnTheRig ApplyAsEnv="item.ApplyAsEnv" EnvScope="@item.EnvScope" />
+                                    @if (item.IsSharedFolder)
+                                    {
+                                        <span class="badge badge--folder" title="Created before each deploy; every local user on the rig can change it">shared folder</span>
+                                    }
+                                </span>
+                            </td>
+                            <td class="actions-cell">
+                                <ConfirmButton Class="btn btn--icon" Question="@($"Delete {item.Name}?")" Title="Delete"
+                                               AriaLabel="@($"Delete {item.Name}")" OnConfirm="() => DeleteAsync(item)"><Icon Name="trash" Size="16" /></ConfirmButton>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public VariableScope Scope { get; set; }
+    [Parameter] public int? GroupId { get; set; }
+    [Parameter] public string? MachineName { get; set; }
+    [Parameter] public string Title { get; set; } = "Variables";
+    [Parameter] public string? Help { get; set; }
+    [Parameter] public string EmptyTitle { get; set; } = "No variables yet";
+    [Parameter] public string? EmptyText { get; set; }
+
+    /// <summary>Called after a variable is added, changed or deleted.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private readonly string _uid = "var-" + Guid.NewGuid().ToString("N")[..8];
+    private List<VariableView>? _items;
+    private (VariableScope, int?, string?)? _loadedFor;
+
+    private bool _formOpen;
+    private bool _busy;
+    private int? _editId;
+    private string _originalName = "";
+    private bool _editingSecret;
+    private string _name = "";
+    private string _value = "";
+    private bool _isSecret;
+    private bool _applyAsEnv;
+    private string _envScope = "Machine";
+    private bool _isSharedFolder;
+    private string _description = "";
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = (Scope, GroupId, MachineName);
+        if (_loadedFor == key)
+            return;
+        _loadedFor = key;
+        CloseForm();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (Scope == VariableScope.Machine && string.IsNullOrWhiteSpace(MachineName))
+        {
+            _items = [];
+            return;
+        }
+
+        _items = await Variables.ListAsync(Scope, GroupId, MachineName);
+    }
+
+    private void StartAdd()
+    {
+        ResetForm();
+        _formOpen = true;
+    }
+
+    private void StartEdit(VariableView item)
+    {
+        ResetForm();
+        _editId = item.Id;
+        _originalName = item.Name;
+        _editingSecret = item.IsSecret;
+        _name = item.Name;
+        _value = item.IsSecret ? "" : item.Value ?? "";
+        _isSecret = item.IsSecret;
+        _applyAsEnv = item.ApplyAsEnv;
+        _envScope = item.EnvScope;
+        _isSharedFolder = item.IsSharedFolder;
+        _description = item.Description ?? "";
+        _formOpen = true;
+    }
+
+    private void CloseForm()
+    {
+        ResetForm();
+        _formOpen = false;
+    }
+
+    private void ResetForm()
+    {
+        _editId = null;
+        _originalName = "";
+        _editingSecret = false;
+        _name = "";
+        _value = "";
+        _isSecret = false;
+        _applyAsEnv = false;
+        _envScope = "Machine";
+        _isSharedFolder = false;
+        _description = "";
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            // An existing secret saved with an empty value keeps its current value.
+            string? value = _isSecret && _editingSecret && string.IsNullOrEmpty(_value) ? null : _value;
+            var input = new VariableInput(Scope, GroupId, MachineName, _name, value, _isSecret, _applyAsEnv, _envScope, _description, _isSharedFolder);
+            await Variables.SaveAsync(_editId, input);
+            CloseForm();
+            await LoadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch (ShushDataException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(VariableView item)
+    {
+        await Variables.DeleteAsync(item.Id);
+        if (_editId == item.Id)
+            CloseForm();
+        await LoadAsync();
+        await OnChanged.InvokeAsync();
+    }
+}

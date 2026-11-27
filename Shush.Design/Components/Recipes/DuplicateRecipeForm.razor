@@ -1,0 +1,85 @@
+@inject RecipeService RecipeService
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject NavigationManager Nav
+
+@* Asks for the copy's name, inline, then duplicates the recipe's current version and opens the copy. *@
+<form class="inline-form" @onsubmit="Duplicate" @onsubmit:preventDefault="true" aria-label="@($"Duplicate {SourceName}")">
+    <div class="field">
+        <label for="@InputId">Name of the copy</label>
+        <input id="@InputId" @ref="_input" @bind="_name" autocomplete="off" disabled="@Disabled" />
+        @if (_error is not null)
+        {
+            <span class="field__error">@_error</span>
+        }
+        else
+        {
+            <span class="field__hint">@(Hint ?? $"Copies v{SourceVersion} into a new recipe.")</span>
+        }
+    </div>
+    <button type="submit" class="btn btn--primary" disabled="@(Disabled || _busy)"><Icon Name="copy" />Duplicate</button>
+    <button type="button" class="btn btn--ghost" @onclick="OnCancel">Cancel</button>
+</form>
+
+@code {
+    [Parameter, EditorRequired] public int RecipeId { get; set; }
+    [Parameter, EditorRequired] public string SourceName { get; set; } = "";
+    [Parameter] public int SourceVersion { get; set; }
+    /// <summary>Replaces the hint under the name field.</summary>
+    [Parameter] public string? Hint { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string InputId => $"duplicate-name-{RecipeId}";
+    private ElementReference _input;
+    private string _name = "";
+    private string? _error;
+    private bool _busy;
+    private int? _for;
+
+    protected override void OnParametersSet()
+    {
+        if (_for == RecipeId)
+            return;
+        _for = RecipeId;
+        _name = $"{SourceName} copy";
+        _error = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !Disabled)
+            await _input.FocusAsync();
+    }
+
+    private async Task Duplicate()
+    {
+        _error = null;
+        var name = _name.Trim();
+        if (name.Contains(':') || name.Contains('#'))
+        {
+            _error = "Leave out ':' and '#'; they aren't allowed in a recipe name.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var copy = await RecipeService.DuplicateAsync(RecipeId, name, Credentials.Username);
+            Notifier.Success($"Duplicated {SourceName} as {copy.Name}.");
+            Nav.NavigateTo($"recipes/{copy.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (RecipeValidationException ex)
+        {
+            _error = string.Join(" ", ex.Errors);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

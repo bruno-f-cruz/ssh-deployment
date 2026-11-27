@@ -1,0 +1,206 @@
+@page "/recipes"
+@inject RecipeService RecipeService
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject NavigationManager Nav
+@inject ILogger<Recipes> Logger
+@using Shush.Design.Components.Recipes
+
+<PageTitle>Recipes · Shush</PageTitle>
+
+<PageHeader Title="Recipes">
+    <Lede>What a deployment runs on each rig. Every save is kept as a version.</Lede>
+    <Actions>
+        <label class="btn import-btn">
+            <Icon Name="upload" />Import
+            <InputFile class="visually-hidden" accept=".yml,.yaml" OnChange="Import" disabled="@_busy" />
+        </label>
+        <button type="button" class="btn btn--primary" @onclick="StartCreate" disabled="@_creating"><Icon Name="plus" />New recipe</button>
+    </Actions>
+</PageHeader>
+
+@if (_creating)
+{
+    <section class="panel" aria-label="New recipe">
+        <form class="inline-form" @onsubmit="Create" @onsubmit:preventDefault="true">
+            <div class="field">
+                <label for="new-recipe-name">Name of the new recipe</label>
+                <input id="new-recipe-name" @bind="_newName" autocomplete="off" placeholder="for example CopperheadRig" />
+                @if (_createError is not null)
+                {
+                    <span class="field__error">@_createError</span>
+                }
+                else
+                {
+                    <span class="field__hint">Opens in Raw YAML with an example to start from.</span>
+                }
+            </div>
+            <button type="submit" class="btn btn--primary" disabled="@_busy">Create</button>
+            <button type="button" class="btn btn--ghost" @onclick="() => _creating = false">Cancel</button>
+        </form>
+    </section>
+}
+
+@if (_importErrors is not null)
+{
+    <div class="alert alert--error" role="alert">
+        <Icon Name="warn" />
+        <div class="grow">
+            <strong>@_importErrors.Value.Title</strong>
+            <ul>
+                @foreach (var error in _importErrors.Value.Errors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+        <button type="button" class="btn btn--icon" @onclick="() => _importErrors = null" aria-label="Dismiss"><Icon Name="x" /></button>
+    </div>
+}
+
+<section class="panel panel--flush" aria-label="Recipes">
+    @if (_recipes is null)
+    {
+        <p class="empty muted">Loading recipes…</p>
+    }
+    else if (_recipes.Count == 0)
+    {
+        <EmptyState Title="No recipes yet.">Create one, or import a .yml file.</EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Recipe</th>
+                        <th scope="col">Version</th>
+                        <th scope="col">Updated</th>
+                        <th scope="col" class="num">Used by</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var recipe in _recipes)
+                    {
+                        <tr class="is-link">
+                            <td>
+                                <a class="row-link" href="recipes/@recipe.Id">@recipe.Name</a>
+                                @if (recipe.IsBuiltIn)
+                                {
+                                    <div class="sub">
+                                        <span>Built in</span>
+                                        @if (recipe.ShippedUpdateAvailable)
+                                        {
+                                            <span class="t-warn" title="Differs from the version that ships with the app. Open it to reset.">· changed</span>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                            <td>v@(recipe.Version)</td>
+                            <td title="@recipe.UpdatedAt.ToString("u")">@Ui.Ago(recipe.UpdatedAt)</td>
+                            <td class="num">
+                                @if (recipe.DeploymentCount > 0)
+                                {
+                                    @Ui.Plural(recipe.DeploymentCount, "deployment")
+                                }
+                                else
+                                {
+                                    <span class="muted">none</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private List<RecipeSummary>? _recipes;
+    private bool _creating;
+    private bool _busy;
+    private string _newName = "";
+    private string? _createError;
+    private (string Title, IReadOnlyList<string> Errors)? _importErrors;
+
+    protected override async Task OnInitializedAsync() => _recipes = await RecipeService.ListAsync();
+
+    private void StartCreate()
+    {
+        _newName = "";
+        _createError = null;
+        _creating = true;
+    }
+
+    private async Task Create()
+    {
+        var name = _newName.Trim();
+        _createError = null;
+        if (name.Length == 0)
+        {
+            _createError = "Enter a name for the new recipe.";
+            return;
+        }
+        if (name.Contains(':') || name.Contains('#') || name.Contains('\n'))
+        {
+            _createError = "Leave out ':' and '#'; they aren't allowed in a recipe name.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var recipe = await RecipeService.CreateAsync(RecipeScaffold.Yaml(name), VersionSource.Edit, Credentials.Username);
+            Nav.NavigateTo($"recipes/{recipe.Id}?mode=raw");
+        }
+        catch (ShushDataException ex)
+        {
+            _createError = ex.Message;
+        }
+        catch (RecipeValidationException ex)
+        {
+            _createError = string.Join(" ", ex.Errors);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Import(InputFileChangeEventArgs e)
+    {
+        _importErrors = null;
+        _busy = true;
+        try
+        {
+            string yaml;
+            using (var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 1024 * 1024)))
+                yaml = await reader.ReadToEndAsync();
+
+            var existing = _recipes?.Select(r => r.Name).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+            var recipe = await RecipeService.ImportAsync(yaml, Credentials.Username);
+            Notifier.Success(existing.Contains(recipe.Name)
+                ? $"Imported {e.File.Name} as a new version of {recipe.Name}."
+                : $"Imported {recipe.Name}.");
+            Nav.NavigateTo($"recipes/{recipe.Id}");
+        }
+        catch (RecipeValidationException ex)
+        {
+            _importErrors = ($"{e.File.Name} isn't a valid recipe. Fix these and import it again:", ex.Errors);
+        }
+        catch (ShushDataException ex)
+        {
+            _importErrors = ($"Couldn't import {e.File.Name}.", [ex.Message]);
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "Couldn't read the uploaded recipe {File}.", e.File.Name);
+            _importErrors = ($"Couldn't read {e.File.Name}.", ["Recipe files must be under 1 MB of YAML text."]);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

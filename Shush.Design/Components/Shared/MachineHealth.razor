@@ -1,0 +1,50 @@
+@* A machine's health from the background probe, on one line: "● Reachable · 2 min ago". When it isn't reachable,
+   the reason is in the tooltip and (with Detail) on a muted line underneath. *@
+@{
+    var tone = ToneOf(Machine);
+    var why = Why(Machine);
+}
+<span class="machine-health" title="@Tooltip(Machine)">
+    <span class="machine-health__line">
+        <StatusText Tone="tone" />
+        @if (Detail && SeenText(Machine) is { } seen)
+        {
+            <span class="machine-health__when">@seen</span>
+        }
+    </span>
+    @if (Detail && why is not null)
+    {
+        <span class="machine-health__why">@why</span>
+    }
+</span>
+
+@code {
+    [Parameter] public Machine? Machine { get; set; }
+
+    /// <summary>Also show when it was last seen, and why it isn't reachable.</summary>
+    [Parameter] public bool Detail { get; set; } = true;
+
+    public static Tone ToneOf(Machine? machine) => machine?.Reachable switch
+    {
+        true => new("ok", "Reachable"),
+        false => new("fail", "Not reachable"),
+        _ => new("idle", "Not checked yet"),
+    };
+
+    /// <summary>"2 min ago" (reachable) or "seen 3 d ago" (not reachable); null when never seen.</summary>
+    public static string? SeenText(Machine? machine) => machine?.LastSeenAt is not { } seen
+        ? null
+        : machine.Reachable == false ? $"seen {Ui.Ago(seen)}" : Ui.Ago(seen);
+
+    /// <summary>Why the machine isn't reachable; null when it is, or hasn't been checked.</summary>
+    public static string? Why(Machine? machine) => machine?.Reachable != false
+        ? null
+        : string.IsNullOrWhiteSpace(machine.ProbeError) ? "No answer on port 22" : machine.ProbeError.TrimEnd('.');
+
+    private static string? Tooltip(Machine? machine) => machine?.LastProbeAt is { } probed
+        ? $"Checked {Ui.Ago(probed)}{(Why(machine) is { } why ? $": {why}" : "")}"
+        : null;
+
+    public static string DetailText(Machine? machine) =>
+        string.Join(". ", new[] { Why(machine), SeenText(machine) is { } seen ? $"Last {seen}" : null }.Where(s => s is not null));
+}

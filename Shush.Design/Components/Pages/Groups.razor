@@ -1,0 +1,109 @@
+@page "/groups"
+@page "/rigs"
+@inject GroupService GroupService
+@inject NavigationManager Nav
+
+<PageTitle>Rigs · Shush</PageTitle>
+
+<PageHeader Title="Rigs">
+    <Actions>
+        @if (!_creating)
+        {
+            <button type="button" class="btn btn--primary" @onclick="() => _creating = true"><Icon Name="plus" />New group</button>
+        }
+    </Actions>
+</PageHeader>
+
+<RigsTabs Current="groups" />
+
+@if (_creating || _groups?.Count == 0)
+{
+    <section class="panel" aria-label="New group">
+        <form class="inline-form" @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <div class="field">
+                <label for="group-name">Name</label>
+                <input id="group-name" type="text" @bind="_name" autocomplete="off" placeholder="e.g. FRG rigs" />
+            </div>
+            <div class="field">
+                <label for="group-description">Description <span class="muted small">optional</span></label>
+                <input id="group-description" type="text" @bind="_description" autocomplete="off" />
+            </div>
+            <button type="submit" class="btn btn--primary" disabled="@_busy">Create</button>
+            @if (_groups?.Count > 0)
+            {
+                <button type="button" class="btn btn--ghost" @onclick="() => _creating = false">Cancel</button>
+            }
+        </form>
+        @if (_error is not null)
+        {
+            <p class="field__error" role="alert">@_error</p>
+        }
+    </section>
+}
+
+@if (_groups is null)
+{
+    <p class="muted">Loading groups…</p>
+}
+else if (_groups.Count > 0)
+{
+    <section class="panel panel--flush" aria-label="Groups">
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Group</th>
+                        <th scope="col" class="num">Machines</th>
+                        <th scope="col" class="num">Deployments</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var group in _groups)
+                    {
+                        <tr class="is-link">
+                            <td>
+                                <a class="row-link" href="@($"groups/{group.Id}")">@group.Name</a>
+                                @if (!string.IsNullOrWhiteSpace(group.Description))
+                                {
+                                    <div class="sub">@group.Description</div>
+                                }
+                            </td>
+                            <td class="num">@group.MachineCount</td>
+                            <td class="num">@group.DeploymentCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private List<GroupSummary>? _groups;
+    private string _name = "";
+    private string _description = "";
+    private string? _error;
+    private bool _busy;
+    private bool _creating;
+
+    protected override async Task OnInitializedAsync() => _groups = await GroupService.ListAsync();
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var group = await GroupService.CreateAsync(_name, string.IsNullOrWhiteSpace(_description) ? null : _description.Trim());
+            Nav.NavigateTo($"groups/{group.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

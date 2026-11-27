@@ -1,222 +1,141 @@
-# ssh-deployment
+# Shush
 
-A tool for deploying software to multiple Windows rigs simultaneously over SSH — as a
-headless CLI (`Shush`) or a browser app (`Shush.Design`).
+A web app for deploying software to many Windows lab rigs at once over SSH.
 
-## Authentication (read this first)
+- **Recipes** describe what to do on a rig: clone a repository, check out a tag, run a script, write a file,
+  set environment variables… They're YAML, edited in the app (structured or raw) and versioned.
+- **Groups** are sets of rigs, with **variables** recipes can read (`${group.NAME}`). Variables layer
+  global → group → machine, can be pushed to the rig as environment variables, and can be secret.
+- **Deployments** are a recipe deployed to a group. They remember the values you last used, so deploying
+  again is one click. One recipe can have several deployments on the same rigs (e.g. prod and dev, side by
+  side) as long as their *fixed* values (install folder, shortcut) differ. **Duplicate** a deployment to make another (e.g. VrForaging → VrForaging dev, or the same thing for another group). A deployment can turn recipe steps off for itself (its **Recipe** tab) and keeps following the recipe's new versions; for different steps, duplicate the recipe and pick the copy in the deployment's Settings. Values that differ between deployments are recipe parameters. On the **Rigs** tab, pick the group and switch rigs off for the next deploy only.
+- **Runs** show live per-rig, per-step progress on a rig board. Every run is kept: the last deploy of every
+  deployment on every rig, the commit it checked out, what changed since the previous run, and one-click
+  retry and rollback. A **dry run** checks every rig and shows the exact plan without changing anything.
 
-SSH credentials are handled differently in the two entry points:
+The recipe language is described in [docs/recipes.md](docs/recipes.md).
 
-- **CLI (`Shush`, headless):** credentials come from the environment (or a `.env` file passed
-  with `--env-file`) — `Credentials__Username` / `Credentials__Password`. This is unchanged and
-  is the right model for unattended/scheduled runs.
-- **Web app (`Shush.Design`):** credentials are **entered interactively** by the operator via a
-  Sign-in form and kept **only in server memory for that browser session**. Nothing is shipped
-  with the app, and the web app **ignores** any `Credentials__*` environment variables. The
-  username is remembered (encrypted browser storage); the password is kept for the session only
-  (cleared when the tab closes) — your browser's password manager can offer long-term autofill.
+## Signing in
 
-  > Because the password is typed in the browser and sent to the server over SignalR, run the web
-  > app over **HTTPS** in any real deployment.
+Operators sign in with their SSH (rig) username and password, in the side bar, and can sign in several accounts
+at once. A deployment can name the account it connects as (Settings tab, e.g. a service account); the others use
+the default (first) account. If the account a deployment needs isn't signed in, its page asks for that password.
 
-## Prerequisites
+The server never stores a password: it holds the accounts in memory for that browser tab, and copies one into a
+run for its duration. The browser keeps them across reloads, for the tab only, or, with **Remember on this
+browser**, until signed out. Either way, what the browser holds is encrypted with the server's keys
+(`.shush/keys`), so it's unreadable anywhere else. "Forget all" signs everything out. There is no other app-level
+user management: the app is meant for a trusted internal network, and a deploy only works with valid rig
+credentials.
 
-Both apps read their settings from real environment variables, or from a `.env` file (standard
-`KEY=VALUE` lines, loaded via [DotNetEnv](https://github.com/tonerdo/dotnet-env)) passed
-explicitly with `--env-file`/`-e`. Without `--env-file`, settings come from real environment
-variables only — no file is loaded or guessed at.
+> The password travels from the browser to the server, so serve the app over **HTTPS** in any real
+> deployment (e.g. behind a TLS-terminating reverse proxy).
 
-```dotenv
-# CLI only — the web app signs in interactively and ignores these:
-Credentials__Username=username
-Credentials__Password=password
+## Running it
 
-# Both apps:
-MachineRegistryUrl=http://mpe-computers/v2.0
-MachineRegistryCacheSeconds=60
+```bash
+dotnet run --project Shush.Design            # optional: -- --env-file .env
 ```
+
+Then open the URL it prints (e.g. `http://localhost:5036`).
+
+On first start the app creates its data folder (`.shush` next to the app) with:
+
+| Path | What |
+| --- | --- |
+| `.shush/shush.db` | The SQLite database: recipes and their versions, groups, machines, variables, deployments, runs. |
+| `.shush/logs/` | `app_*.log` (the application log, also at `/logs`) and one `run_*.log` per run. |
+| `.shush/keys/` | The keys that encrypt secret variables. **Keep it with the database**: without it, secrets can't be read. |
+
+The database is created and migrated automatically. The recipes, groups and deployments shipped with the app
+(`Recipes/`, `Groups/`, `Deployments/`) are added when missing. If the folder holds files from v1
+(`.shush/recipes`, `.shush/groups`, `.shush/state`), they're imported once: user recipes become new versions,
+groups keep their machines, and each recipe's saved machines and values become a deployment.
 
 ## Configuration
 
-Loading `.env` just populates process environment variables, so every setting can equally be a
-real environment variable (e.g. for a Windows Service or Docker container) — nested settings use
-`__` as the separator (e.g. `Credentials__Username`), matching the
-[.NET configuration convention](https://learn.microsoft.com/aspnet/core/fundamentals/configuration/#environment-variables).
-There's no `Shush__` prefix — these bind directly at the configuration root.
+Settings come from environment variables, or from a `.env` file (`KEY=VALUE` lines) passed with
+`--env-file`/`-e`. Nested settings use `__` (e.g. `SharedAccess__Paths__0=C:/git`).
 
-| Setting | Default | Used by | Description |
-| --- | --- | --- | --- |
-| `Credentials__Username` / `Credentials__Password` | *(none)* | **CLI only** | SSH credentials. The web app signs in interactively instead. |
-| `MachineRegistryUrl` | `http://mpe-computers/v2.0` | both | Endpoint used to resolve machine names to hostnames |
-| `MachineRegistryCacheSeconds` | `60` | both | How long the registry response is cached in memory |
-| `DataDirectoryName` | `.shush` | Shush.Design | Folder (next to the app) holding autosaved state, user recipes, and logs |
-| `BasePath` | *(none, root)* | Shush.Design | Serves the app under a subpath (e.g. `/shush`) behind a reverse proxy that doesn't strip the prefix. Leave unset for root hosting. |
-
-## Usage (CLI)
-
-```bash
-dotnet run --project Shush -- --recipe <name> --machines <path-to-yaml>
-```
-
-| Flag | Alias | Description |
+| Setting | Default | Description |
 | --- | --- | --- |
-| `--recipe` | `-r` | Name of the recipe to run (matches the recipe's `name`, case-insensitive) |
-| `--machines` | `-m` | Path to a YAML file listing target machine names |
-| `--env-file` | `-e` | Path to a `.env` file to load. Without it, settings come from real environment variables only |
-| `--recipes-dir` | | Extra directory of recipe `.yml` files. Overrides the built-in recipes by name |
+| `MachineRegistryUrl` | `http://mpe-computers/v2.0` | Resolves machine names (e.g. `FRG.4-A`) to hostnames. IP addresses are used as is. |
+| `MachineRegistryCacheSeconds` | `60` | How long the registry response is cached. |
+| `DataDirectoryName` | `.shush` | The data folder, next to the app. |
+| `BasePath` | *(root)* | Serves the app under a subpath (e.g. `/shush`) behind a reverse proxy that doesn't strip it. |
+| `HealthProbeMinutes` | `5` | How often every known machine is checked for answering on port 22. |
+| `MaxConcurrentMachines` | `16` | Machines deploying at the same time, per run. |
+| `SharedAccess__Paths__N` | *(none)* | Folders granted to local users on every rig before every recipe (see docs/recipes.md). Usually a **shared folder** variable is simpler (below). |
+| `GITHUB_TOKEN` | *(none)* | Optional. Raises GitHub's rate limit for the clabe-release and git-ref suggestions. |
 
-Example:
+### uv on the rigs, and shared folders
 
-```bash
-dotnet run --project Shush -- --recipe VrForaging --machines frg-machines.yaml --env-file .env
-```
+The rigs' policy blocks programs in user profiles (Windows error 1260), which is where uv installs tools by default. So
+Shush adds two global variables on first start: `UV_TOOL_DIR=C:/uv/uv_tool_dir` and `UV_TOOL_BIN_DIR=C:/uv/uv_tool_bin_dir`.
+They're ordinary variables (Settings → Variables: edit, override per group or rig, or delete them; they're added once)
+with two options ticked:
 
-Recipes are read from a `Recipes/` folder next to the binary (plus any `--recipes-dir`). A
-timestamped log file (e.g. `deploy_20260521_104224.log`) is written next to the binary with full
-structured output. The terminal shows a live table — one row per machine — with progress dots and
-the currently executing step.
+- **Set as environment variable** (machine): set on the rig before any recipe step, and seen by every later command of
+  the same run.
+- **Shared folder**: the value is a folder; before each deploy it's created and the rig's local users get modify access,
+  so every SSH account can use and update what another put there. Any variable can be a shared folder.
 
-## Web UI (Shush.Design)
-
-A Blazor Server app for running recipes from a browser instead of the CLI:
-
-- **Sign in** with your SSH username/password (see [Authentication](#authentication-read-this-first)).
-- **New recipe** starts a blank one from scratch (just pick a name) — it opens straight into Raw
-  YAML with a commented scaffold, since params/vars can currently only be authored there. Nothing
-  is written to disk until you hit **Save recipe**. Or **Import recipe** an existing `.yml`.
-- Pick a recipe, set its **Parameters**, and edit its **Steps** — a structured editor
-  (add/remove/reorder steps, per-input fields, drag-to-reorder, tooltips) with a **Raw YAML**
-  toggle for direct editing. Editing a built-in recipe saves a **user copy** (the shipped recipe
-  stays pristine); "Reset to default" removes it (only shown for a recipe that has one). Import/export recipes as `.yml`.
-- Add/remove target machines (or bulk-load them from a YAML file) and **Deploy** with a live
-  per-machine progress view. Deploy is disabled until you're signed in and the recipe is valid.
-
-```bash
-dotnet run --project Shush.Design -- --env-file .env
-```
-
-(`--env-file`/`-e` is optional and, for the web app, only supplies non-credential settings such as
-`MachineRegistryUrl`.) Then open the URL printed in the console (e.g. `http://localhost:5036`). No
-recipe is loaded by default — select one from the dropdown first.
-
-Selected machines and parameter values are autosaved per recipe to `.shush/state/<RecipeName>.yml`
-and reloaded next time that recipe is selected. User-edited/imported recipes live in
-`.shush/recipes/`; deployment logs under `.shush/logs/`.
-
-> Intended for use on a trusted internal network, over HTTPS. There is no app-level user
-> management — the SSH sign-in *is* the access control (a deploy only works with valid rig
-> credentials).
-
-### Running it as a persistent background service (Windows)
-
-Install it as a Windows Service so it starts on boot and restarts itself if it crashes:
+Setting machine-wide variables and folder access needs the SSH account to be an administrator on the rig.
+### As a Windows Service
 
 ```powershell
-# 1. Publish a self-contained build
 dotnet publish Shush.Design -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o C:\Services\ShushDesign
-
-# 2. (Optional) put a .env next to the exe for non-credential settings (e.g. MachineRegistryUrl).
-#    Credentials are NOT needed here — operators sign in through the browser.
-
-# 3. Register and start the service (run elevated) — must match the hardcoded ServiceName
-#    in Shush.Design/Program.cs ("ShushDeployment").
 New-Service -Name "ShushDeployment" -BinaryPathName "C:\Services\ShushDesign\Shush.Design.exe --urls http://0.0.0.0:5036" -StartupType Automatic
 Start-Service "ShushDeployment"
 ```
 
-To update: `Stop-Service "ShushDeployment"`, replace the published files, `Start-Service "ShushDeployment"` again. To remove: `Remove-Service "ShushDeployment"` (or `sc.exe delete "ShushDeployment"` on older PowerShell).
+The service name must be `ShushDeployment` (set in `Program.cs`). To update: stop the service, replace the
+published files (the `.shush` folder next to them stays), start it again.
 
-### Running it in Docker (Linux VM or elsewhere)
+### In Docker
 
-`Dockerfile` builds `Shush.Design` as a self-contained image. No credentials are needed at build or
-run time: the web app has operators sign in through the browser.
+The data folder lives in a Docker volume declared **external**, so no compose command can delete it (not even
+`docker compose down -v`). Create it once, then start:
 
 ```bash
+docker volume create shush-data
 docker compose up -d --build
 ```
 
-Or plain `docker run` (override any non-credential setting with `-e`):
+Rebuilding or recreating the container keeps the database.
+
+**Upgrading from v1's compose file:** its volume was project-scoped, so Docker named it after the folder
+(e.g. `ssh-deployment_shush-data`; check `docker volume ls`). Keep using it, and get the one-time import of
+your v1 recipes, groups and saved state, by setting `SHUSH_DATA_VOLUME` to that name (in the shell or a
+`.env` next to `docker-compose.yml`) before `docker compose up`. Plain `docker run` works the same way:
 
 ```bash
 docker build -t shush-design .
-docker run -d -p 5036:8080 \
-  -e MachineRegistryUrl=http://mpe-computers/v2.0 \
-  -v shush-data:/app/.shush \
-  shush-design
+docker run -d -p 5036:8080 -v shush-data:/app/.shush -e MachineRegistryUrl=http://mpe-computers/v2.0 shush-design
 ```
 
-Then open `http://<vm-host>:5036`. Put it behind a TLS-terminating reverse proxy for real use.
+The container needs to reach `mpe-computers` (the machine registry) and every rig over SSH, which usually
+means the VM's normal bridged or host networking. CI publishes the image to `ghcr.io/bruno-f-cruz/ssh-deployment`.
 
-To serve it under a subpath behind a reverse proxy (e.g. a Traefik `PathPrefix` rule for `/shush`), set
-`BasePath=/shush`. CI publishes the image to `ghcr.io/bruno-f-cruz/ssh-deployment`.
+## Development
 
-One thing to verify for your environment: the container needs network access to `mpe-computers`
-(the machine registry) and to each target rig over SSH — on a VM this usually means the VM's normal
-bridged/host networking rather than an isolated Docker network, since `mpe-computers` is an
-internal-network hostname unlikely to resolve from a default Docker bridge network.
-
-## Machines file
-
-```yaml
-machines:
-  - FRG.0-A
-  - FRG.4-A
+```bash
+dotnet test Shush.Tests
 ```
 
-Machine names are resolved against an internal registry to obtain hostnames.
+| Project | What |
+| --- | --- |
+| `Shush` | The engine: the recipe language, steps, the runner, SSH, pre-flight checks. |
+| `Shush.Data` | The database (EF Core + SQLite): services and migrations. |
+| `Shush.Design` | The web app (Blazor Server). |
+| `Shush.Tests` | Tests for the engine and the data layer. |
 
-## Recipes
+After changing an entity, add a migration (the tool is pinned in `dotnet-tools.json`):
 
-A recipe is a **YAML document** describing recipe-level parameters and an ordered list of steps.
-Recipes are discovered from the `Recipes/` directory (built-ins) plus a user directory
-(`.shush/recipes/` for the web app, or `--recipes-dir` for the CLI); user copies override built-ins
-by name. Every recipe is validated before it runs — unknown step types, missing required inputs,
-and forward/unknown `${...}` references all fail up front.
-
-```yaml
-name: VrForagingDev
-params:
-  tag:                       # editable in the UI; required if it has no default
-    type: string
-    default: v1.2.0rc1
-vars:
-  repoRoot: C:/git
-  scheduleTime: ${random.time("17:50", "18:10")}
-steps:
-  - id: clone
-    type: GitClone
-    with:
-      repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Behavior.VrForaging
-      rootPath: ${vars.repoRoot}
-  - type: GitCheckout
-    with:
-      path: ${clone.clonedPath}   # reference an earlier step's output
-      reference: ${params.tag}
+```bash
+dotnet tool restore
+cd Shush.Data && dotnet ef migrations add <Name> --output-dir Migrations
 ```
 
-See **[docs/recipes.md](docs/recipes.md)** for the full format: the `${...}` reference rules, the
-function library (`random.time`, `guid`, `env`), the YAML block-vs-flow gotcha, and the complete
-step catalog with inputs and outputs.
-
-### Built-in steps
-
-| Step type | Key inputs | Outputs |
-| --- | --- | --- |
-| `GitClone` | `repositoryUrl`, `rootPath`, `folderName?` | `clonedPath` |
-| `GitCheckout` | `path`, `reference`, `cleanExceptions?` | — |
-| `RunScript` | `commands[]`, `workingDirectory?` | — |
-| `WriteFile` | `content`, `targetPath` | — |
-| `CreateBatchFile` | `remotePath`, `lines[]` | — |
-| `CopyFiles` | `sourceDirectory`, `remoteBaseDirectory` | — |
-| `CreateShortcut` | `cmdPath`, `shortcutDirectory`, `shortName`, `iconPath?` | — |
-| `DeleteDirectory` | `path` | — |
-| `SetEnvironmentVariable` | `name`, `value`, `scope?`, `secret?` | — |
-| `Reboot` | `delaySeconds?` | — |
-| `CleanDesktop` | `exclude[]?`, `dryRun?` | — |
-
-Adding a step type is: implement `IRecipeStep`, annotate it with `[Step]`/`[Input]`/`[Output]`, and
-it appears automatically in the CLI, validation, and the web editor's palette and tooltips.
-
-For content that needs per-machine values substituted in, use `WriteFile` with `${...}` references
-in its `content` — `vars` (and their `${...}` functions) are resolved once per machine, so each rig
-receives its own resolved copy, e.g. `${random.time(...)}` yields an independent time per machine.
+Adding a step type: implement `IRecipeStep` and annotate it with `[Step]`/`[Input]`/`[Output]`. It appears
+in validation and in the editor's step palette, with its descriptions as help text.

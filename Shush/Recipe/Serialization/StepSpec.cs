@@ -1,9 +1,22 @@
+using YamlDotNet.Serialization;
+
 namespace Shush.Recipe.Serialization;
 
 public sealed class StepSpec
 {
     public string? Id { get; set; }
+
+    /// <summary>Optional display label for progress and logs (e.g. "Checkout main"). Defaults to the id, else the type.</summary>
+    public string? Name { get; set; }
+
     public string Type { get; set; } = "";
+
+    /// <summary>
+    /// Optional condition, resolved per machine: <c>a == b</c>, <c>a != b</c>, or a single true/false value. The step
+    /// is skipped when it's false. See <see cref="ConditionEvaluator"/>.
+    /// </summary>
+    public string? When { get; set; }
+
     public Dictionary<string, object?> With { get; set; } = new();
 
     /// <summary>
@@ -13,5 +26,22 @@ public sealed class StepSpec
     /// </summary>
     public bool? Enabled { get; set; }
 
+    [YamlIgnore]
     public bool IsEnabled => Enabled ?? true;
+
+    /// <summary>Why a disabled step is skipped, when not just "disabled" (e.g. a deployment turned it off). Never serialized.</summary>
+    [YamlIgnore]
+    public string? DisabledReason { get; set; }
+
+    /// <summary>
+    /// What a deployment's overrides call this step: its id, else its display name. Steps without an id should keep
+    /// their names unique, or an override applies to every step with that name.
+    /// </summary>
+    [YamlIgnore]
+    public string Key => !string.IsNullOrWhiteSpace(Id) ? Id.Trim() : DisplayName;
+
+    /// <summary>What progress and logs call this step.</summary>
+    [YamlIgnore]
+    public string DisplayName =>
+        !string.IsNullOrWhiteSpace(Name) ? Name.Trim() : !string.IsNullOrWhiteSpace(Id) ? Id : Type;
 }

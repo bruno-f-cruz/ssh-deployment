@@ -12,7 +12,10 @@ public class GitCheckoutStep : IRecipeStep
     [Input(Description = "Paths excluded from 'git clean' (e.g. cached state files).")]
     public IReadOnlyList<string> CleanExceptions { get; init; } = [];
 
-    public Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
+    [Output(Description = "The commit checked out (git rev-parse HEAD). Empty until the step ran.")]
+    public string Commit { get; private set; } = "";
+
+    public async Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
         var exceptionArgs = string.Join(
             " ",
@@ -38,7 +41,11 @@ public class GitCheckoutStep : IRecipeStep
             "git submodule update --init --recursive --force",
         ];
 
-        return context.RunCommandsAsync(commands, cancellationToken);
+        await context.RunCommandsAsync(commands, cancellationToken);
+
+        var head = await context.RunCommandsWithOutputAsync(
+            [$"git -C '{EscapeSingleQuotedPowerShellString(Path)}' rev-parse HEAD"], cancellationToken);
+        Commit = head.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "";
     }
 
     private static string EscapeSingleQuotedPowerShellString(string value)

@@ -1,0 +1,76 @@
+@* A deployment's view of its recipe: every step, and a switch to turn a step off for this deployment only. The recipe
+   itself isn't changed, so its later versions still reach the deployment. Values that should differ between
+   deployments are recipe parameters (the Deploy tab), not edits here. *@
+<section class="panel panel--flush" aria-label="Recipe">
+    <p class="dsteps__intro">
+        Follows <a href="recipes/@RecipeId">@RecipeName</a> (v@(VersionNumber)). Turning a step off applies to this deployment only.
+    </p>
+
+    @if (Overrides.Stale(Document) is { Count: > 0 } stale)
+    {
+        <div class="alert alert--warn dsteps__alert">
+            <Icon Name="warn" />
+            <span class="grow" title="@string.Join(", ", stale)">@Ui.Plural(stale.Count, "turned-off step") no longer in the recipe.</span>
+            <button type="button" class="btn btn--small" @onclick="RemoveStaleAsync">Forget</button>
+        </div>
+    }
+
+    <ol class="dsteps">
+        @for (var i = 0; i < Document.Steps.Count; i++)
+        {
+            var step = Document.Steps[i];
+            var key = step.Key;
+            var off = Overrides.IsDisabled(key) || !step.IsEnabled;
+            var number = i + 1;
+
+            <li class="dstep @(off ? "dstep--off" : "")">
+                <div class="dstep__head">
+                    <span class="dstep__num">@number</span>
+                    <span class="dstep__title" title="@step.Type">
+                        <span class="dstep__name">@step.DisplayName</span>
+                        @if (!string.IsNullOrWhiteSpace(step.When))
+                        {
+                            <span class="small muted mono">when @step.When.Trim()</span>
+                        }
+                    </span>
+                    @if (!step.IsEnabled)
+                    {
+                        <span class="small muted">Off in the recipe</span>
+                    }
+                    else
+                    {
+                        <label class="switch" title="@(off ? "Turned off for this deployment" : "Runs")">
+                            <input type="checkbox" role="switch" checked="@(!off)" @onchange="e => ToggleAsync(key, e.Value is true)"
+                                   aria-label="@($"Run step {number}, {step.DisplayName}")" />
+                            <span class="switch__track" aria-hidden="true"></span>
+                        </label>
+                    }
+                </div>
+            </li>
+        }
+    </ol>
+</section>
+
+@code {
+    /// <summary>The recipe as written (overrides not applied).</summary>
+    [Parameter, EditorRequired] public RecipeDocument Document { get; set; } = null!;
+    [Parameter, EditorRequired] public RecipeOverrides Overrides { get; set; } = null!;
+    [Parameter] public int RecipeId { get; set; }
+    [Parameter] public string RecipeName { get; set; } = "";
+    [Parameter] public int VersionNumber { get; set; }
+
+    /// <summary>Overrides changed (already applied to <see cref="Overrides"/>): save them.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private async Task ToggleAsync(string key, bool runs)
+    {
+        Overrides.SetDisabled(key, !runs);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task RemoveStaleAsync()
+    {
+        Overrides.RemoveStale(Document);
+        await OnChanged.InvokeAsync();
+    }
+}

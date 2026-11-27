@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Shush;
+using Shush.Data;
 using Shush.Design.Components;
 using Shush.Design.Services;
-using Shush.Groups;
 using Shush.Recipe;
 using Shush.Recipe.Serialization;
 
@@ -27,45 +29,67 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 });
 
 var shushSettings = builder.Configuration.Get<ShushSettings>() ?? new ShushSettings();
+var paths = new ShushPaths(builder.Environment.ContentRootPath, shushSettings);
 
 builder.Host.UseWindowsService(options => options.ServiceName = "ShushDeployment");
 
-var appLogDirectory = Path.Combine(ShushPaths.GetShushDirectory(builder.Environment, shushSettings), "logs");
-Directory.CreateDirectory(appLogDirectory);
-var appLogPath = Path.Combine(appLogDirectory, $"app_{DateTime.Now:yyyyMMdd}.log");
+var appLogPath = Path.Combine(paths.LogsDirectory, $"app_{DateTime.Now:yyyyMMdd}.log");
 builder.Logging.AddProvider(new FileLoggerProvider(appLogPath, append: true));
 builder.Services.AddSingleton(new AppLogPath(appLogPath));
 
-// Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddSingleton(shushSettings);
-builder.Services.AddSingleton<MachineRegistryService>();
-builder.Services.AddSingleton<DeploymentOrchestrator>();
+builder.Services.AddSingleton(paths);
 
-// SSH credentials are entered per session by the operator (never shipped with the app).
-builder.Services.AddScoped<CredentialStore>();
+// Secrets (variable values) are encrypted with keys kept next to the database.
+builder.Services.AddDataProtection()
+    .SetApplicationName("Shush")
+    .PersistKeysToFileSystem(new DirectoryInfo(paths.KeysDirectory));
+builder.Services.AddSingleton<ISecretProtector, SecretProtector>();
 
-// Recipe engine wiring: step catalog, functions, YAML discovery, and per-recipe deploy state.
+// The database: one SQLite file in the data folder.
+builder.Services.AddDbContextFactory<ShushDbContext>(o =>
+    o.UseSqlite($"Data Source={paths.DatabaseFile}", sqlite => sqlite.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
+
+// The recipe engine: step catalog, functions, and suggested values for inputs (e.g. clabe releases, git refs).
 builder.Services.AddSingleton(new StepRegistry(typeof(IRecipe).Assembly));
 builder.Services.AddSingleton(FunctionLibrary.Default);
-// Suggested values for inputs and params that name a source (e.g. clabe.versions: the clabe releases with builds).
 builder.Services.AddSingleton(Shush.Recipe.Options.OptionSourceRegistry.Default);
-builder.Services.AddSingleton<RecipeStore>();
-builder.Services.AddSingleton(new RecipePaths(
-    BaseDir: Path.Combine(AppContext.BaseDirectory, "Recipes"),
-    UserDir: ShushPaths.GetUserRecipesDirectory(builder.Environment, shushSettings)));
-builder.Services.AddSingleton(new DeployStateStore(
-    Path.Combine(ShushPaths.GetShushDirectory(builder.Environment, shushSettings), "state")));
 
-// Machine groups: named, reusable lists of machines to deploy to (same base+user overlay
-// pattern as recipes above).
-builder.Services.AddSingleton(new GroupStore(
-    baseDir: Path.Combine(AppContext.BaseDirectory, "Groups"),
-    userDir: ShushPaths.GetUserGroupsDirectory(builder.Environment, shushSettings)));
+builder.Services.AddSingleton<RecipeService>();
+builder.Services.AddSingleton<GroupService>();
+builder.Services.AddSingleton<MachineService>();
+builder.Services.AddSingleton<VariableService>();
+builder.Services.AddSingleton<DeploymentService>();
+builder.Services.AddSingleton<RunService>();
+builder.Services.AddSingleton<Seeder>();
+
+builder.Services.AddSingleton<MachineRegistryService>();
+builder.Services.AddSingleton<RunCoordinator>();
+builder.Services.AddSingleton<HealthChecker>();
+builder.Services.AddHostedService<HealthProbeService>();
+
+// Per browser tab: the operator's SSH credentials (memory only), and toasts.
+builder.Services.AddScoped<CredentialStore>();
+builder.Services.AddScoped<Notifier>();
+builder.Services.AddScoped<ClientTime>();
 
 var app = builder.Build();
+
+// Bring the database up to date before serving: migrations, shipped content, the one-time v1 import, and runs an
+// earlier shutdown cut short.
+using (var scope = app.Services.CreateScope())
+{
+    var seeder = scope.ServiceProvider.GetRequiredService<Seeder>();
+    await seeder.RunAsync(new SeedPaths(
+        ShushPaths.Shipped("Recipes"), ShushPaths.Shipped("Groups"), ShushPaths.Shipped("Deployments"), paths.DataDirectory));
+
+    var interrupted = await scope.ServiceProvider.GetRequiredService<RunService>().MarkInterruptedAsync();
+    if (interrupted > 0)
+        app.Logger.LogWarning("{Count} run(s) were still running when the app stopped; marked interrupted.", interrupted);
+}
 
 // Lets the app be served under a subpath behind a reverse proxy (e.g. Traefik PathPrefix
 // routing without stripping the prefix) — <base href> is derived from this at render time.
@@ -77,7 +101,6 @@ if (!string.IsNullOrEmpty(shushSettings.BasePath))
     app.UseRouting();
 }
 
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);

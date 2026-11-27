@@ -1,0 +1,5 @@
+.machines__filters { flex: 1; }
+.machines__filters input[type=search] { flex: 0 1 360px; }
+.machines__groups { color: var(--muted); }
+.machines__groups a { color: var(--ink-2); text-decoration: none; }
+.machines__groups a:hover { color: var(--purple); text-decoration: underline; }

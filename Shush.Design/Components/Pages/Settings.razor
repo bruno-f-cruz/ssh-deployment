@@ -1,0 +1,37 @@
+@page "/settings"
+@inject ShushPaths Paths
+@inject ShushSettings Config
+
+<PageTitle>Settings · Shush</PageTitle>
+
+<PageHeader Title="Settings" />
+
+<div class="columns">
+    <div class="wide stack">
+        <VariableEditor Scope="VariableScope.Global" Title="Global variables"
+                        Help="Every machine gets these, unless its group or the machine sets the same name."
+                        EmptyTitle="No global variables." />
+    </div>
+
+    <div class="narrow stack">
+        <section class="panel" aria-labelledby="server-h">
+            <div class="panel__head">
+                <h2 id="server-h" title="Read from appsettings.json or environment variables at startup. Change them there and restart the app.">This server</h2>
+                <a class="small" href="logs">Application log</a>
+            </div>
+            <dl class="kv">
+                <dt>Data folder</dt>
+                <dd class="mono small" title="@($"Database: {Paths.DatabaseFile}")">@Paths.DataDirectory</dd>
+
+                <dt>Registry</dt>
+                <dd class="mono small">@Config.MachineRegistryUrl</dd>
+
+                <dt>Health check</dt>
+                <dd>Every @Ui.Plural(Math.Max(1, Config.HealthProbeMinutes), "minute")</dd>
+
+                <dt>Parallel rigs</dt>
+                <dd>Up to @Config.MaxConcurrentMachines per run</dd>
+            </dl>
+        </section>
+    </div>
+</div>

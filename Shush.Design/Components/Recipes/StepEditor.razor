@@ -1,0 +1,433 @@
+@using Shush.Recipe.Options
+@inject StepRegistry Registry
+@inject OptionSourceRegistry OptionSources
+@inject ILogger<StepEditor> Logger
+
+@* The recipe's steps as rows: reorder (drag, or the ⋯ menu), enable/disable, remove, and edit each input by its shape. *@
+<div class="stack recipe-steps">
+    <div class="row">
+        <h2>Steps</h2>
+        <span class="muted small">@Steps.Count</span>
+        <span class="spacer"></span>
+        @if (Steps.Count > 5)
+        {
+            <button type="button" class="link-btn small" @onclick="ToggleAll">@(_open.Count > 0 ? "Collapse all" : "Expand all")</button>
+        }
+    </div>
+
+    @if (_reorderNote is not null)
+    {
+        <div class="alert alert--warn" role="status">
+            <Icon Name="warn" />
+            <div class="grow"><strong>That move would break a step reference.</strong> @_reorderNote</div>
+            <button type="button" class="btn btn--icon" @onclick="() => _reorderNote = null" aria-label="Dismiss"><Icon Name="x" /></button>
+        </div>
+    }
+
+    @if (Steps.Count == 0)
+    {
+        <EmptyState Title="No steps yet." />
+    }
+
+    <div class="step-list">
+    @foreach (var (step, index) in Steps.Select((s, i) => (s, i)))
+    {
+        var open = _open.Contains(step);
+        var known = Registry.TryGet(step.Type, out var descriptor);
+        var prefix = $"step{index}";
+        var hasName = !string.IsNullOrWhiteSpace(step.Name);
+        <div @key="step"
+             class="step-card @(step.IsEnabled ? "" : "step-card--off") @(_dragOverIndex == index ? "step-card--drag" : "") @(open ? "step-card--open" : "")"
+             @ondragover:preventDefault="true"
+             @ondrop:preventDefault="true"
+             @ondrop="() => OnDrop(index)"
+             @ondragenter="() => OnDragEnter(index)">
+            <div class="step-card__head">
+                <span class="step-card__grip" draggable="true" title="Drag to reorder" aria-hidden="true"
+                      @ondragstart="() => _dragIndex = index" @ondragend="OnDragEnd"><Icon Name="grip" /></span>
+                <button type="button" class="step-card__toggle" @onclick="() => Toggle(step)" aria-expanded="@(open ? "true" : "false")"
+                        title="@(known ? descriptor!.Description : "Unknown step type")">
+                    <span class="chev @(open ? "chev--open" : "")"><Icon Name="chevron" Size="16" /></span>
+                    <span class="step-card__type">@(hasName ? step.Name : step.Type)</span>
+                    @if (hasName)
+                    {
+                        <span class="step-card__label">@step.Type</span>
+                    }
+                </button>
+                <span class="step-card__tags">
+                    @if (!string.IsNullOrEmpty(step.Id))
+                    {
+                        <span class="mono" title="Step id">@step.Id</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(step.When))
+                    {
+                        <span title="Runs only when this is true: @step.When">conditional</span>
+                    }
+                    @if (!known)
+                    {
+                        <span class="t-fail">unknown type</span>
+                    }
+                    @if (!step.IsEnabled)
+                    {
+                        <span>off</span>
+                    }
+                </span>
+                <Menu AriaLabel="@($"Actions for step {index + 1}, {step.DisplayName}")">
+                    <button type="button" class="menu__item" @onclick="() => ToggleEnabled(step)">
+                        <Icon Name="@(step.IsEnabled ? "eye-off" : "eye")" />@(step.IsEnabled ? "Turn off" : "Turn on")
+                    </button>
+                    <button type="button" class="menu__item" disabled="@(index == 0)" @onclick="() => Move(index, -1)"><Icon Name="up" />Move up</button>
+                    <button type="button" class="menu__item" disabled="@(index == Steps.Count - 1)" @onclick="() => Move(index, 1)"><Icon Name="down" />Move down</button>
+                    <div class="menu__sep"></div>
+                    <button type="button" class="menu__item menu__item--danger" @onclick="() => Remove(index)"><Icon Name="trash" />Remove step</button>
+                </Menu>
+            </div>
+
+            @if (open)
+            {
+                <div class="step-card__body">
+                    @if (known && !string.IsNullOrWhiteSpace(descriptor!.Description))
+                    {
+                        <p class="field__hint wide-field">@descriptor.Description
+                            @if (descriptor.Outputs.Count > 0)
+                            {
+                                <text> Outputs: </text>
+                                @foreach (var (output, oi) in descriptor.Outputs.Select((o, i) => (o, i)))
+                                {
+                                    @(oi > 0 ? ", " : "")<code title="@output.Description">@output.Name</code>
+                                }
+                                <text>.</text>
+                            }
+                        </p>
+                    }
+                    @if (!known)
+                    {
+                        <div class="alert alert--error wide-field">
+                            <Icon Name="warn" />
+                            <div class="grow">There's no step type named '@step.Type'. Fix it in YAML, or remove this step.</div>
+                        </div>
+                    }
+
+                    <div class="field">
+                        <label for="@prefix-name">Name</label>
+                        <input id="@prefix-name" value="@step.Name" placeholder="@(step.Id ?? step.Type)" autocomplete="off"
+                               @onchange="e => SetName(step, e)" />
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-id">Id</label>
+                        <input id="@prefix-id" class="mono" value="@step.Id" placeholder="none" autocomplete="off" spellcheck="false"
+                               @onchange="e => SetId(step, e)" />
+                        <span class="field__hint">Later steps read its outputs as <code>${id.output}</code>.</span>
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-when">When</label>
+                        <input id="@prefix-when" class="mono" value="@step.When" placeholder="always" autocomplete="off" spellcheck="false"
+                               title="Resolved per machine; the step is skipped when it's false."
+                               @onchange="e => SetWhen(step, e)" />
+                        <span class="field__hint">For example <code>${params.x} == dev</code>.</span>
+                    </div>
+
+                    @if (known)
+                    {
+                        @foreach (var input in descriptor!.Inputs)
+                        {
+                            var id = $"{prefix}-in-{input.Name}";
+                            var wide = input.Shape != InputShape.Scalar;
+                            <div class="field @(wide ? "wide-field" : "")">
+                                <label for="@id">
+                                    <span class="mono">@input.Name</span>
+                                    @if (input.Required)
+                                    {
+                                        <span class="req" title="Required">*</span>
+                                    }
+                                </label>
+                                @switch (input.Shape)
+                                {
+                                    case InputShape.Text:
+                                        <textarea id="@id" class="mono" rows="14" spellcheck="false" wrap="off"
+                                                  value="@GetScalar(step, input.Name)" @onchange="e => SetScalar(step, input.Name, e)"></textarea>
+                                        break;
+                                    case InputShape.Collection:
+                                        <textarea id="@id" class="mono" rows="3" spellcheck="false" placeholder="One value per line"
+                                                  value="@GetLines(step, input.Name)" @onchange="e => SetLines(step, input.Name, e)"></textarea>
+                                        break;
+                                    case InputShape.Dictionary:
+                                        <textarea id="@id" class="mono" rows="3" spellcheck="false" placeholder="key: value, one per line"
+                                                  value="@GetPairs(step, input.Name)" @onchange="e => SetPairs(step, input.Name, e)"></textarea>
+                                        break;
+                                    default:
+                                        <input id="@id" value="@GetScalar(step, input.Name)" autocomplete="off" spellcheck="false"
+                                               list="@ListId(input.OptionsFrom)" @onchange="e => SetScalar(step, input.Name, e)" />
+                                        break;
+                                }
+                                @if (!string.IsNullOrWhiteSpace(input.Description))
+                                {
+                                    <span class="field__hint">@input.Description</span>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    }
+    </div>
+
+    <div class="field add-step">
+        <label for="add-step">Add step</label>
+        <select id="add-step" @key="_addKey" @onchange="Add">
+            <option value="">Choose a step type…</option>
+            @foreach (var d in Registry.Descriptors.OrderBy(d => d.TypeName, StringComparer.OrdinalIgnoreCase))
+            {
+                <option value="@d.TypeName" title="@d.Description">@d.TypeName@(string.IsNullOrWhiteSpace(d.Description) ? "" : " — " + Short(d.Description))</option>
+            }
+        </select>
+    </div>
+
+    @foreach (var (source, options) in _options)
+    {
+        <datalist id="@ListId(source)">
+            @foreach (var option in options)
+            {
+                <option value="@option.Value">@option.Label</option>
+            }
+        </datalist>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RecipeDraft Draft { get; set; } = null!;
+
+    /// <summary>The draft's validation errors as last computed; a reorder that adds errors to a valid recipe is refused.</summary>
+    [Parameter] public IReadOnlyList<string> Errors { get; set; } = [];
+
+    /// <summary>Raised after any change, so the page re-validates and marks the draft dirty.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private List<StepSpec> Steps => Draft.Document.Steps;
+
+    private readonly HashSet<StepSpec> _open = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string, IReadOnlyList<InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);
+    private int? _dragIndex;
+    private int? _dragOverIndex;
+    private string? _reorderNote;
+    private int _addKey;
+    private bool _optionsRequested;
+
+    protected override void OnParametersSet()
+    {
+        if (_optionsRequested)
+            return;
+        _optionsRequested = true;
+        var sources = Registry.Descriptors.SelectMany(d => d.Inputs).Select(i => i.OptionsFrom)
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        _ = LoadOptionsAsync(sources!);
+    }
+
+    private async Task LoadOptionsAsync(List<string> sources)
+    {
+        foreach (var name in sources)
+        {
+            if (!OptionSources.TryGet(name, out var source))
+                continue;
+            try
+            {
+                _options[name] = await source.GetOptionsAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Couldn't load the {Source} suggestions.", name);
+            }
+        }
+    }
+
+    private static string? ListId(string? source) =>
+        string.IsNullOrWhiteSpace(source) ? null : "step-opts-" + string.Concat(source.Select(c => char.IsLetterOrDigit(c) ? c : '-'));
+
+    private static string Short(string text)
+    {
+        var firstSentence = text.Split(". ", 2)[0].TrimEnd('.');
+        return firstSentence.Length > 80 ? firstSentence[..77] + "…" : firstSentence;
+    }
+
+    private void Toggle(StepSpec step)
+    {
+        if (!_open.Remove(step))
+            _open.Add(step);
+    }
+
+    private void ToggleAll()
+    {
+        if (_open.Count > 0)
+            _open.Clear();
+        else
+            _open.UnionWith(Steps);
+    }
+
+    // ---- Reorder ----
+
+    private void OnDragEnter(int index)
+    {
+        if (_dragIndex is not null && _dragIndex != index)
+            _dragOverIndex = index;
+    }
+
+    private void OnDragEnd()
+    {
+        _dragIndex = null;
+        _dragOverIndex = null;
+    }
+
+    private Task OnDrop(int index)
+    {
+        var from = _dragIndex;
+        OnDragEnd();
+        return from is int f ? Place(f, index) : Task.CompletedTask;
+    }
+
+    private Task Move(int index, int delta) => Place(index, index + delta);
+
+    /// <summary>
+    /// Moves a step, but refuses a move that would break an otherwise valid recipe (a step landing before the step
+    /// whose output it reads). The check re-runs the validator on the new order, so it covers any reference.
+    /// </summary>
+    private async Task Place(int from, int to)
+    {
+        if (from < 0 || from >= Steps.Count || to < 0 || to >= Steps.Count || from == to)
+            return;
+
+        var reordered = new List<StepSpec>(Steps);
+        var item = reordered[from];
+        reordered.RemoveAt(from);
+        reordered.Insert(to, item);
+
+        var errors = Draft.ValidateWith(reordered);
+        if (Errors.Count == 0 && errors.Count > 0)
+        {
+            _reorderNote = errors[0];
+            return;
+        }
+
+        Steps.Clear();
+        Steps.AddRange(reordered);
+        _reorderNote = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Remove(int index)
+    {
+        _open.Remove(Steps[index]);
+        Steps.RemoveAt(index);
+        _reorderNote = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Add(ChangeEventArgs e)
+    {
+        var type = e.Value?.ToString();
+        _addKey++;
+        if (string.IsNullOrEmpty(type))
+            return;
+        var step = new StepSpec { Type = type, With = new() };
+        Steps.Add(step);
+        _open.Add(step);
+        await OnChanged.InvokeAsync();
+    }
+
+    // ---- Step fields ----
+
+    private static string? Clean(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString()?.Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    private Task SetName(StepSpec step, ChangeEventArgs e)
+    {
+        step.Name = Clean(e);
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetId(StepSpec step, ChangeEventArgs e)
+    {
+        step.Id = Clean(e);
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetWhen(StepSpec step, ChangeEventArgs e)
+    {
+        step.When = Clean(e);
+        return OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Re-enabling clears the flag back to null, so only a disabled step gets an <c>enabled: false</c> line.</summary>
+    private Task ToggleEnabled(StepSpec step)
+    {
+        step.Enabled = step.IsEnabled ? false : null;
+        return OnChanged.InvokeAsync();
+    }
+
+    // ---- Inputs ----
+
+    private static string GetScalar(StepSpec step, string name) =>
+        step.With.TryGetValue(name, out var v) ? v?.ToString() ?? "" : "";
+
+    /// <summary>A cleared field removes the input, so optional inputs fall back to their defaults instead of "".</summary>
+    private Task SetScalar(StepSpec step, string name, ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (string.IsNullOrEmpty(value))
+            step.With.Remove(name);
+        else
+            step.With[name] = value;
+        return OnChanged.InvokeAsync();
+    }
+
+    private static string GetLines(StepSpec step, string name) =>
+        step.With.TryGetValue(name, out var v) && v is not string && v is IEnumerable<object?> items
+            ? string.Join("\n", items.Select(i => i?.ToString()))
+            : GetScalar(step, name);
+
+    private Task SetLines(StepSpec step, string name, ChangeEventArgs e)
+    {
+        var lines = (e.Value?.ToString() ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).Cast<object?>().ToList();
+        if (lines.Count == 0)
+            step.With.Remove(name);
+        else
+            step.With[name] = lines;
+        return OnChanged.InvokeAsync();
+    }
+
+    private static string GetPairs(StepSpec step, string name) =>
+        step.With.TryGetValue(name, out var v) && v is IDictionary<object, object?> map
+            ? string.Join("\n", map.Select(kv => $"{kv.Key}: {kv.Value}"))
+            : "";
+
+    private Task SetPairs(StepSpec step, string name, ChangeEventArgs e)
+    {
+        var map = new Dictionary<object, object?>();
+        foreach (var line in (e.Value?.ToString() ?? "").Split('\n'))
+        {
+            var trimmed = line.Trim();
+            var colon = trimmed.IndexOf(':');
+            if (colon <= 0)
+                continue;
+            map[trimmed[..colon].Trim()] = trimmed[(colon + 1)..].Trim();
+        }
+
+        if (map.Count == 0)
+            step.With.Remove(name);
+        else
+            step.With[name] = map;
+        return OnChanged.InvokeAsync();
+    }
+
+    /// <summary>After the document is replaced (raw YAML applied, discard), forget per-step UI state.</summary>
+    public void Reset()
+    {
+        _open.Clear();
+        _reorderNote = null;
+        OnDragEnd();
+    }
+}

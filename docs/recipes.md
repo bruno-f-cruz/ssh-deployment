@@ -52,7 +52,7 @@ sharedAccess:
 ```
 
 **Machine-wide default.** To apply this to every recipe without editing each one, set
-`ShushSettings.SharedAccess` (same fields; in the CLI via environment variables, e.g.
+`ShushSettings.SharedAccess` (same fields, via environment variables, e.g.
 `SharedAccess__Paths__0=C:/git`). Those grants always run first, then the recipe's own
 `sharedAccess` paths. With no paths configured, nothing is granted.
 
@@ -89,6 +89,7 @@ A string input (or any string inside a list/map input) may contain `${...}` toke
 |------|-------------|
 | `${params.name}` | a param's value (or its default) |
 | `${vars.name}` | a var's resolved value |
+| `${group.name}` | a variable set in the app, per machine: the machine's own value, else its group's, else the global one |
 | `${stepId.output}` | an **earlier** step's output (see below) |
 | `${fn(arg, ...)}` | a function call (args are double-quoted string literals) |
 
@@ -96,8 +97,11 @@ A string input (or any string inside a list/map input) may contain `${...}` toke
 
 1. Steps run in order per machine; a `${stepId.output}` may only reference a step defined
    **earlier** in the list.
-2. `vars` resolve before any step runs, so a var may reference `params` and functions only —
-   never another var or a step output.
+2. `vars` resolve before any step runs, so a var may reference `params`, `group` variables and
+   functions only — never another var or a step output.
+4. `${group.name}`: the recipe editor doesn't know which group a recipe will deploy to, so any
+   name is accepted there. A deployment's page warns about names its group doesn't set, and a
+   machine without the variable fails before its first step.
 3. Unknown step types, unknown inputs, missing required inputs, unknown references, unknown
    functions, and duplicate step ids all fail the recipe up front.
 
@@ -127,7 +131,7 @@ with:
 | Type | Inputs | Outputs |
 |------|--------|---------|
 | `GitClone` | `repositoryUrl`*, `rootPath`*, `folderName` | `clonedPath` |
-| `GitCheckout` | `path`*, `reference`*, `cleanExceptions` (list) | — |
+| `GitCheckout` | `path`*, `reference`*, `cleanExceptions` (list) | `commit` (recorded as the rig's deployed commit) |
 | `RunScript` | `commands`* (list), `workingDirectory` | — |
 | `WriteFile` | `content`*, `targetPath`* | — |
 | `CreateBatchFile` | `remotePath`*, `lines`* (list) | — |
@@ -140,7 +144,7 @@ with:
 
 The catalog is populated by reflection over `[Step]`-annotated `IRecipeStep` types
 (`StepRegistry`), so adding a step type is: implement `IRecipeStep`, annotate it with
-`[Step]`/`[Input]`/`[Output]`, and it appears in the CLI, validation, and the web editor's
+`[Step]`/`[Input]`/`[Output]`, and it appears in validation and the web editor's
 palette and tooltips automatically.
 
 ### `DeployClabeDaemon` (deploy clabe-daemon)
@@ -183,16 +187,60 @@ source. The web editor then suggests that source's values as you type; any other
 |--------|--------|
 | `clabe.versions` | `lock`, `latest`, then each clabe release with builds (a wheel attached to its GitHub release), newest first |
 | `clabe.installers` | `main`, then the recent clabe release tags whose installer deploys the daemon |
+| `git.refs(https://github.com/owner/repo)` | the repository's tags, then its branches |
 
 The clabe sources read GitHub's API, cached for 10 minutes. Unauthenticated, GitHub allows 60 requests an hour per
 address; set `GITHUB_TOKEN` on the Shush host to raise that. Without GitHub, the fields show only the fixed values.
 
-## Discovery & editing
+## Step names and conditions (`name`, `when`)
 
-- **CLI** (`Shush`): recipes are read from `Recipes/` next to the executable, plus an optional
-  `--recipes-dir <dir>` that overrides built-ins by name.
-- **Web** (`Shush.Design`): recipes are read from the built-in `Recipes/` directory overlaid by
-  a per-user recipes directory. Editing a built-in and saving writes a **user copy** (the base
-  stays pristine); "Reset to default" deletes the user copy. The editor has a structured view
-  (params + steps with tooltips) and a Raw YAML view with syntax highlighting and live
-  validation; deploy is blocked while a recipe is invalid.
+```yaml
+steps:
+  - type: GitCheckout
+    name: Checkout              # shown on the rig board and in logs (default: the id, else the type)
+    with:
+      path: ${clone.clonedPath}
+      reference: ${params.ref}
+  - type: CreateShortcut
+    when: ${params.flavor} == dev   # skipped on this machine when false
+    with: ...
+```
+
+`when:` is resolved per machine, like any input, then read as:
+
+- `a == b` or `a != b` — each side trimmed, and unquoted if wrapped in double quotes; compared ignoring case;
+- or a single value — true for `true`, `yes`, `1`, `on`; false for `false`, `no`, `0`, `off` or empty.
+
+A skipped step shows as skipped on the rig board, with the condition as the reason. Like a disabled step,
+its outputs are never captured.
+
+## Fixed parameters (`fixed: true`)
+
+```yaml
+params:
+  ref:
+    default: main               # chosen at every deploy
+  installFolder:
+    default: Aind.Experiment.VrForaging
+    fixed: true                 # set once, when the deployment is created
+```
+
+A deployment remembers its parameter values. A **fixed** one is set when the deployment is created and is
+read-only on the deploy screen afterwards. Use it for values that decide *where* an install goes (its folder,
+its shortcut), so two deployments of one recipe (e.g. prod and dev) never install over each other.
+`VrForagingExperiment` is the example: its *VrForaging dev* deployment sets `installFolder`, `shortcutName`
+and `iconFile` to dev values and installs next to prod.
+
+## Environment variables from the app
+
+Besides the `SetEnvironmentVariable` step, a variable defined in the app (global, group or machine) can be
+marked "set as an environment variable on the rig" (Machine or User scope). Those are set on each machine
+before the recipe's first step, shown on the rig board as an *Environment variables* step. Secret variables
+are encrypted in the database and redacted from logs and dry-run output.
+
+## Where recipes live
+
+Recipes are stored in the app's database as versioned YAML: every save is a new version, and the history
+shows a diff between any two. The recipes in `Recipes/` ship with the app and are added on startup; a shipped
+recipe nobody edited follows the shipped file when it changes, an edited one keeps the edits (its page then
+offers *Reset to default*). Import and export use the same YAML files.

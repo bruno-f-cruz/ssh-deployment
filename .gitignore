@@ -94,3 +94,5 @@ mono_crash.*
 ## Superseded by .env, kept ignored in case either still lingers on disk
 shush.json
 secrets.json
+# Browser automation screenshots
+.playwright-mcp/

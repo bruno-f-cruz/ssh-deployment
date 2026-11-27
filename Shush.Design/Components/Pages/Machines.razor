@@ -1,0 +1,218 @@
+@page "/machines"
+@implements IDisposable
+@inject MachineService MachineService
+@inject GroupService GroupService
+@inject HealthChecker Health
+@inject Notifier Notifier
+@inject ShushSettings Settings
+
+<PageTitle>All rigs · Shush</PageTitle>
+
+<PageHeader Title="Rigs">
+    <Actions>
+        <button type="button" class="btn" @onclick="CheckAllAsync" disabled="@_checking"
+                title="@($"Reachability is also checked every {Ui.Plural(Settings.HealthProbeMinutes, "minute")}")">
+            @if (_checking)
+            {
+                <Icon Name="spin" />@("Checking…")
+            }
+            else
+            {
+                @("Check all")
+            }
+        </button>
+    </Actions>
+</PageHeader>
+
+<RigsTabs Current="machines" />
+
+<section class="panel panel--flush">
+    @if (_machines is null)
+    {
+        <p class="empty">Loading machines…</p>
+    }
+    else if (_machines.Count == 0)
+    {
+        <EmptyState Title="No machines yet.">Add some to a <a href="groups">group</a>.</EmptyState>
+    }
+    else
+    {
+        var unreachable = _machines.Count(m => m.Reachable == false);
+        var lowDisk = _machines.Count(m => m.FreeGb < RigFacts.LowDiskGb);
+        var shown = Shown().ToList();
+        var anyFacts = shown.Any(RigFacts.HasAny);
+        <div class="panel__head">
+            <div class="row machines__filters">
+                <label class="visually-hidden" for="machine-search">Search machines</label>
+                <input id="machine-search" type="search" placeholder="Search name, hostname, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
+                @if (unreachable > 0 || lowDisk > 0)
+                {
+                    <div class="toggles" role="group" aria-label="Show machines">
+                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @_machines.Count</button>
+                        @if (unreachable > 0)
+                        {
+                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">Not reachable @unreachable</button>
+                        }
+                        @if (lowDisk > 0)
+                        {
+                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">Low disk @lowDisk</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (shown.Count == 0)
+        {
+            <EmptyState Title="No machines match." />
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Machine</th>
+                            <th scope="col">Health</th>
+                            @if (anyFacts)
+                            {
+                                <th scope="col">Details</th>
+                            }
+                            <th scope="col">Groups</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var machine in shown)
+                        {
+                            <tr class="is-link">
+                                <td><a class="row-link" href="@($"machines/{Uri.EscapeDataString(machine.Name)}")"><RigName Name="@machine.Name" Machine="machine" Link="false" /></a></td>
+                                <td><MachineHealth Machine="machine" /></td>
+                                @if (anyFacts)
+                                {
+                                    <td><RigFacts Machine="machine" /></td>
+                                }
+                                <td class="machines__groups">
+                                    @{ var groups = _groupsOf.GetValueOrDefault(machine.Name) ?? []; }
+                                    @for (var i = 0; i < groups.Count; i++)
+                                    {
+                                        var group = groups[i];
+                                        @if (i > 0) { @(", ") }
+                                        <a href="@($"groups/{group.Id}")">@group.Name</a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private enum Filter { All, Unreachable, LowDisk }
+
+    private List<Machine>? _machines;
+    private Dictionary<string, List<(int Id, string Name)>> _groupsOf = new(StringComparer.OrdinalIgnoreCase);
+    private string _search = "";
+    private Filter _filter = Filter.All;
+    private bool _checking;
+    private int _reloadPending;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Health.Probed += OnProbed;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _machines = await MachineService.ListAsync();
+
+        var map = new Dictionary<string, List<(int Id, string Name)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var summary in await GroupService.ListAsync())
+        {
+            var group = await GroupService.GetAsync(summary.Id);
+            if (group is null)
+                continue;
+            foreach (var member in group.Members)
+            {
+                if (!map.TryGetValue(member.MachineName, out var list))
+                    map[member.MachineName] = list = [];
+                list.Add((group.Id, group.Name));
+            }
+        }
+
+        _groupsOf = map;
+    }
+
+    private IEnumerable<Machine> Shown()
+    {
+        IEnumerable<Machine> machines = _machines ?? [];
+        machines = _filter switch
+        {
+            Filter.Unreachable => machines.Where(m => m.Reachable == false),
+            Filter.LowDisk => machines.Where(m => m.FreeGb < RigFacts.LowDiskGb),
+            _ => machines,
+        };
+
+        var terms = _search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return terms.Length == 0 ? machines : machines.Where(m => terms.All(t => Matches(m, t)));
+    }
+
+    private bool Matches(Machine machine, string term) =>
+        machine.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || (machine.Hostname?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+        || (machine.LoggedOnUser?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+        || (_groupsOf.GetValueOrDefault(machine.Name)?.Any(g => g.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) ?? false);
+
+    private async Task CheckAllAsync()
+    {
+        _checking = true;
+        try
+        {
+            await Health.ProbeAllAsync(_cts.Token);
+            await LoadAsync();
+            var count = _machines?.Count ?? 0;
+            var reachable = _machines?.Count(m => m.Reachable == true) ?? 0;
+            Notifier.Success($"{reachable} of {count} machines are reachable.");
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was closed.
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    // A full probe raises Probed once per machine: reload at most once a second.
+    private void OnProbed()
+    {
+        if (Interlocked.Exchange(ref _reloadPending, 1) == 1)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+                Interlocked.Exchange(ref _reloadPending, 0);
+                await LoadAsync();
+                StateHasChanged();
+            }
+            catch (OperationCanceledException)
+            {
+                // The page was closed.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Health.Probed -= OnProbed;
+        _cts.Cancel(); // Not disposed: a pending reload may still read its token.
+    }
+}

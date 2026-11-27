@@ -1,0 +1,119 @@
+@page "/runs"
+@implements IDisposable
+@inject RunService RunData
+@inject RunCoordinator Coordinator
+@inject ClientTime ClientTime
+
+<PageTitle>Runs · Shush</PageTitle>
+
+<PageHeader Title="Runs">
+    <Actions>
+        @if (_runs is { Count: > 0 } || _hideDryRuns)
+        {
+            <label class="checkbox">
+                <input type="checkbox" checked="@_hideDryRuns" @onchange="e => SetDryRunsAsync(e.Value is true)" />
+                Hide dry runs
+            </label>
+        }
+    </Actions>
+</PageHeader>
+
+<section class="panel panel--flush" aria-label="Runs">
+    @if (_runs is null)
+    {
+        <p class="empty">Loading…</p>
+    }
+    else if (_runs.Count == 0)
+    {
+        <EmptyState Title="@(_hideDryRuns ? "No runs other than dry runs." : "No runs yet.")">
+            Start one from a <a href="deployments">deployment</a>.
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Run</th>
+                        <th scope="col">Deployment</th>
+                        <th scope="col">Result</th>
+                        <th scope="col">Started</th>
+                        <th scope="col">Took</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var run in _runs)
+                    {
+                        <tr class="is-link">
+                            <td class="runs__id"><a class="row-link" href="runs/@run.Id">#@run.Id</a> <span class="muted small">@Ui.Kind(run.Kind)</span></td>
+                            <td class="runs__dep">
+                                @if (run.DeploymentId is { } deploymentId)
+                                {
+                                    <a href="deployments/@deploymentId">@run.DeploymentName</a>
+                                }
+                                else
+                                {
+                                    <span>@run.DeploymentName</span>
+                                }
+                                <div class="sub">@run.RecipeName v@(run.RecipeVersion)@(run.GroupName is null ? "" : $" · {run.GroupName}")</div>
+                            </td>
+                            <td><StatusText Tone="Ui.Of(run.Status)" Label="@Label(run)" /></td>
+                            <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)@if (!string.IsNullOrEmpty(run.StartedBy)) { <div class="sub">by @run.StartedBy</div> }</td>
+                            <td>@Ui.Duration(run.StartedAt, run.FinishedAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_runs.Count >= _take)
+        {
+            <div class="runs__more"><button type="button" class="btn btn--small" @onclick="MoreAsync">Show older runs</button></div>
+        }
+    }
+</section>
+
+@code {
+    private List<RunListItem>? _runs;
+    private bool _hideDryRuns;
+    private int _take = 50;
+    private LiveRefresh? _live;
+
+    public static string Label(RunListItem run) => run.Status switch
+    {
+        RunStatus.Running => $"Running, {run.Succeeded} of {run.Machines} done",
+        RunStatus.Succeeded when run.Kind == RunKind.DryRun => $"Checked {run.Machines} of {run.Machines}",
+        RunStatus.Succeeded => $"Succeeded on {run.Succeeded} of {run.Machines}",
+        RunStatus.Failed => $"Failed on {run.Failed} of {run.Machines}",
+        _ => Ui.Of(run.Status).Label,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnRunChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _runs = await RunData.ListAsync(_take, includeDryRuns: !_hideDryRuns);
+
+    private async Task SetDryRunsAsync(bool hide)
+    {
+        _hideDryRuns = hide;
+        await LoadAsync();
+    }
+
+    private async Task MoreAsync()
+    {
+        _take += 50;
+        await LoadAsync();
+    }
+
+    private void OnRunChanged(int _) => _live?.Mark();
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        _live?.Dispose();
+    }
+}

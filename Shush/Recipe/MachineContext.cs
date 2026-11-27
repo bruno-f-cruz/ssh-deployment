@@ -12,6 +12,23 @@ public class MachineContext : IAsyncDisposable
     public string BoxId { get; }
     public MachineInfo MachineInfo { get; }
 
+    /// <summary>
+    /// Environment variables set during this run. Windows' OpenSSH gives a session the environment it had at sign-in,
+    /// so a variable a step saves (e.g. machine-wide) only reaches new sessions; every later command of this run gets
+    /// them set explicitly, so the next step already sees them.
+    /// </summary>
+    private readonly Dictionary<string, (string Value, bool Secret)> _sessionEnvironment = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Makes every later command of this run see <paramref name="name"/> = <paramref name="value"/>.</summary>
+    public void SetSessionVariable(string name, string value, bool secret = false) => _sessionEnvironment[name] = (value, secret);
+
+    /// <summary>The PowerShell that sets the session variables, ahead of a command ("" when there are none).</summary>
+    internal string SessionPrefix() => BuildSessionPrefix(_sessionEnvironment.Select(kv => (kv.Key, kv.Value.Value)));
+
+    /// <summary><c>$env:NAME = 'value'; </c> for each variable, single quotes doubled. Public for tests.</summary>
+    public static string BuildSessionPrefix(IEnumerable<(string Name, string Value)> variables) =>
+        string.Concat(variables.Select(v => $"$env:{v.Name} = '{v.Value.Replace("'", "''")}'; "));
+
     private MachineContext(string boxId, MachineInfo machineInfo, SshClient sshClient, ScpClient scpClient, ILogger<MachineContext> logger)
     {
         BoxId = boxId;
@@ -99,7 +116,7 @@ public class MachineContext : IAsyncDisposable
         ct.ThrowIfCancellationRequested();
 
         string joined = string.Join(" ; if ($LASTEXITCODE) { exit $LASTEXITCODE } ; ", commands);
-        string escaped = joined.Replace("\"", "\\\"");
+        string escaped = (SessionPrefix() + joined).Replace("\"", "\\\"");
         string psCommand = $"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"{escaped}\"";
         string display = logAs ?? joined;
 
@@ -113,7 +130,8 @@ public class MachineContext : IAsyncDisposable
 
         if (cmd.ExitStatus != 0)
         {
-            if (logAs is null)
+            // The wrapped command carries the session variables; leave it out when one of them is secret.
+            if (logAs is null && !_sessionEnvironment.Values.Any(v => v.Secret))
                 _logger.LogError(
                     "[{BoxId}] SSH command failed.\nCommands: {Commands}\nWrapped: {Wrapped}\nExitCode: {ExitCode}\nError: {Error}",
                     BoxId,
@@ -129,7 +147,7 @@ public class MachineContext : IAsyncDisposable
                     cmd.ExitStatus,
                     error);
 
-            throw new InvalidOperationException($"SSH command failed with exit code {cmd.ExitStatus}: {error}");
+            throw new RemoteCommandException(cmd.ExitStatus ?? -1, error);
         }
 
         _logger.LogDebug(

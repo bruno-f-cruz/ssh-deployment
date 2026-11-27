@@ -11,6 +11,8 @@ public sealed class RecipeValidator
 {
     private readonly StepRegistry _registry;
     private readonly FunctionLibrary _functions;
+    private readonly object _sync = new();
+    private HashSet<string>? _groupVariables;
 
     public RecipeValidator(StepRegistry registry, FunctionLibrary functions)
     {
@@ -18,11 +20,25 @@ public sealed class RecipeValidator
         _functions = functions;
     }
 
-    public void Validate(RecipeDocument document)
+    /// <param name="groupVariables">
+    /// The variable names a deployment provides for <c>${group.NAME}</c>. Null where there is no deployment (the
+    /// recipe editor): any <c>group.NAME</c> is accepted then, and checked again once a deployment is known.
+    /// </param>
+    public void Validate(RecipeDocument document, IReadOnlyCollection<string>? groupVariables = null)
+    {
+        // One validator may be shared (e.g. by the recipe store), and the group names are per call.
+        lock (_sync)
+        {
+            _groupVariables = groupVariables is null ? null : new HashSet<string>(groupVariables, StringComparer.Ordinal);
+            ValidateCore(document);
+        }
+    }
+
+    private void ValidateCore(RecipeDocument document)
     {
         var errors = new List<string>();
 
-        // vars resolve before any step runs, so they may reference params + functions only.
+        // vars resolve before any step runs, so they may reference params, group variables and functions only.
         foreach (var (name, value) in document.Vars)
             ValidateString(value, errors, document, earlierSteps: null, context: $"vars.{name}");
 
@@ -67,6 +83,13 @@ public sealed class RecipeValidator
 
             foreach (var value in step.With.Values)
                 ValidateValue(value, errors, document, earlierSteps, label);
+
+            if (!string.IsNullOrWhiteSpace(step.When))
+            {
+                ValidateString(step.When, errors, document, earlierSteps, $"{label} when");
+                if (ConditionEvaluator.CheckSyntax(step.When) is { } problem)
+                    errors.Add($"{label} when: {problem}");
+            }
 
             if (step.Id is not null)
                 earlierSteps[step.Id] = (descriptor, step.IsEnabled);
@@ -140,6 +163,11 @@ public sealed class RecipeValidator
                 case ResolutionScope.ParamsNamespace:
                     if (!document.Params.ContainsKey(token.Member))
                         errors.Add($"{context}: unknown param '{token.Member}'.");
+                    break;
+
+                case ResolutionScope.GroupNamespace:
+                    if (_groupVariables is not null && !_groupVariables.Contains(token.Member))
+                        errors.Add($"{context}: no variable named '{token.Member}' is set for this machine (global, group or machine).");
                     break;
 
                 case ResolutionScope.VarsNamespace:

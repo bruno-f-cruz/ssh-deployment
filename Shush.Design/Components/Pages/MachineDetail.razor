@@ -1,0 +1,317 @@
+@page "/machines/{Name}"
+@inject MachineService MachineService
+@inject GroupService GroupService
+@inject DeploymentService Deployments
+@inject RunService Runs
+@inject HealthChecker Health
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+
+<PageTitle>@Name · Shush</PageTitle>
+
+<PageHeader Title="@Name">
+    <TitleContent><RigName Name="@Name" Machine="_machine" Link="false" Class="rig-name--large" /></TitleContent>
+    <Crumbs><a href="machines">Rigs</a> / @Name</Crumbs>
+    <Facts>
+        <p class="meta">
+            <span><MachineHealth Machine="_machine" Detail="false" /></span>
+            @if (MachineHealth.SeenText(_machine) is { } seen)
+            {
+                <span title="@(_machine?.LastSeenAt is { } at ? Ui.When(at, ClientTime) : null)">@(_machine?.Reachable == false ? seen : $"seen {seen}")</span>
+            }
+            @if (!string.IsNullOrEmpty(_machine?.ReachableAddress) && !string.Equals(_machine.ReachableAddress, _machine.Hostname, StringComparison.OrdinalIgnoreCase))
+            {
+                <span class="mono machine-detail__addr" title="Address it answered on">@_machine.ReachableAddress</span>
+            }
+            @if (!string.IsNullOrEmpty(_machine?.LoggedOnUser))
+            {
+                <span title="Logged-on user">@_machine.LoggedOnUser</span>
+            }
+            @if (_machine?.FreeGb is { } free)
+            {
+                <span class="@(free < RigFacts.LowDiskGb ? "t-warn" : "")" title="@(free < RigFacts.LowDiskGb ? "Less than 5 GB free: installs may fail" : "Free on the system drive")">@free.ToString("0.#") GB free</span>
+            }
+            @if (_groups.Count > 0)
+            {
+                <span>
+                    @for (var i = 0; i < _groups.Count; i++)
+                    {
+                        var group = _groups[i];
+                        @if (i > 0) { @(", ") }
+                        <a href="@($"groups/{group.Id}")">@group.Name</a>
+                    }
+                </span>
+            }
+        </p>
+        @if (MachineHealth.Why(_machine) is { } why)
+        {
+            <p class="small t-fail">@why.</p>
+        }
+    </Facts>
+    <Actions>
+        <button type="button" class="btn" @onclick="CheckNowAsync" disabled="@_checking">
+            @if (_checking)
+            {
+                <Icon Name="spin" />@("Checking…")
+            }
+            else
+            {
+                @("Check now")
+            }
+        </button>
+    </Actions>
+</PageHeader>
+
+@if (_loaded && _groups.Count == 0)
+{
+    <div class="alert alert--info" role="status">
+        <Icon Name="info" />
+        <div class="grow">Not in any group yet. <a href="groups">Add it to one</a> to deploy to it.</div>
+    </div>
+}
+
+@if (_checkError is not null)
+{
+    <div class="alert alert--warn" role="alert">
+        <Icon Name="warn" />
+        <div class="grow">@_checkError</div>
+        <button type="button" class="btn btn--small btn--ghost" @onclick="() => _checkError = null">Dismiss</button>
+    </div>
+}
+
+<div class="columns">
+    <div class="wide stack">
+        @if (_lastDeployed.Count == 0)
+        {
+            <p class="muted">Nothing deployed here yet.</p>
+        }
+        else
+        {
+            <section class="panel panel--flush" aria-labelledby="deployed-h">
+                <div class="panel__head">
+                    <h2 id="deployed-h">Last deployed</h2>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Deployment</th>
+                                <th scope="col">Values</th>
+                                <th scope="col">When</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in _lastDeployed)
+                            {
+                                var summary = _deployments.GetValueOrDefault(d.DeploymentId);
+                                <tr class="is-link">
+                                    <td>
+                                        @if (summary is not null)
+                                        {
+                                            <a class="row-link" href="@($"deployments/{d.DeploymentId}")">@summary.Name</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="title">@d.DeploymentName</span> <span class="muted small">(deleted)</span>
+                                        }
+                                        <div class="sub">
+                                            @(summary?.RecipeName ?? "Recipe") v@(d.RecipeVersion)
+                                            @if (!string.IsNullOrEmpty(d.Commit))
+                                            {
+                                                <span class="mono" title="@d.Commit">· @Ui.ShortCommit(d.Commit)</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (d.Params.Count > 0)
+                                        {
+                                            <span class="fixed-values">
+                                                @foreach (var (key, value) in OrderedParams(d.Params))
+                                                {
+                                                    <span>@key <b>@value</b></span>
+                                                }
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <a href="@($"runs/{d.RunId}")" class="@(summary is null ? "row-link" : null)" title="@($"Run #{d.RunId}, {Ui.When(d.At, ClientTime)}")">@Ui.Ago(d.At)</a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+
+        <VariableEditor Scope="VariableScope.Machine" MachineName="@Name" Title="Overrides"
+                        Help="Values only this machine gets. They win over group and global values."
+                        EmptyTitle="No overrides." />
+
+        @if (_runs.Count > 0)
+        {
+            <section class="panel panel--flush" aria-labelledby="runs-h">
+                <div class="panel__head">
+                    <h2 id="runs-h">Recent runs</h2>
+                    <a class="small" href="runs">All runs</a>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Run</th>
+                                <th scope="col">Deployment</th>
+                                <th scope="col" title="This machine's result in the run">Result here</th>
+                                <th scope="col">Started</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var run in _runs)
+                            {
+                                <tr class="is-link">
+                                    <td><a class="row-link" href="@($"runs/{run.Id}")">#@run.Id</a> <span class="muted small">@Ui.Kind(run.Kind)</span></td>
+                                    <td>
+                                        @run.DeploymentName
+                                        <div class="sub">@run.RecipeName v@(run.RecipeVersion)</div>
+                                    </td>
+                                    <td><StatusText Tone="@(run.MachineStatus is { } own ? Ui.Of(own) : Ui.Of(run.Status))" /></td>
+                                    <td>
+                                        <span title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)</span>
+                                        @if (!string.IsNullOrEmpty(run.StartedBy))
+                                        {
+                                            <div class="sub">by @run.StartedBy</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    </div>
+
+    <div class="narrow stack">
+        @{ var details = DetailRows().ToList(); }
+        @if (details.Count > 0)
+        {
+            <section class="panel" aria-labelledby="details-h">
+                <h2 id="details-h">Details</h2>
+                <dl class="kv">
+                    @foreach (var (label, value, title) in details)
+                    {
+                        <dt>@label</dt>
+                        <dd title="@title">@value</dd>
+                    }
+                </dl>
+            </section>
+        }
+
+        <section class="panel" aria-labelledby="notes-h">
+            <h2 id="notes-h">Notes</h2>
+            <form class="stack machine-detail__notes" @onsubmit="SaveNotesAsync" @onsubmit:preventDefault>
+                <label for="machine-notes" class="visually-hidden">Notes</label>
+                <textarea id="machine-notes" rows="2" @bind="_notes" @bind:event="oninput" placeholder="Which rig this is, known quirks, who to ask. Everyone sees these."></textarea>
+                @if (_notes != (_machine?.Notes ?? ""))
+                {
+                    <div class="row">
+                        <button type="submit" class="btn btn--small">Save notes</button>
+                        <button type="button" class="btn btn--small btn--ghost" @onclick="ResetNotes">Cancel</button>
+                    </div>
+                }
+            </form>
+        </section>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Name { get; set; } = "";
+
+    private bool _loaded;
+    private string? _loadedName;
+    private Machine? _machine;
+    private List<Group> _groups = [];
+    private List<LastDeployed> _lastDeployed = [];
+    private Dictionary<int, DeploymentSummary> _deployments = [];
+    private List<RunListItem> _runs = [];
+    private string _notes = "";
+    private bool _checking;
+    private string? _checkError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedName == Name)
+            return;
+        _loadedName = Name;
+        _checkError = null;
+        await LoadAsync();
+        _notes = _machine?.Notes ?? "";
+        _loaded = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        _machine = await MachineService.GetAsync(Name);
+        _groups = await GroupService.GroupsOfAsync(Name);
+        _lastDeployed = await Deployments.LastDeployedOnMachineAsync(Name);
+        _deployments = (await Deployments.ListAsync()).ToDictionary(d => d.Id);
+        _runs = await Runs.ListAsync(take: 20, machine: Name);
+    }
+
+    /// <summary>What the probe and the last dry run or deploy found; only the known facts.</summary>
+    private IEnumerable<(string Label, string Value, string? Title)> DetailRows()
+    {
+        var m = _machine;
+        if (m is null)
+            yield break;
+        if (!string.IsNullOrEmpty(m.OperatingSystem))
+            yield return ("System", m.OperatingSystem, null);
+        if (m.FreeGb is { } free)
+        {
+            var size = m.SizeGb is { } total ? $" of {total:0.#} GB" : "";
+            var drive = string.IsNullOrEmpty(m.SystemDrive) ? "" : $" on {m.SystemDrive}";
+            yield return ("Disk", $"{free:0.#} GB free{size}{drive}", null);
+        }
+        if (m.LastBoot is { } boot)
+            yield return ("Last boot", Ui.Ago(boot), Ui.When(boot, ClientTime));
+        if (m.FactsAt is { } facts)
+            yield return ("Facts from", $"last run, {Ui.Ago(facts)}", "User, disk, system and boot come from the last dry run or deploy");
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> OrderedParams(IReadOnlyDictionary<string, string> values) =>
+        values.OrderBy(p => p.Key == "ref" ? 0 : 1).ThenBy(p => p.Key, StringComparer.OrdinalIgnoreCase);
+
+    private void ResetNotes() => _notes = _machine?.Notes ?? "";
+
+    private async Task CheckNowAsync()
+    {
+        _checking = true;
+        _checkError = null;
+        StateHasChanged();
+        try
+        {
+            var before = _machine?.LastProbeAt;
+            await Health.ProbeAsync(Name);
+            _machine = await MachineService.GetAsync(Name);
+
+            if (_machine is null)
+                _checkError = "Shush doesn't know this machine yet, so it wasn't checked. Add it to a group first.";
+            else if (_machine.LastProbeAt == before)
+                _checkError = "The machine registry didn't answer, so the machine wasn't checked. Try again in a minute, or check the registry URL in Settings.";
+            else
+                Notifier.Success(_machine.Reachable == true ? $"{Name} is reachable." : $"{Name} isn't reachable.");
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    private async Task SaveNotesAsync()
+    {
+        await MachineService.SetNotesAsync(Name, _notes);
+        _machine = await MachineService.GetAsync(Name);
+        _notes = _machine?.Notes ?? "";
+        Notifier.Success("Notes saved.");
+    }
+}

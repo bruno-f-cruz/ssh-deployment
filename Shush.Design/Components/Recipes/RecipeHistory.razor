@@ -1,0 +1,123 @@
+@inject ClientTime ClientTime
+
+@* A recipe's versions, newest first. Picking a row shows what changed from it to the current version, with Restore. *@
+<section class="panel panel--flush" aria-label="Versions">
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th scope="col">Version</th>
+                    <th scope="col">Change</th>
+                    <th scope="col">When</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var version in Versions)
+                {
+                    var current = version.Id == Versions[0].Id;
+                    var picked = Versions.Count > 1 && version.Id == _oldId && !current;
+                    <tr class="@(current ? "" : "is-link") @(picked ? "is-picked" : "")" @onclick="() => Pick(version)">
+                        <td>
+                            @if (current)
+                            {
+                                <strong>v@(version.Number)</strong>
+                                <span class="muted small">current</span>
+                            }
+                            else
+                            {
+                                <button type="button" class="link-btn row-btn" aria-pressed="@Ui.Aria(picked ? "true" : "false")"
+                                        title="Compare with the current version" @onclick="() => Pick(version)" @onclick:stopPropagation="true">v@(version.Number)</button>
+                            }
+                        </td>
+                        <td>
+                            @SourceLabel(version.Source, CopiedFrom)
+                            @if (!string.IsNullOrWhiteSpace(version.CreatedBy))
+                            {
+                                <span class="muted"> by @version.CreatedBy</span>
+                            }
+                        </td>
+                        <td title="@version.CreatedAt.ToString("u")">@Ui.When(version.CreatedAt, ClientTime)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (Versions.Count > 1 && Find(_oldId) is { } older && Find(_newId) is { } newer)
+{
+    <section class="panel" aria-labelledby="diff-heading">
+        <div class="panel__head">
+            <h2 id="diff-heading">Changes</h2>
+            <div class="row">
+                <label for="diff-old" class="small">From</label>
+                <select id="diff-old" class="compact" value="@_oldId" @onchange="e => _oldId = int.Parse(e.Value!.ToString()!)">
+                    @foreach (var v in Versions)
+                    {
+                        <option value="@v.Id">v@(v.Number)</option>
+                    }
+                </select>
+                <label for="diff-new" class="small">to</label>
+                <select id="diff-new" class="compact" value="@_newId" @onchange="e => _newId = int.Parse(e.Value!.ToString()!)">
+                    @foreach (var v in Versions)
+                    {
+                        <option value="@v.Id">v@(v.Number)</option>
+                    }
+                </select>
+                @if (older.Id != Versions[0].Id)
+                {
+                    <ConfirmButton Class="btn btn--small" Question="@($"Restore v{older.Number} as a new version?")"
+                                   ConfirmLabel="@($"Restore v{older.Number}")" OnConfirm="() => OnRestore.InvokeAsync(older)">
+                        <Icon Name="rollback" />Restore v@(older.Number)
+                    </ConfirmButton>
+                }
+            </div>
+        </div>
+        <DiffView Old="@older.Yaml" New="@newer.Yaml" AriaLabel="@($"Changes from v{older.Number} to v{newer.Number}")"
+                  NoChanges="@($"v{older.Number} and v{newer.Number} are the same.")" />
+    </section>
+}
+
+@code {
+    /// <summary>Newest first.</summary>
+    [Parameter, EditorRequired] public List<RecipeVersion> Versions { get; set; } = [];
+    [Parameter] public EventCallback<RecipeVersion> OnRestore { get; set; }
+    /// <summary>The recipe's <see cref="Recipe.CopiedFrom"/>, e.g. "VrForagingExperiment v3", to label a duplicated version.</summary>
+    [Parameter] public string? CopiedFrom { get; set; }
+
+    private int _oldId;
+    private int _newId;
+    private List<RecipeVersion>? _for;
+
+    public static string SourceLabel(VersionSource source, string? copiedFrom = null) => source switch
+    {
+        VersionSource.BuiltIn => "Shipped",
+        VersionSource.Edit => "Edited",
+        VersionSource.Import => "Imported",
+        VersionSource.Reset => "Reset",
+        VersionSource.Restore => "Restored",
+        VersionSource.Duplicate => copiedFrom is null ? "Duplicated" : $"Duplicated from {copiedFrom}",
+        _ => "From v1",
+    };
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_for, Versions) || Versions.Count == 0)
+            return;
+        _for = Versions;
+        // Default: what the latest save changed (previous → current).
+        _newId = Versions[0].Id;
+        _oldId = Versions.Count > 1 ? Versions[1].Id : Versions[0].Id;
+    }
+
+    private RecipeVersion? Find(int id) => Versions.FirstOrDefault(v => v.Id == id);
+
+    /// <summary>Compares an older version with the current one (the current version's own row does nothing).</summary>
+    private void Pick(RecipeVersion version)
+    {
+        if (version.Id == Versions[0].Id)
+            return;
+        _oldId = version.Id;
+        _newId = Versions[0].Id;
+    }
+}

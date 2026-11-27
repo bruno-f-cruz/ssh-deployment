@@ -1,0 +1,636 @@
+@page "/deployments/{Id:int}"
+@implements IDisposable
+@inject DeploymentService Deployments
+@inject RecipeService Recipes
+@inject RunService Runs
+@inject VariableService Variables
+@inject RunCoordinator Coordinator
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@(_deployment?.Name ?? "Deployment") · Shush</PageTitle>
+
+@if (_loaded && _deployment is null)
+{
+    <PageHeader Title="This deployment doesn't exist">
+        <Lede>It may have been deleted. Its runs are still in the run history.</Lede>
+        <Actions><a class="btn" href="deployments">All deployments</a></Actions>
+    </PageHeader>
+}
+else if (_deployment is not null && _document is not null)
+{
+    <PageHeader Title="@_deployment.Name">
+        <Crumbs><a href="deployments">Deployments</a> <span>/</span> <span>@_deployment.Name</span></Crumbs>
+        <Lede>@_deployment.Description</Lede>
+        <Facts>
+            <p class="meta">
+                <span><a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a> v@(_version?.Number)</span>
+                @if (!_overrides.IsEmpty)
+                {
+                    <span><button type="button" class="link-btn t-changed" title="Recipe steps this deployment skips" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "step") off</button></span>
+                }
+                <span><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</span>
+                @if (_off.Count > 0)
+                {
+                    <span><button type="button" class="link-btn t-warn" @onclick="@(() => _tab = "rigs")">@Ui.Plural(_off.Count, "rig") off for this deploy</button></span>
+                }
+                @if (_deployment.SshUser is { } user)
+                {
+                    <span title="The SSH account this deployment connects as">as @user</span>
+                }
+                @if (_history.FirstOrDefault(r => r.Kind != RunKind.DryRun) is { } last)
+                {
+                    <span><a href="runs/@last.Id" class="plain-link"><StatusText Tone="Ui.Of(last.Status)" /></a>&nbsp;@Ui.Ago(last.StartedAt)</span>
+                }
+            </p>
+        </Facts>
+        <Actions>
+            <button type="button" class="btn" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.DryRun)">Dry run</button>
+            <button type="button" class="btn btn--primary" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.Deploy)">
+                Deploy to @(_off.Count == 0 ? Ui.Plural(Members.Count, "rig") : $"{OnCount} of {Ui.Plural(Members.Count, "rig")}")
+            </button>
+            <Menu>
+                <button type="button" class="menu__item" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate…</button>
+                <div class="menu__sep"></div>
+                <button type="button" class="menu__item menu__item--danger" @onclick="AskDelete"><Icon Name="trash" Size="16" />Delete…</button>
+            </Menu>
+        </Actions>
+    </PageHeader>
+
+    @if (_confirm is { } confirm)
+    {
+        <div class="alert alert--warn" role="alertdialog" aria-label="Confirm">
+            <Icon Name="warn" />
+            <span class="grow">@confirm.Question</span>
+            <button type="button" class="btn btn--small @(confirm.Danger ? "btn--danger" : "btn--primary")" @onclick="RunConfirmAsync">@confirm.Label</button>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _confirm = null">Cancel</button>
+        </div>
+    }
+
+    @if (_deployment.SshUser is { } account && !Credentials.CanDeployAs(account))
+    {
+        <div class="alert alert--info alert--signin">
+            <Icon Name="lock" />
+            <span>Connects as <strong>@account</strong>.</span>
+            <SignInForm Username="@account" IdPrefix="dep-ssh" Inline="true" />
+        </div>
+    }
+    else if (!Credentials.CanDeployAs(null) && _deployment.SshUser is null)
+    {
+        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in (bottom left) to deploy.</span></div>
+    }
+
+    @if (_activeRun is { } active)
+    {
+        <div class="alert alert--info">
+            <Icon Name="spin" Color="var(--blue)" />
+            <span class="grow">@Ui.Kind(active.Kind) running: @active.Succeeded of @active.Machines rigs done.</span>
+            <a class="btn btn--small" href="runs/@active.Id">Open</a>
+        </div>
+    }
+
+    @if (_problems.Count > 0)
+    {
+        <div class="alert alert--warn" role="status">
+            <Icon Name="warn" />
+            <div class="grow">
+                <strong>Check before deploying</strong>
+                <ul>@foreach (var problem in _problems) { <li>@problem</li> }</ul>
+            </div>
+        </div>
+    }
+
+    @if (_duplicating)
+    {
+        <form class="panel" aria-label="Duplicate deployment" @onsubmit="DuplicateAsync" @onsubmit:preventDefault="true">
+            <h2>Duplicate</h2>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="dup-name">Name</label>
+                    <input id="dup-name" @bind="_dupName" @bind:event="oninput" />
+                </div>
+                <div class="field">
+                    <label for="dup-group">Group</label>
+                    <select id="dup-group" @bind="_dupGroupId">
+                        @foreach (var group in _groups)
+                        {
+                            <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <ParamForm Document="_document" Values="_dupValues" EditFixed="true" Show="ParamSet.Fixed" IdPrefix="dup" />
+            @if (DuplicateClash is { } clash)
+            {
+                <p class="small t-warn">@clash</p>
+            }
+            <div class="row">
+                <button type="submit" class="btn btn--primary" disabled="@(!CanDuplicate)">Duplicate</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _duplicating = false">Cancel</button>
+            </div>
+        </form>
+    }
+
+    <div class="tabs" role="tablist" aria-label="Deployment">
+        @foreach (var (key, label) in Tabs)
+        {
+            <button type="button" role="tab" class="tab" aria-selected="@Ui.Aria(_tab == key)" @onclick="() => _tab = key">@label</button>
+        }
+    </div>
+
+    @switch (_tab)
+    {
+        case "params":
+            <section class="panel" aria-label="Values">
+                <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" Show="ParamSet.Choosable" IdPrefix="dep" />
+                @if (_document.Params.Values.Any(p => p.IsFixed))
+                {
+                    @if (_editFixed)
+                    {
+                        <div class="fixed-edit">
+                            <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" EditFixed="true" Show="ParamSet.Fixed" IdPrefix="dep-fixed" />
+                            <div class="row">
+                                <button type="button" class="btn btn--small" @onclick="() => _editFixed = false">Done</button>
+                                <span class="small muted">The old install stays on the rigs.</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="fixed-line">
+                            <span class="muted">Installs as</span>
+                            <span class="mono">@string.Join("  ·  ", DeploymentService.FixedValues(_document, _values).Select(f => f.Value))</span>
+                            <button type="button" class="link-btn small" @onclick="() => _editFixed = true">Change</button>
+                        </p>
+                    }
+                }
+            </section>
+            break;
+
+        case "recipe":
+            <DeploymentRecipe Document="_document" Overrides="_overrides" RecipeId="_deployment.RecipeId" RecipeName="@_deployment.Recipe.Name"
+                              VersionNumber="@(_version?.Number ?? 0)" OnChanged="SaveOverridesAsync" />
+            break;
+
+        case "rigs":
+            <section class="panel panel--flush" aria-label="Rigs">
+                <div class="rigs-bar">
+                    <label for="rigs-group">Group</label>
+                    <select id="rigs-group" value="@_deployment.GroupId" @onchange="ChangeGroupAsync">
+                        @foreach (var group in _groups)
+                        {
+                            <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                        }
+                    </select>
+                    <span class="grow small muted">
+                        @if (_off.Count > 0)
+                        {
+                            <text>@OnCount of @Ui.Plural(Members.Count, "rig") on. Switches reset after the deploy. </text>
+                            <button type="button" class="link-btn" @onclick="_off.Clear">Turn all on</button>
+                        }
+                        else
+                        {
+                            <text>Turn a rig off to skip it in the next deploy only.</text>
+                        }
+                    </span>
+                    <button type="button" class="btn btn--small" @onclick="DuplicateForOtherRigs"><Icon Name="copy" Size="16" />Duplicate for other rigs</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th scope="col" class="rigs-switch"><span class="visually-hidden">Deploy</span></th><th scope="col">Rig</th><th scope="col">Last deployed</th><th scope="col">Values</th><th scope="col">Commit</th></tr></thead>
+                        <tbody>
+                            @foreach (var member in _deployment.Group.Members.OrderBy(m => m.MachineName, MachineNameComparer.Instance))
+                            {
+                                var last = _lastDeployed.FirstOrDefault(l => string.Equals(l.MachineName, member.MachineName, StringComparison.OrdinalIgnoreCase));
+                                var name = member.MachineName;
+                                var on = !_off.Contains(name);
+                                <tr class="@(on ? "" : "is-off")">
+                                    <td class="rigs-switch">
+                                        <label class="switch" title="@(on ? "Deploys to this rig" : "Skipped in the next deploy")">
+                                            <input type="checkbox" role="switch" checked="@on" @onchange="e => SetRig(name, e.Value is true)" aria-label="@($"Deploy to {name}")" />
+                                            <span class="switch__track" aria-hidden="true"></span>
+                                        </label>
+                                    </td>
+                                    <td><RigName Name="@member.MachineName" Lookup="true" /></td>
+                                    @if (last is null)
+                                    {
+                                        <td class="muted" colspan="3">Never</td>
+                                    }
+                                    else
+                                    {
+                                        <td title="@Ui.When(last.At, ClientTime)">
+                                            <a href="runs/@last.RunId">@Ui.Ago(last.At)</a>
+                                            @if (last.RecipeVersion != _version?.Number)
+                                            {
+                                                <div class="sub">older recipe (v@(last.RecipeVersion))</div>
+                                            }
+                                        </td>
+                                        <td class="small">@ChosenValues(last.Params)</td>
+                                        <td class="mono small">@Ui.ShortCommit(last.Commit)</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            break;
+
+        case "history":
+            <section class="panel panel--flush" aria-label="Run history">
+                @if (_history.Count == 0)
+                {
+                    <EmptyState Title="No runs yet." />
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead><tr><th scope="col">Run</th><th scope="col">Result</th><th scope="col">Values</th><th scope="col">When</th></tr></thead>
+                            <tbody>
+                                @foreach (var run in _history)
+                                {
+                                    <tr class="is-link">
+                                        <td><a class="row-link" href="runs/@run.Id">#@run.Id</a><div class="sub">@Ui.Kind(run.Kind)</div></td>
+                                        <td><StatusText Tone="Ui.Of(run.Status)" Label="@ResultLabel(run)" /></td>
+                                        <td class="small">@ChosenValues(run.Params)</td>
+                                        <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)<div class="sub">@run.StartedBy</div></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+            break;
+
+        case "settings":
+            <section class="panel" aria-label="Settings">
+                <form class="form-grid" @onsubmit="SaveSettingsAsync" @onsubmit:preventDefault="true">
+                    <div class="field">
+                        <label for="dep-name">Name</label>
+                        <input id="dep-name" @bind="_name" />
+                    </div>
+                    <div class="field">
+                        <label for="dep-recipe">Recipe</label>
+                        <select id="dep-recipe" @bind="_recipeId">
+                            @foreach (var recipe in _recipes)
+                            {
+                                <option value="@recipe.Id">@recipe.Name</option>
+                            }
+                        </select>
+                        @if (_recipeId != _deployment.RecipeId && !_overrides.IsEmpty)
+                        {
+                            <span class="field__hint t-warn">Its turned-off steps are reset.</span>
+                        }
+                    </div>
+                    <div class="field">
+                        <label for="dep-ssh">SSH account</label>
+                        <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="The signed-in account" autocomplete="off" />
+                        <datalist id="dep-ssh-accounts">
+                            @foreach (var a in Credentials.Accounts)
+                            {
+                                <option value="@a.Username"></option>
+                            }
+                        </datalist>
+                    </div>
+                    <div class="field" style="grid-column: 1 / -1">
+                        <label for="dep-desc">Description</label>
+                        <textarea id="dep-desc" rows="2" @bind="_description" placeholder="Optional"></textarea>
+                    </div>
+                    <div class="row"><button type="submit" class="btn btn--primary">Save</button></div>
+                </form>
+            </section>
+            break;
+    }
+}
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private static readonly (string Key, string Label)[] Tabs =
+        [("params", "Deploy"), ("recipe", "Recipe"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
+
+    private bool _loaded;
+    private string _tab = "params";
+    private Deployment? _deployment;
+    private RecipeVersion? _version;
+    private RecipeDocument? _document;
+    private Dictionary<string, string> _values = new();
+    private bool _editFixed;
+    private List<string> _problems = [];
+    private List<LastDeployed> _lastDeployed = [];
+    private List<RunListItem> _history = [];
+    private RunListItem? _activeRun;
+    private List<GroupSummary> _groups = [];
+    private string _name = "";
+    private string? _description;
+    private int _groupId;
+    private int _dupGroupId;
+
+    /// <summary>Rigs switched off for the next deploy or dry run only. Never saved: reset on load and after each start.</summary>
+    private readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
+
+    private List<string> Members => _deployment?.Group.Members.OrderBy(m => m.Position).Select(m => m.MachineName).ToList() ?? [];
+    private int OnCount => Members.Count(m => !_off.Contains(m));
+    private bool _starting;
+    private int? _loadedId;
+    private RecipeOverrides _overrides = new();
+    private string? _sshUser;
+
+    private sealed record Confirmation(string Question, string Label, Func<Task> Action, bool Danger);
+    private Confirmation? _confirm;
+
+    private bool _duplicating;
+    private string _dupName = "";
+    private int _recipeId;
+    private List<RecipeSummary> _recipes = [];
+    private Dictionary<string, string> _dupValues = new();
+
+    private bool CanDuplicate => !_starting && _document is not null && _dupName.Trim().Length > 0
+                                 && ParamForm.IsComplete(_document, _dupValues);
+
+    /// <summary>An attached copy with the same fixed values would install over this deployment.</summary>
+    private string? DuplicateClash =>
+        _dupGroupId == _deployment?.GroupId && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
+        && _document.Params.Where(p => p.Value.IsFixed).All(p => _dupValues.GetValueOrDefault(p.Key) == _values.GetValueOrDefault(p.Key))
+            ? "The fixed values are the same as this deployment's, so the copy would install over it. Change at least one (e.g. the install folder)."
+            : null;
+
+    private bool CanRun => Credentials.CanDeployAs(_deployment?.SshUser) && !_starting && _document is not null && ParamForm.IsComplete(_document, _values)
+                           && OnCount > 0;
+
+    private int? LatestSuccessId => _history.FirstOrDefault(r => r.Kind != RunKind.DryRun && r.Status == RunStatus.Succeeded)?.Id;
+
+    [Inject] private GroupService Groups { get; set; } = null!;
+
+    private LiveRefresh? _live;
+
+    protected override void OnInitialized()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadRunsAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnRunChanged;
+        Credentials.Changed += OnCredentialsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _deployment = await Deployments.GetAsync(Id);
+        _loaded = true;
+        if (_deployment is null)
+            return;
+
+        _version = await Recipes.CurrentVersionAsync(_deployment.RecipeId);
+        _document = YamlRecipeSerializer.Deserialize(_version.Yaml);
+        var saved = Json.ReadParams(_deployment.ParamValuesJson);
+        _values = DeploymentService.EffectiveParams(_document, saved);
+        _name = _deployment.Name;
+        _description = _deployment.Description;
+        _groupId = _deployment.GroupId;
+        _recipeId = _deployment.RecipeId;
+        _recipes = await Recipes.ListAsync();
+        _off.Clear();
+        _sshUser = _deployment.SshUser;
+        _overrides = RecipeOverrides.FromJson(_deployment.OverridesJson);
+        _groups = await Groups.ListAsync();
+
+        await CheckAsync(saved);
+        await LoadRunsAsync();
+    }
+
+    /// <summary>What to fix before deploying: values the recipe dropped, an empty group, an invalid recipe (with this deployment's changes).</summary>
+    private async Task CheckAsync(IReadOnlyDictionary<string, string> saved)
+    {
+        if (_deployment is null || _document is null)
+            return;
+        _problems = [];
+        var dropped = saved.Keys.Where(k => !_document.Params.ContainsKey(k)).ToList();
+        if (dropped.Count > 0)
+            _problems.Add($"This deployment has values for {string.Join(", ", dropped)}, which the recipe no longer declares. They aren't used.");
+        if (_deployment.Group.Members.Count == 0)
+            _problems.Add($"'{_deployment.Group.Name}' has no machines yet. Add some on the group's page.");
+
+        try
+        {
+            var names = (await Variables.ResolveAsync(_deployment.GroupId, null)).Select(v => v.Name).ToList();
+            Recipes.Validator.Validate(_overrides.Apply(_document), names);
+        }
+        catch (RecipeValidationException ex)
+        {
+            _problems.AddRange(ex.Errors.Select(e => e.Contains("no variable named")
+                ? e + " Set it on the group (or globally), or a machine override must cover every rig."
+                : e));
+        }
+    }
+
+    private async Task SaveOverridesAsync()
+    {
+        try
+        {
+            await Deployments.SaveOverridesAsync(Id, _overrides);
+            await CheckAsync(Json.ReadParams(_deployment!.ParamValuesJson));
+        }
+        catch (Exception ex)
+        {
+            Notifier.Error($"Couldn't save the change: {ex.Message}");
+        }
+    }
+
+    private void AskDelete()
+    {
+        if (_deployment is null)
+            return;
+        _duplicating = false;
+        _confirm = new Confirmation($"Delete '{_deployment.Name}'? Its runs stay in the history; nothing on the rigs changes.", "Delete", DeleteAsync, Danger: true);
+    }
+
+    private async Task RunConfirmAsync()
+    {
+        if (_confirm is not { } confirm)
+            return;
+        _confirm = null;
+        await confirm.Action();
+    }
+    private void SetRig(string machine, bool on)
+    {
+        if (on)
+            _off.Remove(machine);
+        else
+            _off.Add(machine);
+    }
+
+    private async Task ChangeGroupAsync(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var groupId) || groupId == _deployment?.GroupId)
+            return;
+        try
+        {
+            await Deployments.SetGroupAsync(Id, groupId);
+            _loadedId = null;
+            await OnParametersSetAsync();
+            _tab = "rigs";
+            Notifier.Success($"Now deploys to {_deployment?.Group.Name}.");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+    }
+
+    private async Task DuplicateForOtherRigs()
+    {
+        if (!_duplicating)
+            ToggleDuplicate();
+        _dupGroupId = _groups.FirstOrDefault(g => g.Id != _deployment?.GroupId)?.Id ?? _dupGroupId;
+        await JS.InvokeVoidAsync("scrollTo", 0, 0);
+    }
+
+    private void ToggleDuplicate()
+    {
+        _confirm = null;
+        _duplicating = !_duplicating;
+        if (!_duplicating || _deployment is null)
+            return;
+        _dupName = $"{_deployment.Name} copy";
+        _dupValues = new Dictionary<string, string>(_values);
+        _dupGroupId = _deployment.GroupId;
+    }
+
+    private async Task DuplicateAsync()
+    {
+        if (_deployment is null || !CanDuplicate)
+            return;
+        _starting = true;
+        try
+        {
+            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, _dupGroupId);
+            Notifier.Success($"Created '{copy.Name}'.");
+            _duplicating = false;
+            Nav.NavigateTo($"deployments/{copy.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        if (_deployment is null)
+            return;
+        _history = await Runs.ListAsync(take: 50, deploymentId: Id);
+        _lastDeployed = await Deployments.LastDeployedAsync(Id);
+        _activeRun = _history.FirstOrDefault(r => r.Status == RunStatus.Running);
+    }
+
+    /// <summary>The values operators choose each time (not the fixed ones), e.g. "ref v1.4.0".</summary>
+    private string ChosenValues(IReadOnlyDictionary<string, string> values)
+    {
+        if (_document is null) return "";
+        var chosen = _document.Params.Where(p => !p.Value.IsFixed && values.ContainsKey(p.Key))
+            .Select(p => $"{p.Key} {values[p.Key]}");
+        return string.Join(", ", chosen);
+    }
+
+    private static string ResultLabel(RunListItem run) => run.Status switch
+    {
+        RunStatus.Running => $"Running, {run.Succeeded} of {run.Machines} done",
+        RunStatus.Succeeded => run.Kind == RunKind.DryRun ? $"Checked {run.Machines}" : $"Succeeded on {run.Succeeded} of {run.Machines}",
+        RunStatus.Failed => $"Failed on {run.Failed} of {run.Machines}",
+        _ => Ui.Of(run.Status).Label,
+    };
+
+    private async Task SaveValuesAsync()
+    {
+        try
+        {
+            await Deployments.SaveParamValuesAsync(Id, _values);
+        }
+        catch (Exception ex)
+        {
+            Notifier.Error($"Couldn't save the values: {ex.Message}");
+        }
+    }
+
+    private async Task StartAsync(RunKind kind, int? sourceRunId = null)
+    {
+        if (Credentials.SecretsFor(_deployment?.SshUser) is not { } secrets)
+        {
+            Notifier.Error(_deployment?.SshUser is { } account
+                ? $"Sign in as {account} first: this deployment connects with that account."
+                : "Sign in with your SSH username and password first (bottom left).");
+            return;
+        }
+
+        _starting = true;
+        try
+        {
+            var values = kind is RunKind.Deploy or RunKind.DryRun ? _values : null;
+            var machines = _off.Count > 0 && kind is RunKind.Deploy or RunKind.DryRun ? Members.Where(m => !_off.Contains(m)).ToList() : null;
+            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, machines, values, sourceRunId), secrets, secrets.Username);
+            _off.Clear();
+            Nav.NavigateTo($"runs/{id}");
+        }
+        catch (RecipeValidationException ex)
+        {
+            Notifier.Error($"The recipe isn't valid: {string.Join(" ", ex.Errors)}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            await Deployments.UpdateAsync(Id, _name, _description, _groupId);
+            if (_recipeId != _deployment?.RecipeId)
+                await Deployments.SwitchRecipeAsync(Id, _recipeId);
+            await Deployments.SetSshUserAsync(Id, _sshUser);
+            Notifier.Success("Settings saved.");
+            await LoadAsync();
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        await Deployments.DeleteAsync(Id);
+        Notifier.Success($"Deleted '{_deployment?.Name}'.");
+        Nav.NavigateTo("deployments");
+    }
+
+    private void OnRunChanged(int runId) => _live?.Mark();
+
+    private void OnCredentialsChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        Credentials.Changed -= OnCredentialsChanged;
+        _live?.Dispose();
+    }
+}

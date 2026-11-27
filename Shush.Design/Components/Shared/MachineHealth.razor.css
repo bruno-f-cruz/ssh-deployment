@@ -1,0 +1,5 @@
+.machine-health { display: inline-flex; flex-direction: column; gap: 1px; min-width: 0; }
+.machine-health__line { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.machine-health__when { color: var(--muted); font-size: 13px; }
+.machine-health__when::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
+.machine-health__why { color: var(--muted); font-size: 13px; line-height: 1.35; max-width: 42ch; }

@@ -1,0 +1,15 @@
+# Deployments shipped with the app, created once when missing (edits made in the app are kept).
+# A deployment is a recipe deployed to a group; it remembers the last parameter values used.
+- name: VrForaging
+  recipe: VrForagingExperiment
+  group: VR-Foraging Behavior Machines
+  params:
+    ref: main
+- name: VrForaging dev
+  recipe: VrForagingExperiment
+  group: VR-Foraging Behavior Machines
+  params:
+    ref: main
+    installFolder: Aind.Experiment.VrForaging-dev
+    shortcutName: DEV-VrForagingExperiment
+    iconFile: icon_dev.ico

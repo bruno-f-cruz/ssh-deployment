@@ -1,0 +1,12 @@
+.variable-editor__intro { gap: 2px; }
+.variable-editor__form {
+    display: flex; flex-direction: column; gap: 14px; margin: 0 24px 18px; padding: 16px 18px;
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2);
+}
+.variable-editor__options { gap: 10px 20px; }
+.variable-editor__envscope { width: auto; min-height: 34px; padding: 4px 10px; font-size: 14px; }
+.variable-editor__value { white-space: pre-wrap; word-break: break-word; }
+.variable-editor__secret { gap: 8px; flex-wrap: nowrap; align-items: baseline; }
+.variable-editor__name { font-weight: 600; text-decoration: none; text-align: left; }
+.variable-editor__name:hover { text-decoration: underline; }
+tr.is-editing td { background: var(--surface-2); }

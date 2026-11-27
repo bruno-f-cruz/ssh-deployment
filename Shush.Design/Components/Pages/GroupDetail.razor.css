@@ -1,0 +1,11 @@
+.group-detail__add { flex: 1 1 420px; flex-wrap: nowrap; gap: 8px; max-width: 560px; }
+.group-detail__add input { flex: 1; min-width: 0; }
+.group-detail__file { position: relative; }
+.group-detail__file:focus-within { outline: 2px solid var(--blue); outline-offset: -2px; }
+.group-detail__alert { margin: 0 24px 14px; }
+.group-detail__select select { min-height: 36px; padding: 5px 10px; font-size: 14px; width: auto; max-width: 280px; }
+.group-detail__value { white-space: pre-wrap; word-break: break-word; }
+.group-detail__valueline { gap: 8px; flex-wrap: nowrap; align-items: baseline; }
+.group-detail__run { text-decoration: none; }
+code { font-size: 13px; }
+.group-detail__remove { color: var(--muted); }

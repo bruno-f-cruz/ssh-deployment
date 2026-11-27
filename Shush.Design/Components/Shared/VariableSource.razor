@@ -1,0 +1,20 @@
+@* Where a variable is set: Global, Group, or the machine's name. Plain text: it's a label, not a state. *@
+@switch (Scope)
+{
+    case VariableScope.Global:
+        <span class="muted">Global</span>
+        break;
+    case VariableScope.Group:
+        <span>Group</span>
+        break;
+    default:
+        <span class="mono small">@(Label ?? "Machine")</span>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public VariableScope Scope { get; set; }
+
+    /// <summary>The machine's name, for a machine override.</summary>
+    [Parameter] public string? Label { get; set; }
+}

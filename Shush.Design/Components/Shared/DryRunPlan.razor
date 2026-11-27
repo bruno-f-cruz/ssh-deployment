@@ -1,0 +1,50 @@
+@* What a dry run found for one machine: every step it would run (with its resolved inputs) or skip, and why. *@
+@if (_preview is null)
+{
+    <p class="muted small">The plan shows here once the rig has been checked.</p>
+}
+else
+{
+    <div class="stack" style="gap: 8px">
+        <h3>Plan</h3>
+        @if (_preview.Error is not null)
+        {
+            <div class="alert alert--error"><Icon Name="x" /><span class="grow small">@_preview.Error</span></div>
+        }
+        <ol class="steps-list">
+            @foreach (var step in _preview.Steps)
+            {
+                <li style="flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 0">
+                    <span class="row" style="gap: 10px">
+                        <span class="step-dot @(step.Runs ? "seg-ok" : "seg-skip")" aria-hidden="true"></span>
+                        <span class="grow" style="@(step.Runs ? "" : "color: var(--muted)")">@step.Name</span>
+                        <span class="right">@(step.Runs ? "would run" : step.SkipReason ?? "skipped")</span>
+                    </span>
+                    @if (step.Runs && step.Inputs.Count > 0)
+                    {
+                        <details style="margin-left: 20px">
+                            <summary class="small muted">Inputs</summary>
+                            <dl class="kv" style="margin-top: 6px">
+                                @foreach (var (name, value) in step.Inputs)
+                                {
+                                    <dt>@name</dt>
+                                    <dd class="mono small" style="white-space: pre-wrap">@Shorten(value)</dd>
+                                }
+                            </dl>
+                        </details>
+                    }
+                </li>
+            }
+        </ol>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public RunMachine Machine { get; set; } = null!;
+
+    private MachinePreview? _preview;
+
+    protected override void OnParametersSet() => _preview = Json.Read<MachinePreview?>(Machine.PreviewJson, null);
+
+    private static string Shorten(string value) => value.Length > 600 ? value[..600] + "\n…" : value;
+}

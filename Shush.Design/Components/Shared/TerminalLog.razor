@@ -1,0 +1,66 @@
+@using System.Text.RegularExpressions
+
+@* A run log shown like a terminal: one rig's lines, time dimmed, the logger's category and the rig's name dropped
+   (they're the same on every line), commands after a PS> prompt, steps as headings, warnings and errors coloured.
+   Copy and Download still give the raw log. *@
+<div class="terminal" id="@Id" tabindex="0" role="log" aria-label="Log">@if (string.IsNullOrEmpty(Text))
+{<span class="terminal__dim">Nothing logged yet.</span>}
+else
+{
+    @if (Hidden > 0)
+    {
+        <span class="terminal__line terminal__dim">… @Hidden.ToString("N0") earlier lines not shown. Copy or Download gives the whole log.</span>
+    }
+    @foreach (var line in Parse(Text))
+    {
+        <span class="terminal__line @line.Class">@if (line.Time is not null){<span class="terminal__time">@line.Time </span>}@if (line.Prompt){<span class="terminal__prompt">PS&gt; </span>}@line.Message</span>
+    }
+}</div>
+
+@code {
+    [Parameter] public string? Text { get; set; }
+    [Parameter] public string Id { get; set; } = "rig-log";
+
+    /// <summary>Lines left out before <see cref="Text"/> (shown as a note on top).</summary>
+    [Parameter] public int Hidden { get; set; }
+
+    private sealed record Line(string? Time, string Message, string Class, bool Prompt = false);
+
+    // [2026-11-27 09:25:08] [Information] [Shush.Recipe.MachineContext] [FRG.0-A] Connected.
+    private static readonly Regex Entry = new(@"^\[(?<date>\d{4}-\d\d-\d\d) (?<time>\d\d:\d\d:\d\d)\] \[(?<level>\w+)\s*\] \[[^\]]+\] (?:\[[^\]]+\] )?(?<message>.*)$", RegexOptions.Compiled);
+
+    private static IEnumerable<Line> Parse(string text)
+    {
+        var level = "info";
+        foreach (var raw in text.Replace("\r", "").Split('\n'))
+        {
+            var match = Entry.Match(raw);
+            if (!match.Success)
+            {
+                // A continuation of the entry above (command output, a stack trace…): same colour, indented.
+                if (raw.Length > 0 || level is "error")
+                    yield return new Line(null, raw, $"terminal__more terminal--{level}");
+                continue;
+            }
+
+            level = match.Groups["level"].Value switch
+            {
+                "Error" or "Critical" => "error",
+                "Warning" => "warn",
+                "Debug" or "Trace" => "debug",
+                _ => "info",
+            };
+            var time = match.Groups["time"].Value;
+            var message = match.Groups["message"].Value;
+
+            if (message.StartsWith("Running commands: ", StringComparison.Ordinal))
+                yield return new Line(time, message["Running commands: ".Length..], "terminal--command", Prompt: true);
+            else if (message.StartsWith("Executing step: ", StringComparison.Ordinal))
+                yield return new Line(time, "▸ " + message["Executing step: ".Length..].TrimEnd('.'), "terminal--step");
+            else if (Regex.Match(message, "^Step '(?<s>.+)' completed successfully\\.$") is { Success: true } done)
+                yield return new Line(time, "✓ " + done.Groups["s"].Value, "terminal--ok");
+            else
+                yield return new Line(time, message, $"terminal--{level}");
+        }
+    }
+}

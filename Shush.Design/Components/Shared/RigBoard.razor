@@ -1,0 +1,157 @@
+@* The rig board: a run's machines as tiles grouped by room (FRG.4, FRG.12…), each with one bar segment per step. *@
+<div class="stack">
+    <div class="panel__head">
+        <h2>Rigs</h2>
+        @{
+            var active = Count(MachineStatus.Running) + Count(MachineStatus.Waiting);
+            var failed = Count(MachineStatus.Failed);
+            // Filters only help when some rigs differ from the rest.
+            var worthFiltering = (active > 0 && active < Run.Machines.Count) || (failed > 0 && failed < Run.Machines.Count);
+        }
+        @if (worthFiltering || _filter != "all")
+        {
+        <div class="toggles" role="group" aria-label="Show rigs">
+            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "all")" @onclick='() => _filter = "all"'>All @Run.Machines.Count</button>
+            @if (Count(MachineStatus.Running) > 0 || Count(MachineStatus.Waiting) > 0)
+            {
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "active")" @onclick='() => _filter = "active"'>
+                    In progress @(Count(MachineStatus.Running) + Count(MachineStatus.Waiting))
+                </button>
+            }
+            @if (Count(MachineStatus.Failed) > 0)
+            {
+                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "failed")" @onclick='() => _filter = "failed"'>Failed @Count(MachineStatus.Failed)</button>
+            }
+        </div>
+        }
+    </div>
+
+    <div class="board">
+        @foreach (var room in Rooms())
+        {
+            <div class="room">
+                <h3 class="room__head">@room.Name <span class="room__count">@Ui.Plural(room.Machines.Count, "rig")</span></h3>
+                <div class="tiles">
+                    @foreach (var machine in room.Machines)
+                    {
+                        var tone = Ui.Of(machine.Status);
+                        var segments = Segments(machine);
+                        <button type="button" class="tile @(machine.Status == MachineStatus.Failed ? "tile--fail" : "")"
+                                aria-pressed="@Ui.Aria(string.Equals(Selected, machine.MachineName, StringComparison.OrdinalIgnoreCase))"
+                                aria-label="@($"{machine.MachineName}: {StatusLine(machine)}")"
+                                @onclick="() => OnSelect.InvokeAsync(machine.MachineName)">
+                            <span class="tile__top">
+                                <RigName Name="@machine.MachineName"
+                                         Host="Hosts?.GetValueOrDefault(machine.MachineName)" Link="false" Class="tile__name" />
+                                @if (machine.StartedAt is not null)
+                                {
+                                    <span class="tile__time" title="@(machine.FinishedAt is null ? "Time on this rig so far" : "Total time on this rig")">
+                                        <Elapsed Since="machine.StartedAt" Until="machine.FinishedAt" />
+                                    </span>
+                                }
+                                @switch (machine.Status)
+                                {
+                                    case MachineStatus.Succeeded: <Icon Name="check" Color="var(--teal-text)" Stroke="2.4" /> break;
+                                    case MachineStatus.Failed: <Icon Name="x" Color="var(--crimson)" Stroke="2.4" /> break;
+                                    case MachineStatus.Running: <Icon Name="spin" Color="var(--blue)" Stroke="2.4" /> break;
+                                    case MachineStatus.Waiting: <Icon Name="clock" Color="var(--muted)" /> break;
+                                    default: <Icon Name="warn" Color="var(--gold-text)" /> break;
+                                }
+                            </span>
+                            @if (segments.Count > 0)
+                            {
+                                <span class="tile__segs">
+                                    @foreach (var segment in segments)
+                                    {
+                                        <span class="@segment"></span>
+                                    }
+                                </span>
+                            }
+                            <span class="tile__status @tone.Text">
+                                @if (CurrentStep(machine) is { } current)
+                                {
+                                    @current.Name<text> · </text><Elapsed Since="current.StartedAt" />
+                                }
+                                else
+                                {
+                                    @StatusLine(machine)
+                                }
+                            </span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Run Run { get; set; } = null!;
+    /// <summary>Hostnames to show under each rig, from <see cref="MachineService.HostnamesAsync"/>.</summary>
+    [Parameter] public IReadOnlyDictionary<string, RigHost>? Hosts { get; set; }
+    [Parameter] public string? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnSelect { get; set; }
+
+    private string _filter = "all";
+
+    private int Count(MachineStatus status) => Run.Machines.Count(m => m.Status == status);
+
+    private sealed record RoomView(string Name, List<RunMachine> Machines);
+
+    private IEnumerable<RoomView> Rooms()
+    {
+        var machines = Run.Machines.Where(m => _filter switch
+        {
+            "active" => m.Status is MachineStatus.Running or MachineStatus.Waiting,
+            "failed" => m.Status == MachineStatus.Failed,
+            _ => true,
+        });
+
+        return machines
+            .GroupBy(m => Ui.Room(m.MachineName).Room)
+            .OrderBy(g => g.Key == "Other" ? 1 : 0).ThenBy(g => g.Key, MachineNameComparer.Instance)
+            .Select(g => new RoomView(g.Key, g.OrderBy(m => m.MachineName, MachineNameComparer.Instance).ToList()));
+    }
+
+    /// <summary>One CSS class per planned step: done, running, failed, skipped, or not reached.</summary>
+    public static List<string> Segments(RunMachine machine)
+    {
+        var planned = Json.Read(machine.PlannedStepsJson, new List<string>());
+        var count = Math.Max(planned.Count, machine.Steps.Count == 0 ? 0 : machine.Steps.Max(s => s.Index) + 1);
+        var byIndex = machine.Steps.ToDictionary(s => s.Index);
+        return Enumerable.Range(0, count).Select(i => Ui.Segment(byIndex.TryGetValue(i, out var s) ? s.Status : null)).ToList();
+    }
+
+    /// <summary>The step a running rig is on, or null.</summary>
+    public static RunStep? CurrentStep(RunMachine machine) =>
+        machine.Status == MachineStatus.Running
+            ? machine.Steps.Where(s => s.Status == StepStatus.Running).OrderBy(s => s.Index).LastOrDefault()
+            : null;
+
+    public static string StatusLine(RunMachine machine)
+    {
+        var current = CurrentStep(machine);
+        var failed = machine.Steps.FirstOrDefault(s => s.Status == StepStatus.Failed);
+
+        return machine.Status switch
+        {
+            MachineStatus.Succeeded when machine.Run?.Kind == RunKind.DryRun => "Checked",
+            MachineStatus.Succeeded => $"Done in {Ui.Duration(machine.StartedAt, machine.FinishedAt)}",
+            MachineStatus.Running when current is not null => $"{current.Name}, {Ui.Duration(current.StartedAt, null)}",
+            MachineStatus.Running => "Connecting",
+            MachineStatus.Failed when failed is not null => $"Failed at {failed.Name}",
+            MachineStatus.Failed => FirstSentence(machine.Error) ?? "Failed",
+            MachineStatus.Waiting => "Waiting",
+            MachineStatus.Cancelled => "Cancelled",
+            _ => "Interrupted",
+        };
+    }
+
+    private static string? FirstSentence(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var end = text.IndexOfAny(['.', '\n']);
+        var sentence = end > 0 ? text[..end] : text;
+        return sentence.Length > 70 ? sentence[..67] + "…" : sentence;
+    }
+}

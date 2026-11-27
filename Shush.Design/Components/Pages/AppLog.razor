@@ -1,31 +1,18 @@
 @page "/logs"
-@using Shush.Design.Services
 @inject AppLogPath LogPath
 @implements IDisposable
 
-<PageTitle>Shush.Design — Application log</PageTitle>
+<PageTitle>Application log · Shush</PageTitle>
 
-<div class="app-shell">
-    <header class="app-header">
-        <div>
-            <h1>Application log</h1>
-            <p class="app-header__subtitle">
-                App-level errors (registry, config, uploads) — not tied to any single deployment run.
-                <a href=".">&larr; Back to dashboard</a>
-            </p>
-        </div>
-        <button type="button" class="btn btn--secondary" @onclick="Refresh">Refresh</button>
-    </header>
+<PageHeader Title="Application log">
+    <Crumbs><a href="settings">Settings</a> / Application log</Crumbs>
+    <Facts><p class="meta"><span class="mono small">@LogPath.Path</span><span>updates every 5 s</span></p></Facts>
+</PageHeader>
 
-    <main class="app-main">
-        <section class="card">
-            <pre class="log-panel" style="max-height: 70vh;">@_content</pre>
-        </section>
-    </main>
-</div>
+<pre class="log log--tall applog">@(string.IsNullOrEmpty(_content) ? "No entries yet." : _content)</pre>
 
 @code {
-    private string _content = string.Empty;
+    private string _content = "";
     private Timer? _timer;
 
     protected override void OnInitialized()
@@ -36,19 +23,10 @@
 
     private void Refresh()
     {
-        _content = ReadLog();
+        var text = RunLogReader.Whole(LogPath.Path);
+        // The newest entries matter most; keep the page light.
+        _content = text.Length > 200_000 ? text[^200_000..] : text;
         StateHasChanged();
-    }
-
-    private string ReadLog()
-    {
-        if (!File.Exists(LogPath.Path)) return "(no log entries yet)";
-
-        // The app-wide FileLoggerProvider still holds this file open for writing, so the reader
-        // must explicitly tolerate that existing Write access.
-        using var stream = new FileStream(LogPath.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
     }
 
     public void Dispose() => _timer?.Dispose();

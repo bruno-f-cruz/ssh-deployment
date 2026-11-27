@@ -1,0 +1,19 @@
+@* How long something has taken: a fixed duration once it ended, else a timer the browser ticks every second (shush.js)
+   from Since, so a running step or rig counts up without waiting for the next refresh. *@
+@if (Since is null)
+{
+}
+else if (Until is not null)
+{
+    <span class="elapsed @Class">@Ui.Duration(Since, Until)</span>
+}
+else
+{
+    <span class="elapsed elapsed--live @Class" data-since="@Since.Value.ToUniversalTime().ToString("o")" aria-live="off">@Ui.Duration(Since, null)</span>
+}
+
+@code {
+    [Parameter] public DateTime? Since { get; set; }
+    [Parameter] public DateTime? Until { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

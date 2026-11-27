@@ -1,0 +1,247 @@
+@using System.Text.RegularExpressions
+
+@* The recipe's parameters (add, edit, rename, remove) and, when it has any, a read-only list of its vars. *@
+<div class="stack recipe-params">
+    <div class="row">
+        <h2>Parameters</h2>
+        <span class="muted small" title="Values asked for when deploying, read in steps as ${params.name}.">asked when deploying</span>
+    </div>
+
+    @if (Params.Count == 0)
+    {
+        <EmptyState Title="No parameters." />
+    }
+
+    <div class="step-list">
+    @foreach (var (name, decl) in Params.ToList())
+    {
+        var open = _open.Contains(name);
+        var prefix = "param-" + name;
+        <div @key="decl" class="step-card @(open ? "step-card--open" : "")">
+            <div class="step-card__head">
+                <button type="button" class="step-card__toggle" @onclick="() => Toggle(name)" aria-expanded="@(open ? "true" : "false")"
+                        title="@(decl.Label ?? name)">
+                    <span class="chev @(open ? "chev--open" : "")"><Icon Name="chevron" Size="16" /></span>
+                    <span class="step-card__type mono">@name</span>
+                </button>
+                <span class="step-card__tags">
+                    <span>@TypeLabel(decl.Type)</span>
+                    @if (decl.IsFixed)
+                    {
+                        <span title="Set once per deployment, then read-only when deploying">fixed</span>
+                    }
+                </span>
+            </div>
+
+            @if (open)
+            {
+                <div class="step-card__body param-body">
+                    <div class="field">
+                        <label for="@prefix-key">Name</label>
+                        <input id="@prefix-key" class="mono" value="@name" autocomplete="off" spellcheck="false" @onchange="e => Rename(name, e)" />
+                        @if (_renameError is { } err && err.Name == name)
+                        {
+                            <span class="field__error">@err.Message</span>
+                        }
+                        else
+                        {
+                            <span class="field__hint">Renaming doesn't update <code>${params.@name}</code> in the steps.</span>
+                        }
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-type">Type</label>
+                        <select id="@prefix-type" value="@decl.Type" @onchange="e => SetType(decl, e)">
+                            <option value="@ParamType.String">Text</option>
+                            <option value="@ParamType.Dropdown">Dropdown</option>
+                            <option value="@ParamType.Collection">List</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-label">Label</label>
+                        <input id="@prefix-label" value="@decl.Label" placeholder="@name" autocomplete="off" @onchange="e => Set(() => decl.Label = Clean(e))" />
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-default">Default</label>
+                        <input id="@prefix-default" value="@decl.Default" placeholder="none (required)" autocomplete="off" spellcheck="false"
+                               @onchange="e => Set(() => decl.Default = Clean(e))" />
+                    </div>
+                    <div class="field">
+                        <label for="@prefix-help">Help</label>
+                        <input id="@prefix-help" value="@decl.Help" placeholder="Shown under the field when deploying" autocomplete="off" @onchange="e => Set(() => decl.Help = Clean(e))" />
+                    </div>
+                    @if (decl.Type == ParamType.Dropdown)
+                    {
+                        <div class="field">
+                            <label for="@prefix-options">Options</label>
+                            <textarea id="@prefix-options" rows="4" spellcheck="false" placeholder="One option per line"
+                                      value="@string.Join("\n", decl.Options ?? [])" @onchange="e => SetOptions(decl, e)"></textarea>
+                        </div>
+                    }
+                    @if (decl.Type == ParamType.String)
+                    {
+                        <div class="field">
+                            <label for="@prefix-from">Suggestions from</label>
+                            <input id="@prefix-from" class="mono" value="@decl.OptionsFrom" placeholder="none, or e.g. clabe.versions" autocomplete="off" spellcheck="false"
+                                   title="An option source. Any other value can still be typed."
+                                   @onchange="e => Set(() => decl.OptionsFrom = Clean(e))" />
+                        </div>
+                    }
+                    <div class="field">
+                        <label class="checkbox" title="For values that decide where an install goes, such as its folder, so two deployments never collide.">
+                            <input type="checkbox" checked="@decl.IsFixed" @onchange="e => Set(() => decl.Fixed = e.Value is true ? true : null)" />
+                            Fixed per deployment
+                        </label>
+                        <span class="field__hint">Set once, then read-only when deploying.</span>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn--small btn--ghost btn--danger" @onclick="() => Remove(name)"><Icon Name="trash" />Remove parameter</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    </div>
+
+    <form class="inline-form" @onsubmit="Add" @onsubmit:preventDefault="true">
+        <div class="field">
+            <label for="new-param" class="visually-hidden">New parameter name</label>
+            <input id="new-param" class="mono" @bind="_newName" placeholder="New parameter, e.g. tag" autocomplete="off" spellcheck="false" />
+            @if (_addError is not null)
+            {
+                <span class="field__error">@_addError</span>
+            }
+        </div>
+        <button type="submit" class="btn"><Icon Name="plus" />Add</button>
+    </form>
+
+    @if (Draft.Document.Vars.Count > 0)
+    {
+        <div class="row recipe-vars-head">
+            <h2>Vars</h2>
+            <span class="muted small" title="Computed once per machine before the steps, read as ${vars.name}. Edit them in YAML.">computed per machine · edit in YAML</span>
+        </div>
+        <dl class="kv">
+            @foreach (var (name, value) in Draft.Document.Vars)
+            {
+                <dt class="mono">@name</dt>
+                <dd class="mono">@value</dd>
+            }
+        </dl>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RecipeDraft Draft { get; set; } = null!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private Dictionary<string, ParamDecl> Params => Draft.Document.Params;
+
+    private static readonly Regex NamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
+    private readonly HashSet<string> _open = new();
+    private string _newName = "";
+    private string? _addError;
+    private (string Name, string Message)? _renameError;
+
+    private static string TypeLabel(ParamType type) => type switch
+    {
+        ParamType.Dropdown => "Dropdown",
+        ParamType.Collection => "List",
+        _ => "Text",
+    };
+
+    private static string? Clean(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString()?.Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    private string? NameProblem(string name, string? except = null)
+    {
+        if (name.Length == 0)
+            return "Enter a name.";
+        if (!NamePattern.IsMatch(name))
+            return "Use letters, digits and underscores, starting with a letter.";
+        if (Params.Keys.Any(k => k != except && string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+            return $"There's already a parameter named '{name}'.";
+        return null;
+    }
+
+    private void Toggle(string name)
+    {
+        if (!_open.Remove(name))
+            _open.Add(name);
+    }
+
+    private Task Set(Action change)
+    {
+        change();
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetType(ParamDecl decl, ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<ParamType>(e.Value?.ToString(), out var type))
+            return Task.CompletedTask;
+        decl.Type = type;
+        if (type != ParamType.Dropdown)
+            decl.Options = null;
+        if (type != ParamType.String)
+            decl.OptionsFrom = null;
+        return OnChanged.InvokeAsync();
+    }
+
+    private Task SetOptions(ParamDecl decl, ChangeEventArgs e)
+    {
+        var options = (e.Value?.ToString() ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        decl.Options = options.Count == 0 ? null : options;
+        return OnChanged.InvokeAsync();
+    }
+
+    private async Task Add()
+    {
+        var name = _newName.Trim();
+        _addError = NameProblem(name);
+        if (_addError is not null)
+            return;
+
+        Params[name] = new ParamDecl { Type = ParamType.String };
+        _open.Add(name);
+        _newName = "";
+        await OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Renames a param in place, keeping the declaration order.</summary>
+    private async Task Rename(string oldName, ChangeEventArgs e)
+    {
+        var newName = e.Value?.ToString()?.Trim() ?? "";
+        _renameError = null;
+        if (newName == oldName)
+            return;
+        if (NameProblem(newName, except: oldName) is { } problem)
+        {
+            _renameError = (oldName, problem);
+            return;
+        }
+
+        Draft.Document.Params = Params.ToDictionary(kv => kv.Key == oldName ? newName : kv.Key, kv => kv.Value);
+        if (_open.Remove(oldName))
+            _open.Add(newName);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Remove(string name)
+    {
+        // Rebuild rather than Remove, so a later Add can't reuse the freed slot and reorder the params.
+        Draft.Document.Params = Params.Where(kv => kv.Key != name).ToDictionary(kv => kv.Key, kv => kv.Value);
+        _open.Remove(name);
+        await OnChanged.InvokeAsync();
+    }
+
+    public void Reset()
+    {
+        _open.Clear();
+        _renameError = null;
+        _addError = null;
+    }
+}
