@@ -13,8 +13,7 @@ A web app for deploying software to many Windows lab rigs at once over SSH.
   deployment on every rig, the commit it checked out, what changed since the previous run, and one-click
   retry and rollback. A **dry run** checks every rig and shows the exact plan without changing anything.
 
-The design notes are in [docs/plans/2026-11-26-shush-v2-groups-database-ui.md](docs/plans/2026-11-26-shush-v2-groups-database-ui.md),
-the recipe language in [docs/recipes.md](docs/recipes.md).
+The recipe language is described in [docs/recipes.md](docs/recipes.md).
 
 ## Signing in
 
