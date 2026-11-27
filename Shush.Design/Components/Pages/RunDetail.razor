@@ -3,6 +3,7 @@
 @inject RunService Runs
 @inject RunCoordinator Coordinator
 @inject CredentialStore Credentials
+@inject DeploymentService Deployments
 @inject Notifier Notifier
 @inject ClientTime ClientTime
 @inject NavigationManager Nav
@@ -62,9 +63,22 @@ else if (_run is not null)
         </Actions>
     </PageHeader>
 
-    @if (!Credentials.IsSignedIn && !IsActive && (Failed.Count > 0 || _run.Kind == RunKind.DryRun))
+    @if (!Credentials.CanDeployAs(_sshUser) && !IsActive && _run.DeploymentId is not null && (Failed.Count > 0 || _run.Kind == RunKind.DryRun))
     {
-        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in (bottom left) to retry or deploy.</span></div>
+        @if (_sshUser is { } account)
+        {
+            <div class="alert alert--info">
+                <Icon Name="lock" />
+                <div class="grow stack-sm">
+                    <span>This deployment connects as <strong>@account</strong>. Sign that account in to retry or deploy.</span>
+                    <SignInForm Username="@account" IdPrefix="run-ssh" />
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in (bottom left) to retry or deploy.</span></div>
+        }
     }
 
     <section class="panel" aria-labelledby="progress-h">
@@ -222,7 +236,10 @@ else if (_run is not null)
     private int? _loadedId;
 
     private bool IsActive => _run is not null && (_run.Status == RunStatus.Running || Coordinator.IsActive(_run.Id));
-    private bool CanStart => Credentials.IsSignedIn && !_starting;
+    private bool CanStart => Credentials.CanDeployAs(_sshUser) && !_starting;
+
+    /// <summary>The SSH account the run's deployment connects as (null: the signed-in one).</summary>
+    private string? _sshUser;
     private RunMachine? SelectedMachine => _run?.Machines.FirstOrDefault(m => string.Equals(m.MachineName, _selected, StringComparison.OrdinalIgnoreCase));
     private List<string> Failed => _run?.Machines.Where(m => m.Status is MachineStatus.Failed or MachineStatus.Interrupted).Select(m => m.MachineName).ToList() ?? [];
     private int Count(MachineStatus status) => _run?.Machines.Count(m => m.Status == status) ?? 0;
@@ -252,6 +269,8 @@ else if (_run is not null)
             return;
 
         _params = Json.ReadParams(_run.ParamValuesJson);
+        if (_run.DeploymentId is { } dep)
+            _sshUser = (await Deployments.GetAsync(dep))?.SshUser;
 
         // Default to the first rig that needs a look: failed, then running, then the first one.
         _selected ??= (_run.Machines.FirstOrDefault(m => m.Status == MachineStatus.Failed)
@@ -320,7 +339,8 @@ else if (_run is not null)
                     StepStatus.Succeeded => Ui.Duration(step.StartedAt, step.FinishedAt),
                     StepStatus.Running => "running",
                     StepStatus.Failed => "failed",
-                    _ => step.SkipReason?.StartsWith("when") == true ? "skipped (when)" : "skipped",
+                    _ => step.SkipReason?.StartsWith("when") == true ? "skipped (when)"
+                        : step.SkipReason == RecipeOverrides.DisabledReason ? "off for this deployment" : "skipped",
                 };
                 yield return new StepRow(step.Name, step.Status, right);
             }
@@ -348,7 +368,12 @@ else if (_run is not null)
         _starting = true;
         try
         {
-            var id = await Coordinator.StartAsync(request, Credentials.ToSecrets(), Credentials.Username);
+            if (Credentials.SecretsFor(_sshUser) is not { } secrets)
+            {
+                Notifier.Error(_sshUser is { } account ? $"Sign in as {account} first." : "Sign in first (bottom left).");
+                return;
+            }
+            var id = await Coordinator.StartAsync(request, secrets, secrets.Username);
             Nav.NavigateTo($"runs/{id}");
         }
         catch (RecipeValidationException ex)

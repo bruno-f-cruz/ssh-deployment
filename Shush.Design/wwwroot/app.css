@@ -355,7 +355,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .kv dd { margin: 0; min-width: 0; word-break: break-word; }
 
 .signin { display: flex; flex-direction: column; gap: 10px; }
-.signin input { min-height: 38px; padding: 7px 10px; font-size: 14px; }
+.signin input:not([type=checkbox]) { min-height: 38px; padding: 7px 10px; font-size: 14px; }
+/* The signed-in SSH accounts, in the side bar. */
+.accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.accounts__item { display: flex; flex-direction: column; gap: 2px; }
+.accounts__name { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.accounts__actions { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
 #blazor-error-ui {
     background: var(--crimson); color: #fff; bottom: 0; box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2); display: none;
@@ -384,3 +389,63 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 
 /* FocusOnNavigate focuses the page title for screen readers; it needs no visible ring. */
 h1:focus, h1:focus-visible { outline: none; }
+
+/* ---------- A deployment's recipe: steps it can turn off, inputs it can change ---------- */
+
+.badge--override { background: #F1EAFC; border-color: #C9B2F2; color: #5A2DA8; }
+.table--compact th, .table--compact td { padding: 8px 12px; }
+
+.dsteps { list-style: none; margin: 0; padding: 0 0 8px; border-top: 1px solid var(--line); }
+.dsteps__alert { margin: 12px 24px; }
+.dstep { border-bottom: 1px solid var(--line); }
+.dstep:last-child { border-bottom: 0; }
+.dstep__head { display: flex; align-items: center; gap: 14px; padding: 12px 24px; flex-wrap: wrap; }
+.dstep__num {
+    flex: none; width: 28px; height: 28px; border-radius: 999px; display: inline-grid; place-items: center;
+    font: 500 13px/1 var(--mono); background: var(--bg); border: 1px solid var(--line-strong);
+}
+.dstep__title { display: flex; flex-direction: column; gap: 2px; flex: 1 1 220px; min-width: 0; }
+.dstep__name { font-weight: 600; }
+.dstep__title .sub { font-size: 13px; color: var(--muted); }
+.dstep--off .dstep__name { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.dstep--off .dstep__num { background: transparent; color: var(--muted); border-style: dashed; }
+.dstep__body { padding: 0 24px 16px 66px; display: flex; flex-direction: column; gap: 10px; }
+.dstep__inputs { border: 1px solid var(--line); border-radius: var(--r-md, 8px); }
+.dstep__value { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 34ch; }
+.dstep__value textarea, .dstep__value input { width: 100%; min-width: 22ch; font: 13px/1.45 var(--mono); }
+.dstep__inputs tr.is-overridden td { background: #F7F2FE; }
+.dstep__inputs tr.is-overridden td:first-child { box-shadow: inset 3px 0 0 var(--purple); }
+.dstep__outputs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
+
+/* An on/off switch around a checkbox (role="switch"). */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; position: relative; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch__track {
+    width: 36px; height: 20px; border-radius: 999px; background: var(--line-strong); position: relative; flex: none;
+    transition: background 0.15s ease;
+}
+.switch__track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.15s ease;
+}
+.switch input:checked + .switch__track { background: var(--teal); }
+.switch input:checked + .switch__track::after { transform: translateX(16px); }
+.switch input:focus-visible + .switch__track { outline: 2px solid var(--ink); outline-offset: 2px; }
+.switch__label { min-width: 11ch; color: var(--ink-2); }
+
+/* Duplicating a deployment: attached or detached. */
+.choice { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.choice__option {
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg); background: var(--surface); cursor: pointer;
+}
+.choice__option:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--lime-soft); }
+.choice__option input { margin-top: 3px; accent-color: var(--ink); }
+.choice__option strong { display: block; margin-bottom: 2px; }
+
+/* The fixed values under a deployment's name in the list. */
+.fixed-values { display: flex; flex-wrap: wrap; gap: 2px 14px; font: 12px/1.5 var(--mono); color: var(--muted); margin-top: 2px; }
+.fixed-values b { font-weight: 500; color: var(--ink-2); }
+.badge--button { cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; margin-left: 6px; }
+.badge--button:hover { border-color: var(--purple); }
+.stack-sm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

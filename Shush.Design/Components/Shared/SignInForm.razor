@@ -1,0 +1,68 @@
+@inject CredentialStore Credentials
+
+@* Signs an SSH account in. With Username set, it's for that account only (e.g. the one a deployment connects as). *@
+<form class="signin" @onsubmit="SignInAsync" @onsubmit:preventDefault="true">
+    @if (Username is null)
+    {
+        <div class="field">
+            <label for="@($"{IdPrefix}-user")" class="small">SSH username</label>
+            <input id="@($"{IdPrefix}-user")" name="username" autocomplete="username" @bind="_username" @bind:event="oninput" />
+        </div>
+    }
+    <div class="field">
+        <label for="@($"{IdPrefix}-pass")" class="small">@(Username is null ? "Password" : $"Password for {Username}")</label>
+        <input id="@($"{IdPrefix}-pass")" name="password" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" />
+    </div>
+    <label class="checkbox small">
+        <input type="checkbox" @bind="_remember" />
+        Remember on this browser
+    </label>
+    <div class="row">
+        <button type="submit" class="btn btn--primary btn--small" disabled="@(!CanSubmit)">Sign in</button>
+        @if (OnCancel.HasDelegate)
+        {
+            <button type="button" class="btn btn--ghost btn--small" @onclick="OnCancel">Cancel</button>
+        }
+    </div>
+    <p class="small muted">
+        @if (_remember)
+        {
+            <text>Kept encrypted in this browser until you sign out; anyone using this browser profile can deploy as this account.</text>
+        }
+        else
+        {
+            <text>Kept for this tab only. Never stored on the server.</text>
+        }
+    </p>
+</form>
+
+@code {
+    /// <summary>The account to sign in; null lets the operator type it.</summary>
+    [Parameter] public string? Username { get; set; }
+    [Parameter] public string IdPrefix { get; set; } = "ssh";
+    [Parameter] public EventCallback OnSignedIn { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string _username = "";
+    private string _password = "";
+    private bool _remember;
+
+    private string Effective => (Username ?? _username).Trim();
+    private bool CanSubmit => Effective.Length > 0 && _password.Length > 0;
+
+    protected override void OnInitialized()
+    {
+        if (Username is null && Credentials.Accounts.Count == 0)
+            _username = Credentials.LastUsername ?? "";
+    }
+
+    private async Task SignInAsync()
+    {
+        if (!CanSubmit)
+            return;
+        await Credentials.SignInAsync(Effective, _password, _remember);
+        _password = "";
+        _username = "";
+        await OnSignedIn.InvokeAsync();
+    }
+}

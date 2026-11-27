@@ -5,7 +5,7 @@ namespace Shush.Data;
 
 public sealed record NewRun(
     RunKind Kind, int? DeploymentId, string DeploymentName, int RecipeId, int RecipeVersionId, int? GroupId, string? GroupName,
-    IReadOnlyDictionary<string, string> Params, string? StartedBy, IReadOnlyList<string> Machines, string? LogFile, int? SourceRunId = null);
+    IReadOnlyDictionary<string, string> Params, string? StartedBy, IReadOnlyList<string> Machines, string? LogFile, int? SourceRunId = null, string OverridesJson = "{}");
 
 public sealed record RunListItem(
     int Id, RunKind Kind, RunStatus Status, string DeploymentName, int? DeploymentId, string? GroupName, string RecipeName,
@@ -32,6 +32,7 @@ public sealed class RunService(IDbContextFactory<ShushDbContext> factory)
             GroupId = request.GroupId,
             GroupName = request.GroupName,
             ParamValuesJson = Json.Write(request.Params),
+            OverridesJson = request.OverridesJson,
             StartedBy = request.StartedBy,
             StartedAt = Clock.UtcNow(),
             LogFile = request.LogFile,

@@ -70,7 +70,15 @@ public sealed class RunCoordinator(
             ? source.RecipeVersion
             : await recipes.CurrentVersionAsync(deployment.RecipeId);
 
-        var document = YamlRecipeSerializer.Deserialize(version.Yaml);
+        if (!string.IsNullOrWhiteSpace(deployment.SshUser) && !string.Equals(secrets.Username, deployment.SshUser.Trim(), StringComparison.OrdinalIgnoreCase))
+            throw new ShushDataException($"'{deployment.Name}' connects as {deployment.SshUser}. Sign in with that account first.");
+
+        // The deployment's own changes (steps turned off, inputs changed) on top of the recipe; a retry or rollback
+        // repeats the ones its source run used.
+        var overrides = RecipeOverrides.FromJson(source is not null && request.Kind is RunKind.Rollback or RunKind.Retry
+            ? source.OverridesJson
+            : deployment.OverridesJson);
+        var document = overrides.Apply(YamlRecipeSerializer.Deserialize(version.Yaml));
         recipes.Validator.Validate(document);
 
         var requested = request.Params
@@ -92,7 +100,7 @@ public sealed class RunCoordinator(
         var logFile = Path.Combine(paths.LogsDirectory, $"run_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..6]}.log");
         var run = await runs.CreateAsync(new NewRun(
             request.Kind, deployment.Id, deployment.Name, deployment.RecipeId, version.Id, deployment.GroupId, deployment.Group.Name,
-            paramValues, user, targets, logFile, request.SourceRunId));
+            paramValues, user, targets, logFile, request.SourceRunId, overrides.IsEmpty ? "{}" : overrides.ToJson()));
 
         var cts = new CancellationTokenSource();
         _active[run.Id] = cts;

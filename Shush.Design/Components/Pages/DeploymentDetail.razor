@@ -26,8 +26,18 @@ else if (_deployment is not null && _document is not null)
         <Lede>@_deployment.Description</Lede>
         <Facts>
             <dl class="facts">
-                <div><dt>Recipe</dt><dd><a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a>, v@(_version?.Number)</dd></div>
+                <div>
+                    <dt>Recipe</dt>
+                    <dd>
+                        <a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a>, v@(_version?.Number)
+                        @if (!_overrides.IsEmpty)
+                        {
+                            <button type="button" class="badge badge--override badge--button" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "change") for this deployment</button>
+                        }
+                    </dd>
+                </div>
                 <div><dt>Group</dt><dd><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</dd></div>
+                <div><dt>SSH account</dt><dd>@(_deployment.SshUser ?? "whoever is signed in")</dd></div>
                 @if (_history.FirstOrDefault(r => r.Kind != RunKind.DryRun) is { } last)
                 {
                     <div><dt>Last run</dt><dd><a href="runs/@last.Id"><StatusText Tone="Ui.Of(last.Status)" /></a> <span class="muted">@Ui.Ago(last.StartedAt)</span></dd></div>
@@ -35,6 +45,7 @@ else if (_deployment is not null && _document is not null)
             </dl>
         </Facts>
         <Actions>
+            <button type="button" class="btn btn--ghost" aria-expanded="@Ui.Aria(_duplicating)" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate</button>
             <button type="button" class="btn" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.DryRun)">Dry run</button>
             <button type="button" class="btn btn--primary" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.Deploy)">
                 Deploy to @Ui.Plural(_deployment.Group.Members.Count, "rig")
@@ -42,9 +53,67 @@ else if (_deployment is not null && _document is not null)
         </Actions>
     </PageHeader>
 
-    @if (!Credentials.IsSignedIn)
+    @if (_deployment.SshUser is { } account && !Credentials.CanDeployAs(account))
+    {
+        <div class="alert alert--info">
+            <Icon Name="lock" />
+            <div class="grow stack-sm">
+                <span>This deployment connects as <strong>@account</strong>. Sign that account in to deploy or dry run.</span>
+                <SignInForm Username="@account" IdPrefix="dep-ssh" />
+            </div>
+        </div>
+    }
+    else if (!Credentials.CanDeployAs(null) && _deployment.SshUser is null)
     {
         <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in with your SSH account (bottom left) to deploy or dry run.</span></div>
+    }
+
+    @if (_duplicating)
+    {
+        <form class="panel" aria-label="Duplicate deployment" @onsubmit="DuplicateAsync" @onsubmit:preventDefault="true">
+            <div class="panel__head">
+                <h2>Duplicate @_deployment.Name</h2>
+                <span class="panel__sub">Same group, values, SSH account and changes. Give it its own fixed values (install folder, shortcut) so it installs next to this one.</span>
+            </div>
+            <div class="choice" role="radiogroup" aria-label="How the copy uses the recipe">
+                <label class="choice__option">
+                    <input type="radio" name="dup-mode" checked="@(!_dupDetach)" @onchange="() => _dupDetach = false" />
+                    <span>
+                        <strong>Follow @_deployment.Recipe.Name</strong>
+                        <span class="small muted">Gets every edit to the recipe. Its own changes (steps off, inputs) are kept on the deployment.</span>
+                    </span>
+                </label>
+                <label class="choice__option">
+                    <input type="radio" name="dup-mode" checked="@_dupDetach" @onchange="() => _dupDetach = true" />
+                    <span>
+                        <strong>Detach: its own recipe</strong>
+                        <span class="small muted">A copy of the recipe@(_overrides.IsEmpty ? "" : " with this deployment's changes built in") to edit freely. Later edits to @_deployment.Recipe.Name don't reach it.</span>
+                    </span>
+                </label>
+            </div>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="dup-name">Name</label>
+                    <input id="dup-name" @bind="_dupName" @bind:event="oninput" />
+                </div>
+                @if (_dupDetach)
+                {
+                    <div class="field">
+                        <label for="dup-recipe">New recipe's name</label>
+                        <input id="dup-recipe" @bind="_dupRecipeName" @bind:event="oninput" />
+                    </div>
+                }
+            </div>
+            <ParamForm Document="_document" Values="_dupValues" EditFixed="true" IdPrefix="dup" />
+            @if (DuplicateClash is { } clash)
+            {
+                <p class="small t-warn">@clash</p>
+            }
+            <div class="row">
+                <button type="submit" class="btn btn--primary" disabled="@(!CanDuplicate)">Create the copy</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _duplicating = false">Cancel</button>
+            </div>
+        </form>
     }
 
     @if (_activeRun is { } active)
@@ -98,6 +167,11 @@ else if (_deployment is not null && _document is not null)
                     </div>
                 }
             </section>
+            break;
+
+        case "recipe":
+            <DeploymentRecipe Document="_document" Overrides="_overrides" RecipeId="_deployment.RecipeId" RecipeName="@_deployment.Recipe.Name"
+                              VersionNumber="@(_version?.Number ?? 0)" OnChanged="SaveOverridesAsync" OnDetach="DetachAsync" />
             break;
 
         case "rigs":
@@ -194,6 +268,17 @@ else if (_deployment is not null && _document is not null)
                             }
                         </select>
                     </div>
+                    <div class="field">
+                        <label for="dep-ssh">SSH account</label>
+                        <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="Whoever is signed in" autocomplete="off" />
+                        <datalist id="dep-ssh-accounts">
+                            @foreach (var a in Credentials.Accounts)
+                            {
+                                <option value="@a.Username"></option>
+                            }
+                        </datalist>
+                        <span class="field__hint">The rig account this deployment connects as. Leave empty to use the signed-in (default) account.</span>
+                    </div>
                     <div class="field" style="grid-column: 1 / -1">
                         <label for="dep-desc">Description</label>
                         <textarea id="dep-desc" rows="2" @bind="_description" placeholder="What this deployment is for (optional)"></textarea>
@@ -216,7 +301,7 @@ else if (_deployment is not null && _document is not null)
     [Parameter] public int Id { get; set; }
 
     private static readonly (string Key, string Label)[] Tabs =
-        [("params", "Parameters"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
+        [("params", "Parameters"), ("recipe", "Recipe"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
 
     private bool _loaded;
     private string _tab = "params";
@@ -235,8 +320,26 @@ else if (_deployment is not null && _document is not null)
     private int _groupId;
     private bool _starting;
     private int? _loadedId;
+    private RecipeOverrides _overrides = new();
+    private string? _sshUser;
 
-    private bool CanRun => Credentials.IsSignedIn && !_starting && _document is not null && ParamForm.IsComplete(_document, _values)
+    private bool _duplicating;
+    private bool _dupDetach;
+    private string _dupName = "";
+    private string _dupRecipeName = "";
+    private Dictionary<string, string> _dupValues = new();
+
+    private bool CanDuplicate => !_starting && _document is not null && _dupName.Trim().Length > 0
+                                 && (!_dupDetach || _dupRecipeName.Trim().Length > 0) && ParamForm.IsComplete(_document, _dupValues);
+
+    /// <summary>An attached copy with the same fixed values would install over this deployment.</summary>
+    private string? DuplicateClash =>
+        !_dupDetach && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
+        && _document.Params.Where(p => p.Value.IsFixed).All(p => _dupValues.GetValueOrDefault(p.Key) == _values.GetValueOrDefault(p.Key))
+            ? "The fixed values are the same as this deployment's, so the copy would install over it. Change at least one (e.g. the install folder)."
+            : null;
+
+    private bool CanRun => Credentials.CanDeployAs(_deployment?.SshUser) && !_starting && _document is not null && ParamForm.IsComplete(_document, _values)
                            && _deployment?.Group.Members.Count > 0;
 
     private int? LatestSuccessId => _history.FirstOrDefault(r => r.Kind != RunKind.DryRun && r.Status == RunStatus.Succeeded)?.Id;
@@ -274,8 +377,19 @@ else if (_deployment is not null && _document is not null)
         _name = _deployment.Name;
         _description = _deployment.Description;
         _groupId = _deployment.GroupId;
+        _sshUser = _deployment.SshUser;
+        _overrides = RecipeOverrides.FromJson(_deployment.OverridesJson);
         _groups = await Groups.ListAsync();
 
+        await CheckAsync(saved);
+        await LoadRunsAsync();
+    }
+
+    /// <summary>What to fix before deploying: values the recipe dropped, an empty group, an invalid recipe (with this deployment's changes).</summary>
+    private async Task CheckAsync(IReadOnlyDictionary<string, string> saved)
+    {
+        if (_deployment is null || _document is null)
+            return;
         _problems = [];
         var dropped = saved.Keys.Where(k => !_document.Params.ContainsKey(k)).ToList();
         if (dropped.Count > 0)
@@ -286,7 +400,7 @@ else if (_deployment is not null && _document is not null)
         try
         {
             var names = (await Variables.ResolveAsync(_deployment.GroupId, null)).Select(v => v.Name).ToList();
-            Recipes.Validator.Validate(_document, names);
+            Recipes.Validator.Validate(_overrides.Apply(_document), names);
         }
         catch (RecipeValidationException ex)
         {
@@ -294,8 +408,82 @@ else if (_deployment is not null && _document is not null)
                 ? e + " Set it on the group (or globally), or a machine override must cover every rig."
                 : e));
         }
+    }
 
-        await LoadRunsAsync();
+    private async Task SaveOverridesAsync()
+    {
+        try
+        {
+            await Deployments.SaveOverridesAsync(Id, _overrides);
+            await CheckAsync(Json.ReadParams(_deployment!.ParamValuesJson));
+        }
+        catch (Exception ex)
+        {
+            Notifier.Error($"Couldn't save the change: {ex.Message}");
+        }
+    }
+
+    /// <summary>Gives the deployment its own copy of the recipe, with its overrides built in.</summary>
+    private async Task DetachAsync()
+    {
+        if (_deployment is null)
+            return;
+        try
+        {
+            var overrides = _overrides.Clone();
+            var recipe = await Recipes.DuplicateAsync(_deployment.RecipeId, $"{_deployment.Recipe.Name} ({_deployment.Name})", Credentials.Username,
+                doc => overrides.Apply(doc));
+            await Deployments.SwitchRecipeAsync(Id, recipe.Id);
+            Notifier.Success($"'{_deployment.Name}' now deploys its own recipe, '{recipe.Name}'.");
+            _loadedId = null;
+            await OnParametersSetAsync();
+            _tab = "recipe";
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+    }
+
+    private void ToggleDuplicate()
+    {
+        _duplicating = !_duplicating;
+        if (!_duplicating || _deployment is null)
+            return;
+        _dupDetach = false;
+        _dupName = $"{_deployment.Name} copy";
+        _dupRecipeName = $"{_deployment.Recipe.Name} ({_dupName})";
+        _dupValues = new Dictionary<string, string>(_values);
+    }
+
+    private async Task DuplicateAsync()
+    {
+        if (_deployment is null || !CanDuplicate)
+            return;
+        _starting = true;
+        try
+        {
+            int? recipeId = null;
+            if (_dupDetach)
+            {
+                var overrides = _overrides.Clone();
+                var recipe = await Recipes.DuplicateAsync(_deployment.RecipeId, _dupRecipeName.Trim(), Credentials.Username, doc => overrides.Apply(doc));
+                recipeId = recipe.Id;
+            }
+
+            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, recipeId);
+            Notifier.Success($"Created '{copy.Name}'.");
+            _duplicating = false;
+            Nav.NavigateTo($"deployments/{copy.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
     }
 
     private async Task LoadRunsAsync()
@@ -338,9 +526,11 @@ else if (_deployment is not null && _document is not null)
 
     private async Task StartAsync(RunKind kind, int? sourceRunId = null)
     {
-        if (!Credentials.IsSignedIn)
+        if (Credentials.SecretsFor(_deployment?.SshUser) is not { } secrets)
         {
-            Notifier.Error("Sign in with your SSH username and password first (bottom left).");
+            Notifier.Error(_deployment?.SshUser is { } account
+                ? $"Sign in as {account} first: this deployment connects with that account."
+                : "Sign in with your SSH username and password first (bottom left).");
             return;
         }
 
@@ -348,7 +538,7 @@ else if (_deployment is not null && _document is not null)
         try
         {
             var values = kind is RunKind.Deploy or RunKind.DryRun ? _values : null;
-            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, Params: values, SourceRunId: sourceRunId), Credentials.ToSecrets(), Credentials.Username);
+            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, Params: values, SourceRunId: sourceRunId), secrets, secrets.Username);
             Nav.NavigateTo($"runs/{id}");
         }
         catch (RecipeValidationException ex)
@@ -370,6 +560,7 @@ else if (_deployment is not null && _document is not null)
         try
         {
             await Deployments.UpdateAsync(Id, _name, _description, _groupId);
+            await Deployments.SetSshUserAsync(Id, _sshUser);
             Notifier.Success("Settings saved.");
             await LoadAsync();
         }

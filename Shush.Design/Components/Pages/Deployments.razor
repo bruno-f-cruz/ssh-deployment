@@ -7,7 +7,10 @@
 <PageTitle>Deployments · Shush</PageTitle>
 
 <PageHeader Title="Deployments">
-    <Lede>A deployment is a recipe deployed to a group of rigs. It remembers the values you last used, so deploying again is one click.</Lede>
+    <Lede>
+        A deployment is a recipe deployed to a group of rigs. It remembers the values you last used, so deploying again is one click.
+        Deployments of one recipe (e.g. prod and dev) differ by their fixed values, shown under each name; to make another, open one and <strong>Duplicate</strong> it.
+    </Lede>
     <Actions><a class="btn btn--primary" href="deployments/new"><Icon Name="plus" Size="16" />New deployment</a></Actions>
 </PageHeader>
 
@@ -42,7 +45,26 @@
                         <tr>
                             <td>
                                 <a class="title" href="deployments/@d.Id">@d.Name</a>
-                                <div class="sub">@d.RecipeName</div>
+                                <div class="sub">
+                                    @d.RecipeName
+                                    @if (d.OverrideCount > 0)
+                                    {
+                                        <span class="badge badge--override" title="Steps turned off or inputs changed for this deployment only">@Ui.Plural(d.OverrideCount, "change")</span>
+                                    }
+                                    @if (d.SshUser is { } account)
+                                    {
+                                        <span class="small" title="Connects as this SSH account"> · as @account</span>
+                                    }
+                                </div>
+                                @if (d.Fixed is { Count: > 0 } fixedValues)
+                                {
+                                    <div class="fixed-values">
+                                        @foreach (var (label, value) in fixedValues)
+                                        {
+                                            <span title="@label"><b>@value</b></span>
+                                        }
+                                    </div>
+                                }
                             </td>
                             <td><a href="groups/@d.GroupId">@d.GroupName</a><div class="sub">@Ui.Plural(d.MachineCount, "rig")</div></td>
                             <td>

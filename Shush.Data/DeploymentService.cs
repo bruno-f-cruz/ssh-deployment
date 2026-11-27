@@ -5,9 +5,11 @@ namespace Shush.Data;
 
 public sealed record LastRunSummary(int RunId, RunKind Kind, RunStatus Status, DateTime StartedAt, DateTime? FinishedAt, int Machines, int Succeeded, int Failed, int Running);
 
+/// <param name="Fixed">The recipe's fixed params (label, value): what tells deployments of one recipe apart (install folder, shortcut).</param>
+/// <param name="OverrideCount">Steps turned off plus inputs changed for this deployment.</param>
 public sealed record DeploymentSummary(
     int Id, string Name, string? Description, int RecipeId, string RecipeName, int GroupId, string GroupName, int MachineCount,
-    LastRunSummary? LastRun);
+    LastRunSummary? LastRun, IReadOnlyList<KeyValuePair<string, string>>? Fixed = null, int OverrideCount = 0, string? SshUser = null);
 
 /// <summary>A machine's most recent successful deploy of one deployment.</summary>
 public sealed record LastDeployed(
@@ -24,15 +26,35 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
         if (recipeId is not null) query = query.Where(d => d.RecipeId == recipeId);
 
         var deployments = await query
-            .Select(d => new { d.Id, d.Name, d.Description, d.RecipeId, RecipeName = d.Recipe.Name, d.GroupId, GroupName = d.Group.Name, Count = d.Group.Members.Count })
+            .Select(d => new
+            {
+                d.Id, d.Name, d.Description, d.RecipeId, RecipeName = d.Recipe.Name, d.GroupId, GroupName = d.Group.Name,
+                Count = d.Group.Members.Count, d.ParamValuesJson, d.OverridesJson, d.SshUser,
+            })
             .ToListAsync();
 
         var ids = deployments.Select(d => d.Id).ToList();
         var lastRuns = await LastRunsAsync(db, ids, includeDryRuns: false);
 
+        // The fixed params come from each recipe's current version.
+        var recipeIds = deployments.Select(d => d.RecipeId).Distinct().ToList();
+        var currentYaml = await db.RecipeVersions.AsNoTracking()
+            .Where(v => recipeIds.Contains(v.RecipeId))
+            .GroupBy(v => v.RecipeId)
+            .Select(g => g.OrderByDescending(v => v.Number).First())
+            .ToDictionaryAsync(v => v.RecipeId, v => v.Yaml);
+        var documents = new Dictionary<int, RecipeDocument?>();
+        foreach (var (id, yaml) in currentYaml)
+        {
+            try { documents[id] = YamlRecipeSerializer.Deserialize(yaml); }
+            catch (Exception) { documents[id] = null; }
+        }
+
         return deployments
             .Select(d => new DeploymentSummary(d.Id, d.Name, d.Description, d.RecipeId, d.RecipeName, d.GroupId, d.GroupName, d.Count,
-                lastRuns.GetValueOrDefault(d.Id)))
+                lastRuns.GetValueOrDefault(d.Id),
+                documents.GetValueOrDefault(d.RecipeId) is { } doc ? FixedValues(doc, Json.ReadParams(d.ParamValuesJson)) : [],
+                RecipeOverrides.FromJson(d.OverridesJson).Count, d.SshUser))
             .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -88,6 +110,69 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
         deployment.UpdatedAt = Clock.UtcNow();
         await db.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// A copy of deployment <paramref name="id"/>: same group, description, SSH account and overrides, with
+    /// <paramref name="paramValues"/> (a new deployment needs its own fixed values). With <paramref name="recipeId"/>
+    /// (a detached copy, deploying its own duplicate of the recipe) the overrides aren't copied: the new recipe has them built in.
+    /// </summary>
+    public async Task<Deployment> DuplicateAsync(int id, string name, IReadOnlyDictionary<string, string> paramValues, int? recipeId = null)
+    {
+        Deployment source;
+        await using (var db = await factory.CreateDbContextAsync())
+            source = await db.Deployments.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id)
+                ?? throw new ShushDataException("That deployment no longer exists.");
+
+        var copy = await CreateAsync(name, recipeId ?? source.RecipeId, source.GroupId, paramValues, source.Description);
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            var created = await db.Deployments.FirstAsync(d => d.Id == copy.Id);
+            created.SshUser = source.SshUser;
+            created.OverridesJson = recipeId is null ? source.OverridesJson : "{}";
+            await db.SaveChangesAsync();
+            return created;
+        }
+    }
+
+    /// <summary>Points the deployment at another recipe (e.g. its own detached copy) and clears its overrides.</summary>
+    public async Task SwitchRecipeAsync(int id, int recipeId)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        if (!await db.Recipes.AnyAsync(r => r.Id == recipeId))
+            throw new ShushDataException("That recipe no longer exists.");
+        var deployment = await db.Deployments.FirstAsync(d => d.Id == id);
+        deployment.RecipeId = recipeId;
+        deployment.OverridesJson = "{}";
+        deployment.UpdatedAt = Clock.UtcNow();
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Saves the steps turned off and the inputs changed for this deployment.</summary>
+    public async Task SaveOverridesAsync(int id, RecipeOverrides overrides)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        var deployment = await db.Deployments.FirstAsync(d => d.Id == id);
+        deployment.OverridesJson = overrides.IsEmpty ? "{}" : overrides.ToJson();
+        deployment.UpdatedAt = Clock.UtcNow();
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>The SSH account the deployment connects as; null or blank: whoever is signed in.</summary>
+    public async Task SetSshUserAsync(int id, string? user)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        var deployment = await db.Deployments.FirstAsync(d => d.Id == id);
+        deployment.SshUser = string.IsNullOrWhiteSpace(user) ? null : user.Trim();
+        deployment.UpdatedAt = Clock.UtcNow();
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>The recipe's fixed params with this deployment's values, labelled.</summary>
+    public static List<KeyValuePair<string, string>> FixedValues(RecipeDocument recipe, IReadOnlyDictionary<string, string> saved) =>
+        EffectiveParams(recipe, saved)
+            .Where(kv => recipe.Params[kv.Key].IsFixed)
+            .Select(kv => new KeyValuePair<string, string>(recipe.Params[kv.Key].Label ?? kv.Key, kv.Value))
+            .ToList();
 
     /// <summary>Remembers the parameter values last used (the deploy screen starts from them next time).</summary>
     public async Task SaveParamValuesAsync(int id, IReadOnlyDictionary<string, string> values)
