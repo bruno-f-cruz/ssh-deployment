@@ -54,6 +54,60 @@ public class RecipeServiceTests : DataTestBase
     }
 
     [Fact]
+    public async Task Duplicate_copies_the_current_version_into_a_new_recipe()
+    {
+        var source = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
+        await Recipes.SaveAsync(source.Id, SimpleRecipe.Replace("main", "v2"), VersionSource.Edit, null);
+
+        var copy = await Recipes.DuplicateAsync(source.Id, "  Simple copy ", "jane");
+
+        var stored = (await Recipes.GetAsync(copy.Id))!;
+        Assert.Equal("Simple copy", stored.Name);
+        Assert.False(stored.IsBuiltIn);
+        Assert.Equal("Simple v2", stored.CopiedFrom);
+
+        var version = Assert.Single(await Recipes.VersionsAsync(copy.Id));
+        Assert.Equal(1, version.Number);
+        Assert.Equal(VersionSource.Duplicate, version.Source);
+        Assert.Equal("jane", version.CreatedBy);
+        var document = YamlRecipeSerializer.Deserialize(version.Yaml);
+        Assert.Equal("Simple copy", document.Name);
+        Assert.Equal("v2", document.Params["ref"].Default);
+
+        // The source is untouched.
+        Assert.Equal(2, (await Recipes.CurrentVersionAsync(source.Id)).Number);
+    }
+
+    [Fact]
+    public async Task Duplicate_applies_the_transform_and_keeps_the_new_name()
+    {
+        var source = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
+
+        var copy = await Recipes.DuplicateAsync(source.Id, "Detached", null, d =>
+        {
+            d.Params["ref"].Default = "release-7";
+            d.Name = "Something else";
+            return d;
+        });
+
+        var document = YamlRecipeSerializer.Deserialize((await Recipes.CurrentVersionAsync(copy.Id)).Yaml);
+        Assert.Equal("Detached", document.Name);
+        Assert.Equal("release-7", document.Params["ref"].Default);
+        Assert.Equal("Detached", (await Recipes.GetAsync(copy.Id))!.Name);
+    }
+
+    [Fact]
+    public async Task Duplicate_refuses_a_taken_or_empty_name()
+    {
+        var source = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
+        var taken = await Assert.ThrowsAsync<ShushDataException>(() => Recipes.DuplicateAsync(source.Id, "SIMPLE", null));
+        Assert.Equal("A recipe named 'SIMPLE' already exists.", taken.Message);
+        await Assert.ThrowsAsync<ShushDataException>(() => Recipes.DuplicateAsync(source.Id, "   ", null));
+        await Assert.ThrowsAsync<ShushDataException>(() => Recipes.DuplicateAsync(source.Id + 99, "Other", null));
+        Assert.Single(await Recipes.ListAsync());
+    }
+
+    [Fact]
     public void Diff_marks_added_and_removed_lines()
     {
         var lines = TextDiff.Lines("a\nb\nc", "a\nB\nc\nd");
@@ -137,6 +191,51 @@ public class SeederTests : DataTestBase
 
         await Recipes.ResetToShippedAsync(edited.Id, null);
         Assert.Contains("v2", (await Recipes.CurrentVersionAsync(edited.Id)).Yaml);
+    }
+
+    [Fact]
+    public async Task A_shipped_recipe_that_no_longer_ships_is_deleted_when_unused()
+    {
+        var shipped = Path.Combine(Directory, "shipped");
+        System.IO.Directory.CreateDirectory(shipped);
+        var paths = new SeedPaths(shipped, Path.Combine(Directory, "none"), Path.Combine(Directory, "none"), null);
+        await File.WriteAllTextAsync(Path.Combine(shipped, "a.yml"), SimpleRecipe);
+        await File.WriteAllTextAsync(Path.Combine(shipped, "b.yml"), SimpleRecipe.Replace("Simple", "Retired"));
+        await Seeder().RunAsync(paths);
+
+        File.Delete(Path.Combine(shipped, "b.yml"));
+        await Seeder().RunAsync(paths);
+
+        Assert.Null(await Recipes.FindAsync("Retired"));
+        Assert.True((await Recipes.FindAsync("Simple"))!.IsBuiltIn);
+    }
+
+    [Fact]
+    public async Task A_shipped_recipe_that_no_longer_ships_becomes_a_user_recipe_when_in_use()
+    {
+        var shipped = Path.Combine(Directory, "shipped");
+        System.IO.Directory.CreateDirectory(shipped);
+        var paths = new SeedPaths(shipped, Path.Combine(Directory, "none"), Path.Combine(Directory, "none"), null);
+        await File.WriteAllTextAsync(Path.Combine(shipped, "b.yml"), SimpleRecipe.Replace("Simple", "Retired"));
+        await Seeder().RunAsync(paths);
+
+        var retired = (await Recipes.FindAsync("Retired"))!;
+        var group = await Groups.CreateAsync("Rigs", machines: ["RIG-1"]);
+        var deployment = await Deployments.CreateAsync("Retired on rigs", retired.Id, group.Id, new Dictionary<string, string>());
+
+        File.Delete(Path.Combine(shipped, "b.yml"));
+        await Seeder().RunAsync(paths);
+
+        var kept = (await Recipes.FindAsync("Retired"))!;
+        Assert.False(kept.IsBuiltIn);
+        Assert.Null(kept.ShippedYaml);
+        Assert.Null(kept.ShippedHash);
+        Assert.Equal(1, (await Recipes.CurrentVersionAsync(kept.Id)).Number);
+
+        // It's the operators' now: deletable once nothing uses it.
+        await Deployments.DeleteAsync(deployment.Id);
+        await Recipes.DeleteAsync(kept.Id);
+        Assert.Null(await Recipes.FindAsync("Retired"));
     }
 
     [Fact]

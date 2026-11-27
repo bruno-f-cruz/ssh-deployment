@@ -29,7 +29,7 @@
                                 <span class="badge badge--group">current</span>
                             }
                         </td>
-                        <td>@SourceLabel(version.Source)</td>
+                        <td>@SourceLabel(version.Source, CopiedFrom)</td>
                         <td>@(version.CreatedBy ?? "—")</td>
                         <td title="@version.CreatedAt.ToString("u")">@Ui.When(version.CreatedAt, ClientTime)</td>
                         <td class="actions-cell">
@@ -87,18 +87,21 @@
     /// <summary>Newest first.</summary>
     [Parameter, EditorRequired] public List<RecipeVersion> Versions { get; set; } = [];
     [Parameter] public EventCallback<RecipeVersion> OnRestore { get; set; }
+    /// <summary>The recipe's <see cref="Recipe.CopiedFrom"/>, e.g. "VrForagingExperiment v3", to label a duplicated version.</summary>
+    [Parameter] public string? CopiedFrom { get; set; }
 
     private int _oldId;
     private int _newId;
     private List<RecipeVersion>? _for;
 
-    public static string SourceLabel(VersionSource source) => source switch
+    public static string SourceLabel(VersionSource source, string? copiedFrom = null) => source switch
     {
         VersionSource.BuiltIn => "Shipped",
         VersionSource.Edit => "Edited",
         VersionSource.Import => "Imported",
         VersionSource.Reset => "Reset",
         VersionSource.Restore => "Restored",
+        VersionSource.Duplicate => copiedFrom is null ? "Duplicated" : $"Duplicated from {copiedFrom}",
         _ => "From v1",
     };
 

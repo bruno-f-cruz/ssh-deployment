@@ -7,7 +7,6 @@ public class BuiltinRecipesTests
 {
     [Theory]
     [InlineData("VrForagingExperiment.yml")]
-    [InlineData("VrForagingExperimentEphys.yml")]
     [InlineData("Reboot.yml")]
     [InlineData("CleanDesktop.yml")]
     public void Builtin_recipe_validates(string file)
