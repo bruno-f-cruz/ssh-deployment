@@ -15,56 +15,73 @@
 @if (_loaded && _run is null)
 {
     <PageHeader Title="This run doesn't exist">
-        <Actions><a class="btn" href="runs">All runs</a></Actions>
+        <Crumbs><a href="runs">Runs</a></Crumbs>
     </PageHeader>
 }
 else if (_run is not null)
 {
     var tone = Ui.Of(_run.Status);
+    var values = _params.Where(p => !string.IsNullOrEmpty(p.Value)).ToList();
     <PageHeader Title="@_run.DeploymentName">
-        <Crumbs><a href="runs">Runs</a> <span>/</span> <span>#@_run.Id, @Ui.Kind(_run.Kind).ToLowerInvariant()</span></Crumbs>
+        <TitleContent>
+            @if (_run.DeploymentId is { } deploymentId)
+            {
+                <a class="run-detail__title" href="deployments/@deploymentId" title="Open the deployment">@_run.DeploymentName</a>
+            }
+            else
+            {
+                @_run.DeploymentName
+            }
+        </TitleContent>
+        <Crumbs><a href="runs">Runs</a> <span>/</span> <span>#@_run.Id</span></Crumbs>
         <Facts>
-            <dl class="facts">
-                @if (_run.DeploymentId is { } deploymentId)
-                {
-                    <div><dt>Deployment</dt><dd><a href="deployments/@deploymentId">@_run.DeploymentName</a></dd></div>
-                }
+            <p class="meta">
+                <span>@Ui.Kind(_run.Kind) #@_run.Id</span>
+                <span><a href="recipes/@_run.RecipeId">@_run.Recipe.Name</a> v@(_run.RecipeVersion.Number)</span>
                 @if (_run.GroupId is { } groupId)
                 {
-                    <div><dt>Group</dt><dd><a href="groups/@groupId">@_run.GroupName</a></dd></div>
+                    <span><a href="groups/@groupId">@_run.GroupName</a></span>
                 }
-                <div><dt>Recipe</dt><dd><a href="recipes/@_run.RecipeId">@_run.Recipe.Name</a>, v@(_run.RecipeVersion.Number)</dd></div>
-                @foreach (var (name, value) in _params.Where(p => !string.IsNullOrEmpty(p.Value)))
-                {
-                    <div><dt>@name</dt><dd class="mono small">@value</dd></div>
-                }
-                <div><dt>Started</dt><dd>@Ui.When(_run.StartedAt, ClientTime)@(_run.StartedBy is null ? "" : $" by {_run.StartedBy}")</dd></div>
+                <span title="@Ui.When(_run.StartedAt, ClientTime)">started @Ui.Ago(_run.StartedAt)@(_run.StartedBy is null ? "" : $" by {_run.StartedBy}")</span>
                 @if (_run.FinishedAt is not null)
                 {
-                    <div><dt>Took</dt><dd>@Ui.Duration(_run.StartedAt, _run.FinishedAt)</dd></div>
+                    <span>took @Ui.Duration(_run.StartedAt, _run.FinishedAt)</span>
                 }
-            </dl>
+            </p>
         </Facts>
         <Actions>
             @if (IsActive)
             {
                 <ConfirmButton Class="btn btn--danger" Question="Stop the run? Rigs mid-step finish that step first." ConfirmLabel="Cancel run" OnConfirm="Cancel">Cancel run</ConfirmButton>
             }
-            else
+            else if (_run.Kind == RunKind.DryRun && _run.DeploymentId is not null)
             {
-                @if (_run.Kind == RunKind.DryRun && _run.DeploymentId is not null)
-                {
-                    <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="DeployForRealAsync">Deploy with these values</button>
-                }
-                @if (_run.Kind != RunKind.DryRun && Failed.Count > 0 && _run.DeploymentId is not null)
-                {
-                    <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="() => RetryAsync(Failed)">Retry failed rigs (@Failed.Count)</button>
-                }
+                <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="DeployForRealAsync">Deploy these values</button>
+            }
+            else if (_run.Kind != RunKind.DryRun && Failed.Count > 0 && _run.DeploymentId is not null)
+            {
+                <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="() => RetryAsync(Failed)">Retry failed (@Failed.Count)</button>
+            }
+            @if (CanRollBack)
+            {
+                <Menu>
+                    <button type="button" class="menu__item" @onclick="() => _confirmRollback = true"><Icon Name="rollback" Size="16" />Roll back to this run</button>
+                </Menu>
             }
         </Actions>
     </PageHeader>
 
-    @if (!Credentials.CanDeployAs(_sshUser) && !IsActive && _run.DeploymentId is not null && (Failed.Count > 0 || _run.Kind == RunKind.DryRun))
+    @if (_confirmRollback && CanRollBack)
+    {
+        <div class="alert alert--warn" role="alert">
+            <Icon Name="rollback" />
+            <div class="grow">Deploy run #@_run.Id's recipe version and values to every rig?</div>
+            <button type="button" class="btn btn--small btn--primary" disabled="@(!CanStart)" @onclick="RollBackAsync">Roll back</button>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _confirmRollback = false">Keep</button>
+        </div>
+    }
+
+    @if (!Credentials.CanDeployAs(_sshUser) && !IsActive && _run.DeploymentId is not null && (Failed.Count > 0 || _run.Kind == RunKind.DryRun || _confirmRollback))
     {
         @if (_sshUser is { } account)
         {
@@ -82,19 +99,25 @@ else if (_run is not null)
         }
     }
 
-    <section class="panel" aria-labelledby="progress-h">
-        <div class="panel__head">
-            <h2 id="progress-h">@Headline(tone)</h2>
-            <p>@Sentence()</p>
+    <section class="panel run-outcome" aria-labelledby="progress-h">
+        <div class="run-outcome__head">
+            <h2 id="progress-h" class="run-outcome__title"><span class="@tone.Dot" aria-hidden="true"></span>@Headline(tone)</h2>
+            <span class="muted">@Sentence()</span>
         </div>
         <RunBar Succeeded="Count(MachineStatus.Succeeded)" Running="Count(MachineStatus.Running)" Failed="Count(MachineStatus.Failed)" Total="_run.Machines.Count" />
-        <div class="legend">
-            <span><span class="swatch seg-ok"></span>@(_run.Kind == RunKind.DryRun ? "Checked" : "Done")</span>
-            <span><span class="swatch seg-run" style="animation: none"></span>Running</span>
-            <span><span class="swatch seg-fail"></span>Failed</span>
-            <span><span class="swatch seg-skip"></span>Skipped step</span>
-            <span><span class="swatch seg-pend"></span>Not started</span>
-        </div>
+        @if (values.Count > 0)
+        {
+            <details class="disclosure">
+                <summary>Values used (@values.Count)</summary>
+                <dl class="kv run-outcome__values">
+                    @foreach (var (name, value) in values)
+                    {
+                        <dt>@name</dt>
+                        <dd class="mono small">@value</dd>
+                    }
+                </dl>
+            </details>
+        }
     </section>
 
     <div class="columns">
@@ -106,11 +129,12 @@ else if (_run is not null)
             @if (SelectedMachine is { } machine)
             {
                 var mTone = Ui.Of(machine.Status);
-                <div class="stack" style="gap: 6px">
-                    <h2 id="rig-h" style="font-size: 22px"><RigName Name="@machine.MachineName" Host="_hosts.GetValueOrDefault(machine.MachineName)" Class="rig-name--large" /></h2>
-                    <p class="@mTone.Text" style="font-weight: 500">@RigBoard.StatusLine(machine)</p>
+                var preflight = Json.Read<PreflightResult?>(machine.PreflightJson, null);
+                <div class="stack run-rig__head">
+                    <h2 id="rig-h" class="run-rig__name"><RigName Name="@machine.MachineName" Host="_hosts.GetValueOrDefault(machine.MachineName)" Class="rig-name--large" /></h2>
+                    <p class="@mTone.Text run-rig__status">@RigBoard.StatusLine(machine)</p>
                     @* The pre-flight list below already explains a pre-flight failure; don't repeat it. *@
-                    @if (!string.IsNullOrEmpty(machine.Error) && Json.Read<PreflightResult?>(machine.PreflightJson, null) is not { HasErrors: true })
+                    @if (!string.IsNullOrEmpty(machine.Error) && preflight is not { HasErrors: true })
                     {
                         <p class="small t-fail">@machine.Error</p>
                     }
@@ -120,24 +144,43 @@ else if (_run is not null)
                     }
                 </div>
 
-                @if (Json.Read<PreflightResult?>(machine.PreflightJson, null) is { } preflight)
+                @if (preflight is not null)
                 {
-                    <div class="stack" style="gap: 8px">
-                        <h3>Pre-flight</h3>
-                        <ul class="checks">
-                            @foreach (var check in preflight.Checks)
-                            {
-                                <li>
-                                    @switch (check.Level)
+                    var problems = preflight.Checks.Where(c => c.Level != CheckLevel.Ok).ToList();
+                    var passed = preflight.Checks.Count - problems.Count;
+                    <div class="stack run-rig__section">
+                        @if (problems.Count > 0)
+                        {
+                            <h3>Pre-flight</h3>
+                            <ul class="checks">
+                                @foreach (var check in problems)
+                                {
+                                    <li>
+                                        @if (check.Level == CheckLevel.Warning)
+                                        {
+                                            <Icon Name="warn" Color="var(--gold-text)" />
+                                        }
+                                        else
+                                        {
+                                            <Icon Name="x" Color="var(--crimson)" Stroke="2.2" />
+                                        }
+                                        <span><strong>@check.Name.</strong> @check.Message</span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        @if (passed > 0)
+                        {
+                            <details class="disclosure">
+                                <summary>@(problems.Count == 0 ? $"Pre-flight: all {passed} checks passed" : $"{passed} other checks passed")</summary>
+                                <ul class="checks">
+                                    @foreach (var check in preflight.Checks.Where(c => c.Level == CheckLevel.Ok))
                                     {
-                                        case CheckLevel.Ok: <Icon Name="check" Color="var(--teal-text)" Stroke="2.2" /> break;
-                                        case CheckLevel.Warning: <Icon Name="warn" Color="var(--gold-text)" /> break;
-                                        default: <Icon Name="x" Color="var(--crimson)" Stroke="2.2" /> break;
+                                        <li><Icon Name="check" Color="var(--teal-text)" Stroke="2.2" /><span><strong>@check.Name.</strong> @check.Message</span></li>
                                     }
-                                    <span><strong>@check.Name.</strong> @check.Message</span>
-                                </li>
-                            }
-                        </ul>
+                                </ul>
+                            </details>
+                        }
                     </div>
                 }
 
@@ -147,14 +190,14 @@ else if (_run is not null)
                 }
                 else
                 {
-                    <div class="stack" style="gap: 8px">
+                    <div class="stack run-rig__section">
                         <h3>Steps</h3>
                         <ol class="steps-list">
                             @foreach (var step in StepRows(machine))
                             {
                                 <li>
                                     <span class="step-dot @Ui.Segment(step.Status)" aria-hidden="true"></span>
-                                    <span class="grow" style="@(step.Status is null ? "color: var(--muted)" : "")">@step.Name</span>
+                                    <span class="grow @(step.Status is null ? "muted" : "")">@step.Name</span>
                                     <span class="right">@step.Right</span>
                                 </li>
                             }
@@ -162,7 +205,7 @@ else if (_run is not null)
                     </div>
                 }
 
-                <div class="stack" style="gap: 8px">
+                <div class="stack run-rig__section">
                     <div class="row"><h3>Log</h3><span class="spacer"></span>
                         @if (!string.IsNullOrEmpty(_log))
                         {
@@ -175,33 +218,33 @@ else if (_run is not null)
                 @if (!IsActive && machine.Status is MachineStatus.Failed or MachineStatus.Cancelled or MachineStatus.Interrupted
                      && _run.Kind != RunKind.DryRun && _run.DeploymentId is not null)
                 {
-                    <div class="row"><button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="() => RetryAsync([machine.MachineName])">Retry @machine.MachineName</button></div>
+                    <div class="row"><button type="button" class="btn btn--small" disabled="@(!CanStart)" @onclick="() => RetryAsync([machine.MachineName])">Retry @machine.MachineName</button></div>
                 }
             }
             else
             {
-                <EmptyState Title="Select a rig">Its steps, checks and log show here.</EmptyState>
+                <EmptyState Title="Select a rig to see its steps and log." />
             }
         </aside>
     </div>
 
     @if (_previous is not null && _run.Kind != RunKind.DryRun)
     {
-        <section class="panel" aria-labelledby="changed-h">
-            <div class="panel__head">
-                <h2 id="changed-h">What changed since run #@_previous.Id</h2>
-                <span class="panel__sub">The previous successful run of this deployment, @Ui.Ago(_previous.StartedAt).</span>
-            </div>
-            @if (_paramChanges.Count == 0 && _previous.RecipeVersionId == _run.RecipeVersionId)
-            {
-                <p class="muted">Nothing: same recipe version and the same values.</p>
-            }
-            else
-            {
+        @if (_paramChanges.Count == 0 && _previous.RecipeVersionId == _run.RecipeVersionId)
+        {
+            <p class="muted small">Same recipe version and values as <a href="runs/@_previous.Id">run #@_previous.Id</a> (@Ui.Ago(_previous.StartedAt)), the last successful one.</p>
+        }
+        else
+        {
+            <details class="panel run-changes">
+                <summary>
+                    <h2 class="run-changes__title">What changed since <a href="runs/@_previous.Id">run #@_previous.Id</a></h2>
+                    <span class="muted small">@ChangeSummary() · last success @Ui.Ago(_previous.StartedAt)</span>
+                </summary>
                 @if (_paramChanges.Count > 0)
                 {
                     <div class="table-wrap">
-                        <table class="table">
+                        <table class="table table--compact">
                             <thead><tr><th scope="col">Value</th><th scope="col">Before</th><th scope="col">Now</th></tr></thead>
                             <tbody>
                                 @foreach (var change in _paramChanges)
@@ -217,8 +260,8 @@ else if (_run is not null)
                     <h3>Recipe v@(_previous.RecipeVersion.Number) to v@(_run.RecipeVersion.Number)</h3>
                     <DiffView Old="@_previous.RecipeVersion.Yaml" New="@_run.RecipeVersion.Yaml" AriaLabel="Recipe changes" />
                 }
-            }
-        </section>
+            </details>
+        }
     }
 }
 
@@ -235,6 +278,10 @@ else if (_run is not null)
     private string _log = "";
     private LiveRefresh? _live;
     private bool _starting;
+    private bool _confirmRollback;
+
+    /// <summary>A finished, successful deploy (not a dry run) can be deployed again as a rollback.</summary>
+    private bool CanRollBack => _run is { Kind: not RunKind.DryRun, Status: RunStatus.Succeeded, DeploymentId: not null } && !IsActive;
     private int? _loadedId;
 
     private bool IsActive => _run is not null && (_run.Status == RunStatus.Running || Coordinator.IsActive(_run.Id));
@@ -259,6 +306,7 @@ else if (_run is not null)
             return;
         _loadedId = Id;
         _selected = null;
+        _confirmRollback = false;
         _previous = null;
         await LoadAsync();
     }
@@ -362,6 +410,19 @@ else if (_run is not null)
 
     private async Task RetryAsync(IReadOnlyList<string> machines) =>
         await StartAsync(new StartRunRequest(_run!.DeploymentId!.Value, RunKind.Retry, machines, SourceRunId: _run.Id));
+
+    private async Task RollBackAsync() =>
+        await StartAsync(new StartRunRequest(_run!.DeploymentId!.Value, RunKind.Rollback, SourceRunId: _run.Id));
+
+    private string ChangeSummary()
+    {
+        var parts = new List<string>();
+        if (_paramChanges.Count > 0)
+            parts.Add(Ui.Plural(_paramChanges.Count, "value") + " changed");
+        if (_previous is not null && _previous.RecipeVersionId != _run!.RecipeVersionId)
+            parts.Add($"recipe v{_previous.RecipeVersion.Number} to v{_run.RecipeVersion.Number}");
+        return string.Join(", ", parts);
+    }
 
     private async Task DeployForRealAsync() =>
         await StartAsync(new StartRunRequest(_run!.DeploymentId!.Value, RunKind.Deploy, Params: _params));

@@ -18,10 +18,8 @@
     <PageHeader Title="Group not found">
         <Crumbs><a href="groups">Groups</a></Crumbs>
     </PageHeader>
-    <section class="panel">
-        <EmptyState Title="This group doesn't exist">
-            It may have been deleted. <a href="groups">See all groups</a>.
-        </EmptyState>
+    <section class="panel panel--flush">
+        <EmptyState Title="This group doesn't exist.">It may have been deleted. <a href="groups">All groups</a></EmptyState>
     </section>
 }
 else if (_group is not null)
@@ -33,43 +31,50 @@ else if (_group is not null)
             {
                 @_group.Description
             }
-            else
-            {
-                <span class="muted">No description.</span>
-            }
         </Lede>
         <Facts>
-            <dl class="facts">
-                <div><dt>Machines</dt><dd>@_group.Members.Count</dd></div>
-                <div><dt>Deployments</dt><dd>@(_deployments?.Count ?? 0)</dd></div>
-                <div><dt>Created</dt><dd>@Ui.When(_group.CreatedAt, ClientTime)</dd></div>
-            </dl>
+            <p class="meta">
+                <span>@Ui.Plural(_group.Members.Count, "machine")</span>
+                <span>@Ui.Plural(_deployments?.Count ?? 0, "deployment")</span>
+                <span title="@Ui.When(_group.CreatedAt, ClientTime)">created @Ui.Ago(_group.CreatedAt)</span>
+            </p>
         </Facts>
         <Actions>
-            @if (!_editing)
-            {
-                <button type="button" class="btn" @onclick="StartEdit">Edit name</button>
-            }
-            <ConfirmButton Question="@($"Delete {_group.Name}?")" OnConfirm="DeleteAsync">Delete group</ConfirmButton>
             <a class="btn btn--primary" href="@($"deployments/new?group={Id}")"><Icon Name="plus" />New deployment</a>
+            <Menu>
+                <button type="button" class="menu__item" @onclick="StartEdit">Edit name</button>
+                <button type="button" class="menu__item" @onclick="CheckReachabilityAsync" disabled="@(_checking || _group.Members.Count == 0)">Check reachability</button>
+                <div class="menu__sep"></div>
+                <label class="menu__item group-detail__file" title="A YAML file like machines: [FRG.0-A, FRG.0-B]. Adds to the group.">
+                    Import from YAML
+                    <InputFile OnChange="ImportAsync" accept=".yml,.yaml,text/yaml,application/x-yaml" class="visually-hidden" />
+                </label>
+                <button type="button" class="menu__item" @onclick="ExportAsync" disabled="@(_group.Members.Count == 0)">Export as YAML</button>
+                <div class="menu__sep"></div>
+                <button type="button" class="menu__item menu__item--danger" @onclick="() => { _confirmDelete = true; _deleteError = null; }">Delete group</button>
+            </Menu>
         </Actions>
     </PageHeader>
 
-    @if (_deleteError is not null)
+    @if (_confirmDelete)
     {
-        <div class="alert alert--error" role="alert">
+        <div class="alert alert--warn" role="alert">
             <Icon Name="warn" />
             <div class="grow">
-                <strong>The group wasn't deleted.</strong>
-                <p class="small">@_deleteError</p>
+                Delete <strong>@_group.Name</strong>? Its machines stay in Shush.
+                @if (_deleteError is not null)
+                {
+                    <p class="small t-fail">@_deleteError</p>
+                }
             </div>
-            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _deleteError = null">Dismiss</button>
+            <button type="button" class="btn btn--small btn--danger" @onclick="DeleteAsync">Delete</button>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _confirmDelete = false">Keep</button>
         </div>
     }
 
     @if (_editing)
     {
-        <section class="panel">
+        <section class="panel" aria-label="Edit group">
             <form class="inline-form" @onsubmit="SaveDetailsAsync" @onsubmit:preventDefault>
                 <div class="field">
                     <label for="edit-name">Name</label>
@@ -125,29 +130,21 @@ else
 @code {
     private RenderFragment MachinesTab => __builder =>
     {
-        <section class="panel">
+        var anyFacts = _group!.Members.Any(m => RigFacts.HasAny(_machines.GetValueOrDefault(m.MachineName)));
+        <section class="panel panel--flush" aria-label="Machines">
             <div class="panel__head">
-                <h2>Add machines</h2>
-                <span class="panel__sub">
-                    @if (_registryNames is not null)
-                    {
-                        @($"Suggestions come from the machine registry ({Ui.Plural(_registryNames.Count, "machine")}).")
-                    }
-                    else if (_registryError is not null)
-                    {
-                        @("The machine registry didn't answer, so there are no suggestions. You can still type names.")
-                    }
-                </span>
-            </div>
-            <form class="inline-form" @onsubmit="AddMachinesAsync" @onsubmit:preventDefault>
-                <div class="field group-detail__add">
-                    <label for="add-machines">Machine names</label>
+                <form class="row group-detail__add" @onsubmit="AddMachinesAsync" @onsubmit:preventDefault>
+                    <label for="add-machines" class="visually-hidden">Machines to add</label>
                     <input id="add-machines" type="text" list="registry-names" @bind="_addText" @bind:event="oninput"
-                           autocomplete="off" spellcheck="false" placeholder="FRG.0-A FRG.0-B, FRG.1-A" />
-                    <span class="field__hint">Several at once: separate them with spaces, commas or new lines.</span>
-                </div>
-                <button type="submit" class="btn btn--primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_addText))"><Icon Name="plus" />Add machines</button>
-            </form>
+                           autocomplete="off" spellcheck="false" placeholder="Add machines, e.g. FRG.0-A, FRG.0-B"
+                           title="Several at once: separate them with spaces, commas or new lines" />
+                    <button type="submit" class="btn" disabled="@(_busy || string.IsNullOrWhiteSpace(_addText))">Add</button>
+                </form>
+                @if (_checking)
+                {
+                    <span class="small muted"><Icon Name="spin" Size="14" /> Checking…</span>
+                }
+            </div>
             @if (_registryNames is not null)
             {
                 <datalist id="registry-names">
@@ -157,49 +154,17 @@ else
                     }
                 </datalist>
             }
-            <div class="row">
-                <label class="btn btn--small group-detail__file">
-                    <Icon Name="upload" />Import a YAML list
-                    <InputFile OnChange="ImportAsync" accept=".yml,.yaml,text/yaml,application/x-yaml" class="visually-hidden" />
-                </label>
-                <button type="button" class="btn btn--small" @onclick="ExportAsync" disabled="@(_group!.Members.Count == 0)">
-                    <Icon Name="download" />Export as YAML
-                </button>
-                <span class="small muted">The YAML looks like <code>machines: [FRG.0-A, FRG.0-B]</code>. Importing adds to the group.</span>
-            </div>
             @if (_machinesError is not null)
             {
-                <div class="alert alert--error" role="alert">
+                <div class="alert alert--error group-detail__alert" role="alert">
                     <Icon Name="warn" />
                     <div class="grow">@_machinesError</div>
                 </div>
             }
-        </section>
 
-        <section class="panel panel--flush">
-            <div class="panel__head">
-                <h2>Machines</h2>
-                <div class="row">
-                    @if (_lastChecked is { } checkedAt)
-                    {
-                        <span class="panel__sub">Checked @Ui.Ago(checkedAt)</span>
-                    }
-                    <button type="button" class="btn btn--small" @onclick="CheckReachabilityAsync" disabled="@(_checking || _group!.Members.Count == 0)">
-                        @if (_checking)
-                        {
-                            <Icon Name="spin" />@("Checking…")
-                        }
-                        else
-                        {
-                            @("Check reachability")
-                        }
-                    </button>
-                </div>
-            </div>
-
-            @if (_group!.Members.Count == 0)
+            @if (_group.Members.Count == 0)
             {
-                <EmptyState Title="No machines in this group yet">Add machines above, or import a YAML list.</EmptyState>
+                <EmptyState Title="No machines yet." />
             }
             else
             {
@@ -209,42 +174,28 @@ else
                             <tr>
                                 <th scope="col">Machine</th>
                                 <th scope="col">Health</th>
-                                <th scope="col">Logged-on user</th>
-                                <th scope="col" class="num">Free disk</th>
-                                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                                @if (anyFacts)
+                                {
+                                    <th scope="col">Details</th>
+                                }
+                                <th scope="col"><span class="visually-hidden">Remove</span></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var member in _group.Members)
                             {
                                 var machine = _machines.GetValueOrDefault(member.MachineName);
-                                <tr>
-                                    <td><RigName Name="@member.MachineName" Machine="machine" /></td>
+                                <tr class="is-link">
+                                    <td><a class="row-link" href="@($"machines/{Uri.EscapeDataString(member.MachineName)}")"><RigName Name="@member.MachineName" Machine="machine" Link="false" /></a></td>
                                     <td><MachineHealth Machine="machine" /></td>
-                                    <td>
-                                        @if (string.IsNullOrEmpty(machine?.LoggedOnUser))
-                                        {
-                                            <span class="muted small">Unknown</span>
-                                        }
-                                        else
-                                        {
-                                            @machine.LoggedOnUser
-                                        }
-                                    </td>
-                                    <td class="num">
-                                        @if (machine?.FreeGb is { } free)
-                                        {
-                                            <span class="@(free < 5 ? "t-warn" : "")">@free.ToString("0.#") GB</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="muted small">Unknown</span>
-                                        }
-                                    </td>
+                                    @if (anyFacts)
+                                    {
+                                        <td><RigFacts Machine="machine" /></td>
+                                    }
                                     <td class="actions-cell">
-                                        <button type="button" class="btn btn--icon" aria-label="@($"Remove {member.MachineName} from the group")"
+                                        <button type="button" class="btn btn--icon group-detail__remove" aria-label="@($"Remove {member.MachineName} from the group")"
                                                 title="Remove from the group" @onclick="() => RemoveAsync(member.MachineName)" disabled="@_busy">
-                                            <Icon Name="x" />
+                                            <Icon Name="x" Size="16" />
                                         </button>
                                     </td>
                                 </tr>
@@ -252,9 +203,6 @@ else
                         </tbody>
                     </table>
                 </div>
-                <p class="small muted group-detail__note">
-                    Reachability is checked in the background every few minutes. The logged-on user and free disk come from the last dry run or deploy.
-                </p>
             }
         </section>
     };
@@ -262,118 +210,83 @@ else
     private RenderFragment VariablesTab => __builder =>
     {
         <VariableEditor Scope="VariableScope.Group" GroupId="Id" Title="Group variables"
-                        Help="Every machine in this group gets these, unless the machine has its own value."
-                        EmptyTitle="No group variables yet"
-                        EmptyText="Add one to give every machine in this group the same value, overriding the global one."
+                        Help="Every machine in the group gets these, unless it has its own value."
+                        EmptyTitle="No group variables."
                         OnChanged="ReloadVariablesAsync" />
 
-        <section class="panel panel--flush">
-            <div class="panel__head">
-                <div class="stack group-detail__intro">
-                    <h2>As a rig would get them</h2>
-                    <p class="panel__sub">Global, group and machine values combined: what a deploy to this group resolves.</p>
-                </div>
-            </div>
-            <div class="group-detail__pad">
-                @if (_group!.Members.Count <= 12)
-                {
-                    <div class="toggles" role="group" aria-label="Show values as a rig would get them">
-                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_previewMachine is null)" @onclick="() => PreviewAsync(null)">Any rig in the group</button>
-                        @foreach (var member in _group.Members)
-                        {
-                            var name = member.MachineName;
-                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(string.Equals(_previewMachine, name, StringComparison.OrdinalIgnoreCase))"
-                                    @onclick="() => PreviewAsync(name)">@name</button>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <div class="field group-detail__select">
-                        <label for="preview-machine">Show values as this rig would get them</label>
+        @* Hidden until some global, group or machine value exists: there would be nothing to show. *@
+        @if (_resolved is not { Count: 0 })
+        {
+            <section class="panel panel--flush" aria-labelledby="resolved-h">
+                <div class="panel__head">
+                    <h2 id="resolved-h" title="Global, group and machine values combined: what a deploy to this group resolves">What a rig gets</h2>
+                    <div class="group-detail__select">
+                        <label for="preview-machine" class="visually-hidden">Show the values this rig gets</label>
                         <select id="preview-machine" value="@(_previewMachine ?? "")" @onchange="e => PreviewAsync(e.Value as string is { Length: > 0 } v ? v : null)">
                             <option value="">Any rig in the group</option>
-                            @foreach (var member in _group.Members)
+                            @foreach (var member in _group!.Members)
                             {
                                 <option value="@member.MachineName">@member.MachineName</option>
                             }
                         </select>
                     </div>
-                }
-            </div>
+                </div>
 
-            @if (_resolved is null)
-            {
-                <p class="muted small group-detail__pad">Loading…</p>
-            }
-            else if (_resolved.Count == 0)
-            {
-                <EmptyState Title="Nothing to resolve">
-                    No global, group@(_previewMachine is null ? "" : " or machine") variables are set, so <code>${group.NAME}</code> has nothing to read.
-                </EmptyState>
-            }
-            else
-            {
-                <div class="table-wrap">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th scope="col">Name</th>
-                                <th scope="col">Value</th>
-                                <th scope="col">Set in</th>
-                                <th scope="col">On the rig</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var v in _resolved)
-                            {
+                @if (_resolved is null)
+                {
+                    <p class="empty">Loading…</p>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
                                 <tr>
-                                    <td class="mono">@v.Name</td>
-                                    <td>
-                                        @if (v.IsSecret)
-                                        {
-                                            <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="mono group-detail__value">@v.Value</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        <div class="stack group-detail__source">
-                                            <span><VariableSource Scope="v.Source" Label="@v.SourceLabel" /></span>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Value</th>
+                                    <th scope="col">Set in</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var v in _resolved)
+                                {
+                                    <tr>
+                                        <td class="mono">@v.Name</td>
+                                        <td>
+                                            <span class="row group-detail__valueline">
+                                                @if (v.IsSecret)
+                                                {
+                                                    <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="mono group-detail__value">@v.Value</span>
+                                                }
+                                                <OnTheRig ApplyAsEnv="v.ApplyAsEnv" EnvScope="@v.EnvScope" />
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <VariableSource Scope="v.Source" Label="@v.SourceLabel" />
                                             @if (v.Overrides.Count > 0)
                                             {
-                                                <span class="small muted">@OverridesText(v)</span>
+                                                <div class="sub small">@OverridesText(v)</div>
                                             }
-                                        </div>
-                                    </td>
-                                    <td><OnTheRig ApplyAsEnv="v.ApplyAsEnv" EnvScope="@v.EnvScope" /></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </section>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
 
-        <section class="panel panel--flush">
-            <div class="panel__head">
-                <div class="stack group-detail__intro">
-                    <h2>Machine overrides</h2>
-                    <p class="panel__sub">Values set on a single machine of this group. Change them on the machine's page.</p>
+        @if (_overrides is { Count: > 0 })
+        {
+            <section class="panel panel--flush" aria-labelledby="overrides-h">
+                <div class="panel__head">
+                    <h2 id="overrides-h">Machine overrides</h2>
                 </div>
-            </div>
-            @if (_overrides is null)
-            {
-                <p class="muted small group-detail__pad">Loading…</p>
-            }
-            else if (_overrides.Count == 0)
-            {
-                <EmptyState Title="No machine overrides">Every machine in this group gets the group and global values.</EmptyState>
-            }
-            else
-            {
                 <div class="table-wrap">
                     <table class="table">
                         <thead>
@@ -381,47 +294,42 @@ else
                                 <th scope="col">Machine</th>
                                 <th scope="col">Name</th>
                                 <th scope="col">Value</th>
-                                <th scope="col">On the rig</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var o in _overrides)
                             {
-                                <tr>
-                                    <td><RigName Name="@(o.MachineName!)" Machine="_machines.GetValueOrDefault(o.MachineName!)" /></td>
+                                <tr class="is-link" title="Change it on the machine's page">
+                                    <td><a class="row-link" href="@($"machines/{Uri.EscapeDataString(o.MachineName!)}")"><RigName Name="@(o.MachineName!)" Machine="_machines.GetValueOrDefault(o.MachineName!)" Link="false" /></a></td>
                                     <td class="mono">@o.Name</td>
                                     <td>
-                                        @if (o.IsSecret)
-                                        {
-                                            <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="mono group-detail__value">@o.Value</span>
-                                        }
+                                        <span class="row group-detail__valueline">
+                                            @if (o.IsSecret)
+                                            {
+                                                <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="mono group-detail__value">@o.Value</span>
+                                            }
+                                            <OnTheRig ApplyAsEnv="o.ApplyAsEnv" EnvScope="@o.EnvScope" />
+                                        </span>
                                     </td>
-                                    <td><OnTheRig ApplyAsEnv="o.ApplyAsEnv" EnvScope="@o.EnvScope" /></td>
                                 </tr>
                             }
                         </tbody>
                     </table>
                 </div>
-            }
-        </section>
+            </section>
+        }
     };
 
     private RenderFragment DeploymentsTab => __builder =>
     {
-        <section class="panel panel--flush">
-            <div class="panel__head">
-                <h2>Deployments using this group</h2>
-                <a class="btn btn--small" href="@($"deployments/new?group={Id}")"><Icon Name="plus" />New deployment</a>
-            </div>
+        <section class="panel panel--flush" aria-label="Deployments">
             @if (_deployments is null || _deployments.Count == 0)
             {
-                <EmptyState Title="No deployments use this group yet">
-                    A deployment sends a recipe to this group's machines and remembers the parameters you used.
-                </EmptyState>
+                <EmptyState Title="No deployments use this group yet." />
             }
             else
             {
@@ -437,15 +345,15 @@ else
                         <tbody>
                             @foreach (var d in _deployments)
                             {
-                                <tr>
+                                <tr class="is-link">
                                     <td>
-                                        <a class="title" href="@($"deployments/{d.Id}")">@d.Name</a>
+                                        <a class="row-link" href="@($"deployments/{d.Id}")">@d.Name</a>
                                         @if (!string.IsNullOrWhiteSpace(d.Description))
                                         {
                                             <div class="sub">@d.Description</div>
                                         }
                                     </td>
-                                    <td><a href="@($"recipes/{d.RecipeId}")">@d.RecipeName</a></td>
+                                    <td>@d.RecipeName</td>
                                     <td>
                                         @if (d.LastRun is { } run)
                                         {
@@ -470,6 +378,7 @@ else
 }
 
 @code {
+
     [Parameter] public int Id { get; set; }
 
     [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
@@ -493,7 +402,7 @@ else
     private List<string>? _registryNames;
     private string? _registryError;
     private bool _checking;
-    private DateTime? _lastChecked;
+    private bool _confirmDelete;
 
     private bool _variablesLoaded;
     private string? _previewMachine;
@@ -513,6 +422,7 @@ else
         _resolved = null;
         _overrides = null;
         _editing = false;
+        _confirmDelete = false;
         _deleteError = null;
         await LoadAsync();
         _loaded = true;
@@ -712,6 +622,7 @@ else
     private async Task ImportAsync(InputFileChangeEventArgs e)
     {
         _machinesError = null;
+        _tab = "machines";
         List<string> names;
         try
         {
@@ -752,6 +663,7 @@ else
         if (_group is null || _group.Members.Count == 0)
             return;
         _checking = true;
+        _tab = "machines";
         _machinesError = null;
         StateHasChanged();
         try
@@ -770,7 +682,6 @@ else
             }
             else
             {
-                _lastChecked = DateTime.UtcNow;
                 var reachable = names.Count(n => _machines.GetValueOrDefault(n)?.Reachable == true);
                 Notifier.Success($"{reachable} of {names.Count} machines are reachable.");
             }

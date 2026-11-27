@@ -7,25 +7,26 @@
 <PageTitle>Runs · Shush</PageTitle>
 
 <PageHeader Title="Runs">
-    <Lede>Every deploy, dry run, retry and rollback, newest first.</Lede>
     <Actions>
-        <div class="toggles" role="group" aria-label="Show">
-            <button type="button" class="toggle" aria-pressed="@Ui.Aria(!_hideDryRuns)" @onclick="() => SetDryRunsAsync(false)">Everything</button>
-            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_hideDryRuns)" @onclick="() => SetDryRunsAsync(true)">Hide dry runs</button>
-        </div>
+        @if (_runs is { Count: > 0 } || _hideDryRuns)
+        {
+            <label class="checkbox">
+                <input type="checkbox" checked="@_hideDryRuns" @onchange="e => SetDryRunsAsync(e.Value is true)" />
+                Hide dry runs
+            </label>
+        }
     </Actions>
 </PageHeader>
 
 <section class="panel panel--flush" aria-label="Runs">
     @if (_runs is null)
     {
-        <p class="empty muted">Loading…</p>
+        <p class="empty">Loading…</p>
     }
     else if (_runs.Count == 0)
     {
-        <EmptyState Title="No runs yet">
-            <ChildContent>Runs appear here once you deploy or dry run a deployment.</ChildContent>
-            <Actions><a class="btn btn--primary" href="deployments">Go to deployments</a></Actions>
+        <EmptyState Title="@(_hideDryRuns ? "No runs other than dry runs." : "No runs yet.")">
+            Start one from a <a href="deployments">deployment</a>.
         </EmptyState>
     }
     else
@@ -44,9 +45,9 @@
                 <tbody>
                     @foreach (var run in _runs)
                     {
-                        <tr>
-                            <td><a class="title" href="runs/@run.Id">#@run.Id</a> <span class="badge badge--kind">@Ui.Kind(run.Kind)</span></td>
-                            <td>
+                        <tr class="is-link">
+                            <td class="runs__id"><a class="row-link" href="runs/@run.Id">#@run.Id</a> <span class="muted small">@Ui.Kind(run.Kind)</span></td>
+                            <td class="runs__dep">
                                 @if (run.DeploymentId is { } deploymentId)
                                 {
                                     <a href="deployments/@deploymentId">@run.DeploymentName</a>
@@ -55,10 +56,10 @@
                                 {
                                     <span>@run.DeploymentName</span>
                                 }
-                                <div class="sub">@run.RecipeName v@(run.RecipeVersion)@(run.GroupName is null ? "" : $", {run.GroupName}")</div>
+                                <div class="sub">@run.RecipeName v@(run.RecipeVersion)@(run.GroupName is null ? "" : $" · {run.GroupName}")</div>
                             </td>
                             <td><StatusText Tone="Ui.Of(run.Status)" Label="@Label(run)" /></td>
-                            <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)<div class="sub">@run.StartedBy</div></td>
+                            <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)@if (!string.IsNullOrEmpty(run.StartedBy)) { <div class="sub">by @run.StartedBy</div> }</td>
                             <td>@Ui.Duration(run.StartedAt, run.FinishedAt)</td>
                         </tr>
                     }
@@ -67,7 +68,7 @@
         </div>
         @if (_runs.Count >= _take)
         {
-            <div class="row" style="padding: 12px 24px 18px"><button type="button" class="btn btn--small" @onclick="MoreAsync">Show older runs</button></div>
+            <div class="runs__more"><button type="button" class="btn btn--small" @onclick="MoreAsync">Show older runs</button></div>
         }
     }
 </section>

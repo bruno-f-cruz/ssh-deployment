@@ -4,58 +4,65 @@
 @inject GroupService GroupService
 @inject HealthChecker Health
 @inject Notifier Notifier
-@inject ClientTime ClientTime
 @inject ShushSettings Settings
 
 <PageTitle>Machines · Shush</PageTitle>
 
 <PageHeader Title="Machines">
-    <Lede>Every machine Shush knows about. Reachability is checked every @Ui.Plural(Settings.HealthProbeMinutes, "minute") without signing in; the user, disk and boot time come from the last dry run or deploy.</Lede>
     <Actions>
-        <button type="button" class="btn" @onclick="CheckAllAsync" disabled="@_checking">
+        <button type="button" class="btn" @onclick="CheckAllAsync" disabled="@_checking"
+                title="@($"Reachability is also checked every {Ui.Plural(Settings.HealthProbeMinutes, "minute")}")">
             @if (_checking)
             {
                 <Icon Name="spin" />@("Checking…")
             }
             else
             {
-                @("Check all now")
+                @("Check all")
             }
         </button>
     </Actions>
 </PageHeader>
 
 <section class="panel panel--flush">
-    <div class="panel__head">
-        <div class="row machines__filters">
-            <label class="visually-hidden" for="machine-search">Search machines</label>
-            <input id="machine-search" type="search" placeholder="Search by name, hostname, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
-            <div class="toggles" role="group" aria-label="Show machines">
-                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @(_machines?.Count ?? 0)</button>
-                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">
-                    Not reachable @(_machines?.Count(m => m.Reachable == false) ?? 0)
-                </button>
-                <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">
-                    Low disk @(_machines?.Count(m => m.FreeGb < LowDiskGb) ?? 0)
-                </button>
-            </div>
-        </div>
-    </div>
-
     @if (_machines is null)
     {
-        <p class="muted small machines__pad">Loading machines…</p>
+        <p class="empty">Loading machines…</p>
     }
     else if (_machines.Count == 0)
     {
-        <EmptyState Title="No machines yet">Machines appear here once they're in a group. <a href="groups">Go to groups</a>.</EmptyState>
+        <EmptyState Title="No machines yet.">Add some to a <a href="groups">group</a>.</EmptyState>
     }
     else
     {
+        var unreachable = _machines.Count(m => m.Reachable == false);
+        var lowDisk = _machines.Count(m => m.FreeGb < RigFacts.LowDiskGb);
         var shown = Shown().ToList();
+        var anyFacts = shown.Any(RigFacts.HasAny);
+        <div class="panel__head">
+            <div class="row machines__filters">
+                <label class="visually-hidden" for="machine-search">Search machines</label>
+                <input id="machine-search" type="search" placeholder="Search name, hostname, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
+                @if (unreachable > 0 || lowDisk > 0)
+                {
+                    <div class="toggles" role="group" aria-label="Show machines">
+                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @_machines.Count</button>
+                        @if (unreachable > 0)
+                        {
+                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">Not reachable @unreachable</button>
+                        }
+                        @if (lowDisk > 0)
+                        {
+                            <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">Low disk @lowDisk</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
         @if (shown.Count == 0)
         {
-            <EmptyState Title="No machines match">Try a different search, or show all machines.</EmptyState>
+            <EmptyState Title="No machines match." />
         }
         else
         {
@@ -65,55 +72,31 @@
                         <tr>
                             <th scope="col">Machine</th>
                             <th scope="col">Health</th>
-                            <th scope="col">Logged-on user</th>
-                            <th scope="col" class="num">Free disk</th>
-                            <th scope="col">Last boot</th>
+                            @if (anyFacts)
+                            {
+                                <th scope="col">Details</th>
+                            }
                             <th scope="col">Groups</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var machine in shown)
                         {
-                            <tr>
-                                <td><RigName Name="@machine.Name" Machine="machine" /></td>
+                            <tr class="is-link">
+                                <td><a class="row-link" href="@($"machines/{Uri.EscapeDataString(machine.Name)}")"><RigName Name="@machine.Name" Machine="machine" Link="false" /></a></td>
                                 <td><MachineHealth Machine="machine" /></td>
-                                <td>
-                                    @if (string.IsNullOrEmpty(machine.LoggedOnUser))
+                                @if (anyFacts)
+                                {
+                                    <td><RigFacts Machine="machine" /></td>
+                                }
+                                <td class="machines__groups">
+                                    @{ var groups = _groupsOf.GetValueOrDefault(machine.Name) ?? []; }
+                                    @for (var i = 0; i < groups.Count; i++)
                                     {
-                                        <span class="muted small">Unknown</span>
+                                        var group = groups[i];
+                                        @if (i > 0) { @(", ") }
+                                        <a href="@($"groups/{group.Id}")">@group.Name</a>
                                     }
-                                    else
-                                    {
-                                        @machine.LoggedOnUser
-                                    }
-                                </td>
-                                <td class="num">
-                                    @if (machine.FreeGb is { } free)
-                                    {
-                                        <span class="@(free < LowDiskGb ? "t-warn" : "")" title="@(free < LowDiskGb ? "Less than 5 GB free" : null)">@free.ToString("0.#") GB</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="muted small">Unknown</span>
-                                    }
-                                </td>
-                                <td>
-                                    @if (machine.LastBoot is { } boot)
-                                    {
-                                        <span title="@Ui.When(boot, ClientTime)">@Ui.Ago(boot)</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="muted small">Unknown</span>
-                                    }
-                                </td>
-                                <td>
-                                    <span class="row machines__groups">
-                                        @foreach (var group in _groupsOf.GetValueOrDefault(machine.Name) ?? [])
-                                        {
-                                            <a class="badge badge--group" href="@($"groups/{group.Id}")">@group.Name</a>
-                                        }
-                                    </span>
                                 </td>
                             </tr>
                         }
@@ -125,8 +108,6 @@
 </section>
 
 @code {
-    private const double LowDiskGb = 5;
-
     private enum Filter { All, Unreachable, LowDisk }
 
     private List<Machine>? _machines;
@@ -170,7 +151,7 @@
         machines = _filter switch
         {
             Filter.Unreachable => machines.Where(m => m.Reachable == false),
-            Filter.LowDisk => machines.Where(m => m.FreeGb < LowDiskGb),
+            Filter.LowDisk => machines.Where(m => m.FreeGb < RigFacts.LowDiskGb),
             _ => machines,
         };
 
