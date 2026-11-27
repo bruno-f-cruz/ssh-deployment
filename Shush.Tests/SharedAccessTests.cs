@@ -94,9 +94,9 @@ public class SharedAccessTests
     }
 
     [Fact]
-    public void Settings_default_grants_nothing_and_binds_paths()
+    public void Settings_default_grants_the_uv_root_and_binds_paths()
     {
-        Assert.Empty(new ShushSettings().SharedAccess.ToGrants());
+        Assert.Equal([new SharedAccessGrant(ShushSettings.DefaultUvRoot)], new ShushSettings().SharedAccess.ToGrants());
 
         var settings = new ShushSettings { SharedAccess = new SharedAccessSpec { Paths = ["C:/git"] } };
         Assert.Equal([new SharedAccessGrant("C:/git")], settings.SharedAccess.ToGrants());

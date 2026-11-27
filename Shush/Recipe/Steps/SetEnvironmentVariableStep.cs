@@ -29,7 +29,14 @@ public class SetEnvironmentVariableStep : IRecipeStep
             ? $"[Environment]::SetEnvironmentVariable('{name}', '<redacted>', '{scope}')"
             : null;
 
-        return context.RunCommandsAsync(commands, cancellationToken, logAs);
+        return SetAsync();
+
+        async Task SetAsync()
+        {
+            await context.RunCommandsAsync(commands, cancellationToken, logAs);
+            // Saved for new sessions; this run's later commands get it now.
+            context.SetSessionVariable(Name, Value, Secret);
+        }
     }
 
     private static string Escape(string value) => value.Replace("'", "''");

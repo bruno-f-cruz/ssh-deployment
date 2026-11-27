@@ -66,9 +66,16 @@ Settings come from environment variables, or from a `.env` file (`KEY=VALUE` lin
 | `BasePath` | *(root)* | Serves the app under a subpath (e.g. `/shush`) behind a reverse proxy that doesn't strip it. |
 | `HealthProbeMinutes` | `5` | How often every known machine is checked for answering on port 22. |
 | `MaxConcurrentMachines` | `16` | Machines deploying at the same time, per run. |
-| `SharedAccess__Paths__N` | *(none)* | Folders granted to local users on every rig before every recipe (see docs/recipes.md). |
+| `SharedAccess__Paths__N` | `C:/uv` | Folders granted to local users on every rig before every recipe (see docs/recipes.md). Configured paths are added to `C:/uv`. |
 | `GITHUB_TOKEN` | *(none)* | Optional. Raises GitHub's rate limit for the clabe-release and git-ref suggestions. |
 
+### uv on the rigs
+
+The rigs' policy blocks programs in user profiles (Windows error 1260), which is where uv installs tools by default. So
+Shush adds two global variables on first start, set on every rig as machine-wide environment variables before any
+recipe step: `UV_TOOL_DIR=C:/uv/uv_tool_dir` and `UV_TOOL_BIN_DIR=C:/uv/uv_tool_bin_dir`. `C:/uv` is granted to the
+rigs' users so every SSH account can update them. Edit or delete them in Settings → Variables (they're added only once).
+Setting machine-wide variables needs the SSH account to be an administrator on the rig.
 ### As a Windows Service
 
 ```powershell

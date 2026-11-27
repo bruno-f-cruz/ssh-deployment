@@ -33,6 +33,38 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
         if (paths.LegacyDirectory is not null)
             await ImportLegacyAsync(paths.LegacyDirectory);
         await SeedDeploymentsAsync(paths.DeploymentsDirectory);
+        await SeedDefaultVariablesAsync();
+    }
+
+    /// <summary>
+    /// Global variables every rig gets as machine-wide environment variables, before any recipe step. uv's tool folders
+    /// move out of the user profile (C:\Users\…), where the rigs' policy blocks running programs (Windows error 1260),
+    /// into C:\uv. Added once: edit or delete them in Settings and they stay that way.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Name, string Value, string Description)> DefaultVariables =
+    [
+        ("UV_TOOL_DIR", "C:/uv/uv_tool_dir", "Where uv installs tools (e.g. the clabe command): outside the user profile, so the rigs' policy lets them run."),
+        ("UV_TOOL_BIN_DIR", "C:/uv/uv_tool_bin_dir", "Where uv puts the tools' executables (added to PATH by uv tool update-shell)."),
+    ];
+
+    private async Task SeedDefaultVariablesAsync()
+    {
+        if (!await ClaimOnceAsync("seed:default-variables:uv"))
+            return;
+
+        await using var db = await factory.CreateDbContextAsync();
+        var now = Clock.UtcNow();
+        foreach (var (name, value, description) in DefaultVariables)
+        {
+            if (await db.Variables.AnyAsync(v => v.Scope == VariableScope.Global && v.Name == name))
+                continue;
+            db.Variables.Add(new Variable
+            {
+                Scope = VariableScope.Global, Name = name, Value = value, ApplyAsEnv = true, EnvScope = "Machine",
+                Description = description, UpdatedAt = now,
+            });
+        }
+        await db.SaveChangesAsync();
     }
 
     /// <summary>
