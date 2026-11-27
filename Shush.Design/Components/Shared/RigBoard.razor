@@ -2,6 +2,14 @@
 <div class="stack">
     <div class="panel__head">
         <h2>Rigs</h2>
+        @{
+            var active = Count(MachineStatus.Running) + Count(MachineStatus.Waiting);
+            var failed = Count(MachineStatus.Failed);
+            // Filters only help when some rigs differ from the rest.
+            var worthFiltering = (active > 0 && active < Run.Machines.Count) || (failed > 0 && failed < Run.Machines.Count);
+        }
+        @if (worthFiltering || _filter != "all")
+        {
         <div class="toggles" role="group" aria-label="Show rigs">
             <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "all")" @onclick='() => _filter = "all"'>All @Run.Machines.Count</button>
             @if (Count(MachineStatus.Running) > 0 || Count(MachineStatus.Waiting) > 0)
@@ -15,6 +23,7 @@
                 <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == "failed")" @onclick='() => _filter = "failed"'>Failed @Count(MachineStatus.Failed)</button>
             }
         </div>
+        }
     </div>
 
     <div class="board">

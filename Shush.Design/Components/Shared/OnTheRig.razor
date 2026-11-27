@@ -1,11 +1,7 @@
-@* What a variable does on the rig: only read by recipes, or also set as an environment variable. *@
+@* Marks a variable that is also set as an environment variable on the rig. Recipe-only variables show nothing. *@
 @if (ApplyAsEnv)
 {
-    <span class="badge badge--env">Environment variable (@EnvScope)</span>
-}
-else
-{
-    <span class="muted small">Recipe only</span>
+    <span class="badge badge--env" title="@(EnvScope == "User" ? "Set as an environment variable for the SSH user" : "Set as an environment variable for the whole machine")">env @(EnvScope == "User" ? "· user" : "")</span>
 }
 
 @code {

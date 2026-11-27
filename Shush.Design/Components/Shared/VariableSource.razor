@@ -1,14 +1,14 @@
-@* Where a variable is set: Global, Group (lime), or the machine's name. *@
+@* Where a variable is set: Global, Group, or the machine's name. Plain text: it's a label, not a state. *@
 @switch (Scope)
 {
     case VariableScope.Global:
-        <span class="badge">Global</span>
+        <span class="muted">Global</span>
         break;
     case VariableScope.Group:
-        <span class="badge badge--group">Group</span>
+        <span>Group</span>
         break;
     default:
-        <span class="badge badge--machine">@(Label ?? "Machine")</span>
+        <span class="mono small">@(Label ?? "Machine")</span>
         break;
 }
 

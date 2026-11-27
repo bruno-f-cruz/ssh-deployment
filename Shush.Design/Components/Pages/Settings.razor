@@ -1,47 +1,37 @@
 @page "/settings"
 @inject ShushPaths Paths
 @inject ShushSettings Config
-@inject AppLogPath LogPath
 
 <PageTitle>Settings · Shush</PageTitle>
 
-<PageHeader Title="Settings">
-    <Lede>Variables every machine gets, and how this server is set up.</Lede>
-</PageHeader>
+<PageHeader Title="Settings" />
 
 <div class="columns">
     <div class="wide stack">
         <VariableEditor Scope="VariableScope.Global" Title="Global variables"
-                        Help="Every machine in every group gets these, unless its group or the machine itself sets the same name."
-                        EmptyTitle="No global variables yet"
-                        EmptyText="Add values most rigs share, such as a hub URL. Groups and machines can override them." />
+                        Help="Every machine gets these, unless its group or the machine sets the same name."
+                        EmptyTitle="No global variables." />
     </div>
 
     <div class="narrow stack">
-        <section class="panel">
+        <section class="panel" aria-labelledby="server-h">
             <div class="panel__head">
-                <h2>About this server</h2>
+                <h2 id="server-h" title="Read from appsettings.json or environment variables at startup. Change them there and restart the app.">This server</h2>
+                <a class="small" href="logs">Application log</a>
             </div>
             <dl class="kv">
                 <dt>Data folder</dt>
-                <dd class="mono small">@Paths.DataDirectory</dd>
+                <dd class="mono small" title="@($"Database: {Paths.DatabaseFile}")">@Paths.DataDirectory</dd>
 
-                <dt>Database file</dt>
-                <dd class="mono small">@Paths.DatabaseFile</dd>
-
-                <dt>Machine registry</dt>
+                <dt>Registry</dt>
                 <dd class="mono small">@Config.MachineRegistryUrl</dd>
 
-                <dt>Health probe</dt>
+                <dt>Health check</dt>
                 <dd>Every @Ui.Plural(Math.Max(1, Config.HealthProbeMinutes), "minute")</dd>
 
-                <dt>Machines at once</dt>
+                <dt>Parallel rigs</dt>
                 <dd>Up to @Config.MaxConcurrentMachines per run</dd>
-
-                <dt>Application log</dt>
-                <dd><a href="logs">Application log</a> <div class="mono small muted">@LogPath.Path</div></dd>
             </dl>
-            <p class="small muted">These come from appsettings.json or environment variables, read at startup. Change them there and restart the app.</p>
         </section>
     </div>
 </div>

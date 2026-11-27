@@ -6,13 +6,10 @@
 
 <PageHeader Title="Application log">
     <Crumbs><a href="settings">Settings</a> / Application log</Crumbs>
-    <Lede>App-level messages: the machine registry, startup, unexpected errors. Each run has its own log on its page.</Lede>
-    <Actions><button type="button" class="btn" @onclick="Refresh">Refresh</button></Actions>
+    <Facts><p class="meta"><span class="mono small">@LogPath.Path</span><span>updates every 5 s</span></p></Facts>
 </PageHeader>
 
-<section class="panel">
-    <pre class="log log--tall">@(string.IsNullOrEmpty(_content) ? "No entries yet." : _content)</pre>
-</section>
+<pre class="log log--tall applog">@(string.IsNullOrEmpty(_content) ? "No entries yet." : _content)</pre>
 
 @code {
     private string _content = "";

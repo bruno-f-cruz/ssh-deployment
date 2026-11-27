@@ -1,19 +1,27 @@
-@* A machine's health from the background probe: reachable, not reachable, or not checked yet. *@
+@* A machine's health from the background probe, on one line: "● Reachable · 2 min ago". When it isn't reachable,
+   the reason is in the tooltip and (with Detail) on a muted line underneath. *@
 @{
     var tone = ToneOf(Machine);
+    var why = Why(Machine);
 }
-<span class="stack machine-health">
-    <StatusText Tone="tone" />
-    @if (Detail)
+<span class="machine-health" title="@Tooltip(Machine)">
+    <span class="machine-health__line">
+        <StatusText Tone="tone" />
+        @if (Detail && SeenText(Machine) is { } seen)
+        {
+            <span class="machine-health__when">@seen</span>
+        }
+    </span>
+    @if (Detail && why is not null)
     {
-        <span class="small muted">@DetailText(Machine)</span>
+        <span class="machine-health__why">@why</span>
     }
 </span>
 
 @code {
     [Parameter] public Machine? Machine { get; set; }
 
-    /// <summary>Also show "Last seen 5 min ago" or why it isn't reachable.</summary>
+    /// <summary>Also show when it was last seen, and why it isn't reachable.</summary>
     [Parameter] public bool Detail { get; set; } = true;
 
     public static Tone ToneOf(Machine? machine) => machine?.Reachable switch
@@ -23,16 +31,20 @@
         _ => new("idle", "Not checked yet"),
     };
 
-    public static string DetailText(Machine? machine)
-    {
-        if (machine is null || machine.Reachable is null)
-            return machine?.LastSeenAt is { } seen ? $"Last seen {Ui.Ago(seen)}" : "No probe yet";
+    /// <summary>"2 min ago" (reachable) or "seen 3 d ago" (not reachable); null when never seen.</summary>
+    public static string? SeenText(Machine? machine) => machine?.LastSeenAt is not { } seen
+        ? null
+        : machine.Reachable == false ? $"seen {Ui.Ago(seen)}" : Ui.Ago(seen);
 
-        if (machine.Reachable == true)
-            return machine.LastSeenAt is { } at ? $"Last seen {Ui.Ago(at)}" : "";
+    /// <summary>Why the machine isn't reachable; null when it is, or hasn't been checked.</summary>
+    public static string? Why(Machine? machine) => machine?.Reachable != false
+        ? null
+        : string.IsNullOrWhiteSpace(machine.ProbeError) ? "No answer on port 22" : machine.ProbeError.TrimEnd('.');
 
-        var why = string.IsNullOrWhiteSpace(machine.ProbeError) ? "no answer on port 22" : machine.ProbeError.TrimEnd('.');
-        var seenText = machine.LastSeenAt is { } last ? $" Last seen {Ui.Ago(last)}." : " Never seen.";
-        return $"{why}.{seenText}";
-    }
+    private static string? Tooltip(Machine? machine) => machine?.LastProbeAt is { } probed
+        ? $"Checked {Ui.Ago(probed)}{(Why(machine) is { } why ? $": {why}" : "")}"
+        : null;
+
+    public static string DetailText(Machine? machine) =>
+        string.Join(". ", new[] { Why(machine), SeenText(machine) is { } seen ? $"Last {seen}" : null }.Where(s => s is not null));
 }

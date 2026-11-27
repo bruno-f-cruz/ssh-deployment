@@ -1,19 +1,18 @@
 @* The variables of one scope (global, a group, or a machine): a table plus an add/edit form. *@
 @inject VariableService Variables
 
-<section class="panel panel--flush">
+<section class="panel panel--flush" aria-labelledby="@($"{_uid}-h")">
     <div class="panel__head">
         <div class="stack variable-editor__intro">
-            <h2>@Title</h2>
+            <h2 id="@($"{_uid}-h")">@Title</h2>
             @if (Help is not null)
             {
                 <p class="panel__sub">@Help</p>
             }
-            <p class="panel__sub">Use one in any step input as <code>${group.NAME}</code>. A machine's own value wins over its group's, which wins over the global one.</p>
         </div>
         @if (!_formOpen)
         {
-            <button type="button" class="btn btn--small" @onclick="StartAdd"><Icon Name="plus" />Add variable</button>
+            <button type="button" class="btn btn--small" @onclick="StartAdd"><Icon Name="plus" />Add</button>
         }
     </div>
 
@@ -24,57 +23,43 @@
             <div class="form-grid">
                 <div class="field">
                     <label for="@($"{_uid}-name")">Name <span class="req" aria-hidden="true">*</span></label>
-                    <input id="@($"{_uid}-name")" class="mono" type="text" @bind="_name" autocomplete="off" spellcheck="false" required />
-                    <span class="field__hint">Letters, digits, _ or -, starting with a letter or _ (e.g. repoRoot, HUB_URL).</span>
+                    <input id="@($"{_uid}-name")" class="mono" type="text" @bind="_name" autocomplete="off" spellcheck="false" required
+                           placeholder="e.g. repoRoot" title="Letters, digits, _ or -, starting with a letter or _" />
+                    <span class="field__hint">Steps read it as <code>${group.@(string.IsNullOrWhiteSpace(_name) ? "NAME" : _name.Trim())}</code></span>
                 </div>
                 <div class="field">
                     <label for="@($"{_uid}-description")">Description</label>
-                    <input id="@($"{_uid}-description")" type="text" @bind="_description" autocomplete="off" />
-                    <span class="field__hint">Optional. What it's for, so the next person knows whether to change it.</span>
+                    <input id="@($"{_uid}-description")" type="text" @bind="_description" autocomplete="off" placeholder="What it's for (optional)" />
                 </div>
             </div>
 
             <div class="field">
                 <label for="@($"{_uid}-value")">Value</label>
-                <textarea id="@($"{_uid}-value")" class="mono" rows="3" @bind="_value" spellcheck="false"
+                <textarea id="@($"{_uid}-value")" class="mono" rows="2" @bind="_value" spellcheck="false"
                           placeholder="@(_editingSecret && _isSecret ? "Leave empty to keep the current value" : null)"
                           autocomplete="off"></textarea>
-                @if (_editingSecret && _isSecret)
+                @if (_isSecret)
                 {
-                    <span class="field__hint">Leave empty to keep the current value. A secret's value is never shown again.</span>
-                }
-                else if (_isSecret)
-                {
-                    <span class="field__hint">Stored encrypted. After saving it can be replaced, but not shown again.</span>
-                }
-                else
-                {
-                    <span class="field__hint">Several lines are fine.</span>
+                    <span class="field__hint">Stored encrypted and never shown again.</span>
                 }
             </div>
 
-            <div class="stack variable-editor__options">
-                <label class="checkbox">
+            <div class="row variable-editor__options">
+                <label class="checkbox" title="Encrypted, never shown again, masked in logs">
                     <input type="checkbox" @bind="_isSecret" />
-                    Secret (encrypted, never shown again, masked in logs)
+                    Secret
                 </label>
-                <div class="row">
-                    <label class="checkbox">
-                        <input type="checkbox" @bind="_applyAsEnv" />
-                        Set as an environment variable on the rig
-                    </label>
-                    @if (_applyAsEnv)
-                    {
-                        <label class="visually-hidden" for="@($"{_uid}-envscope")">Environment variable scope</label>
-                        <select id="@($"{_uid}-envscope")" class="variable-editor__envscope" @bind="_envScope">
-                            <option value="Machine">For the whole machine (Machine)</option>
-                            <option value="User">For the SSH user only (User)</option>
-                        </select>
-                    }
-                </div>
+                <label class="checkbox" title="Set before the recipe's steps run, on every machine that gets this value">
+                    <input type="checkbox" @bind="_applyAsEnv" />
+                    Set as environment variable
+                </label>
                 @if (_applyAsEnv)
                 {
-                    <span class="field__hint">Set before the recipe's steps run, on every machine that gets this value.</span>
+                    <label class="visually-hidden" for="@($"{_uid}-envscope")">Environment variable scope</label>
+                    <select id="@($"{_uid}-envscope")" class="variable-editor__envscope" @bind="_envScope">
+                        <option value="Machine">for the machine</option>
+                        <option value="User">for the SSH user</option>
+                    </select>
                 }
             </div>
 
@@ -87,7 +72,7 @@
             }
 
             <div class="row">
-                <button type="submit" class="btn btn--primary" disabled="@_busy">@(_editId is null ? "Add variable" : "Save changes")</button>
+                <button type="submit" class="btn btn--primary" disabled="@_busy">@(_editId is null ? "Add" : "Save")</button>
                 <button type="button" class="btn btn--ghost" @onclick="CloseForm">Cancel</button>
             </div>
         </form>
@@ -95,13 +80,14 @@
 
     @if (_items is null)
     {
-        <p class="muted small variable-editor__pad">Loading variables…</p>
+        <p class="empty">Loading…</p>
     }
     else if (_items.Count == 0)
     {
-        <EmptyState Title="@EmptyTitle">
-            @EmptyText
-        </EmptyState>
+        @if (!_formOpen)
+        {
+            <EmptyState Title="@EmptyTitle">@EmptyText</EmptyState>
+        }
     }
     else
     {
@@ -111,42 +97,42 @@
                     <tr>
                         <th scope="col">Name</th>
                         <th scope="col">Value</th>
-                        <th scope="col">On the rig</th>
-                        <th scope="col">Description</th>
-                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        <th scope="col"><span class="visually-hidden">Delete</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var item in _items)
                     {
-                        <tr>
-                            <td class="mono">@item.Name</td>
+                        <tr class="@(_editId == item.Id ? "is-editing" : null)">
                             <td>
-                                @if (item.IsSecret)
+                                <button type="button" class="link-btn mono variable-editor__name" title="Edit" @onclick="() => StartEdit(item)"
+                                        aria-label="@($"Edit {item.Name}")">@item.Name</button>
+                                @if (!string.IsNullOrWhiteSpace(item.Description))
                                 {
-                                    <span class="row variable-editor__secret">
-                                        <span class="mono" aria-label="Hidden value">••••••••</span>
-                                        <span class="badge badge--secret">Secret</span>
-                                    </span>
-                                }
-                                else if (string.IsNullOrEmpty(item.Value))
-                                {
-                                    <span class="muted small">Empty</span>
-                                }
-                                else
-                                {
-                                    <span class="mono variable-editor__value">@item.Value</span>
+                                    <div class="sub">@item.Description</div>
                                 }
                             </td>
-                            <td><OnTheRig ApplyAsEnv="item.ApplyAsEnv" EnvScope="@item.EnvScope" /></td>
-                            <td class="small">@item.Description</td>
-                            <td class="actions-cell">
-                                <span class="row variable-editor__actions">
-                                    <button type="button" class="btn btn--small btn--ghost" @onclick="() => StartEdit(item)"
-                                            aria-label="@($"Edit {item.Name}")">Edit</button>
-                                    <ConfirmButton Class="btn btn--small btn--ghost btn--danger" Question="@($"Delete {item.Name}?")"
-                                                   AriaLabel="@($"Delete {item.Name}")" OnConfirm="() => DeleteAsync(item)">Delete</ConfirmButton>
+                            <td>
+                                <span class="row variable-editor__secret">
+                                    @if (item.IsSecret)
+                                    {
+                                        <span class="mono" aria-label="Hidden value">••••••••</span>
+                                        <span class="badge badge--secret">Secret</span>
+                                    }
+                                    else if (string.IsNullOrEmpty(item.Value))
+                                    {
+                                        <span class="muted small">Empty</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="mono variable-editor__value">@item.Value</span>
+                                    }
+                                    <OnTheRig ApplyAsEnv="item.ApplyAsEnv" EnvScope="@item.EnvScope" />
                                 </span>
+                            </td>
+                            <td class="actions-cell">
+                                <ConfirmButton Class="btn btn--icon" Question="@($"Delete {item.Name}?")" Title="Delete"
+                                               AriaLabel="@($"Delete {item.Name}")" OnConfirm="() => DeleteAsync(item)"><Icon Name="trash" Size="16" /></ConfirmButton>
                             </td>
                         </tr>
                     }

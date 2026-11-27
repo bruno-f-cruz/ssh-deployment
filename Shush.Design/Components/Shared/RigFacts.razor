@@ -1,0 +1,29 @@
+@* What the last dry run or deploy learned about a machine, as one muted line that lists only what is known:
+   "svc_vr · 42 GB free · booted 3 d ago". Renders nothing when nothing is known. *@
+@inject ClientTime ClientTime
+@if (HasAny(Machine))
+{
+    <span class="meta machine-facts" title="@(Machine!.FactsAt is { } at ? $"As of the last dry run or deploy, {Ui.Ago(at)}" : null)">
+        @if (!string.IsNullOrEmpty(Machine.LoggedOnUser))
+        {
+            <span title="Logged-on user">@Machine.LoggedOnUser</span>
+        }
+        @if (Machine.FreeGb is { } free)
+        {
+            <span class="@(free < LowDiskGb ? "t-warn" : "")" title="@(free < LowDiskGb ? "Less than 5 GB free: installs may fail" : "Free on the system drive")">@free.ToString("0.#") GB free</span>
+        }
+        @if (Machine.LastBoot is { } boot)
+        {
+            <span title="@($"Last boot {Ui.When(boot, ClientTime)}")">booted @Ui.Ago(boot)</span>
+        }
+    </span>
+}
+
+@code {
+    public const double LowDiskGb = 5;
+
+    [Parameter] public Machine? Machine { get; set; }
+
+    public static bool HasAny(Machine? machine) =>
+        machine is not null && (!string.IsNullOrEmpty(machine.LoggedOnUser) || machine.FreeGb is not null || machine.LastBoot is not null);
+}
