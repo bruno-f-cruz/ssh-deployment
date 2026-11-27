@@ -1,0 +1,8 @@
+<span class="status @Tone.Text"><span class="@Tone.Dot" aria-hidden="true"></span>@(Label ?? Tone.Label)</span>
+
+@code {
+    [Parameter, EditorRequired] public Tone Tone { get; set; }
+
+    /// <summary>Overrides the tone's own label (e.g. "Running, 9 of 15 done").</summary>
+    [Parameter] public string? Label { get; set; }
+}

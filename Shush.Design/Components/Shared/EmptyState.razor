@@ -1,0 +1,14 @@
+<div class="empty">
+    <strong>@Title</strong>
+    @if (ChildContent is not null)
+    {
+        <div>@ChildContent</div>
+    }
+    @Actions
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

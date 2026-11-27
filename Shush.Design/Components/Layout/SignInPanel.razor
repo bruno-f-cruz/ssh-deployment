@@ -1,0 +1,107 @@
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@implements IDisposable
+@inject CredentialStore Credentials
+@inject ProtectedLocalStorage LocalStore
+@inject ProtectedSessionStorage SessionStore
+@inject ILogger<SignInPanel> Logger
+
+@* The SSH credentials deploys connect with. Kept in server memory for this tab only; the username is remembered. *@
+@if (Credentials.IsSignedIn)
+{
+    <span class="small muted">Signed in as</span>
+    <strong>@Credentials.Username</strong>
+    <button type="button" class="link-btn small" style="align-self: flex-start" @onclick="SignOutAsync">Sign out</button>
+}
+else if (_open)
+{
+    <form class="signin" @onsubmit="SignInAsync" @onsubmit:preventDefault="true">
+        <div class="field">
+            <label for="ssh-user" class="small">SSH username</label>
+            <input id="ssh-user" name="username" autocomplete="username" @bind="_username" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="ssh-pass" class="small">Password</label>
+            <input id="ssh-pass" name="password" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" />
+        </div>
+        <div class="row">
+            <button type="submit" class="btn btn--primary btn--small" disabled="@(string.IsNullOrWhiteSpace(_username) || string.IsNullOrEmpty(_password))">Sign in</button>
+            <button type="button" class="btn btn--ghost btn--small" @onclick="() => _open = false">Cancel</button>
+        </div>
+        <p class="small muted">Used to connect to the rigs. Kept for this tab only, never stored.</p>
+    </form>
+}
+else
+{
+    <span class="small muted">Sign in with your rig account to deploy.</span>
+    <button type="button" class="btn btn--small" style="align-self: flex-start" @onclick="() => _open = true">
+        <Icon Name="lock" Size="16" />Sign in
+    </button>
+}
+
+@code {
+    private bool _open;
+    private string _username = "";
+    private string _password = "";
+
+    protected override void OnInitialized() => Credentials.Changed += OnChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        try
+        {
+            var user = await LocalStore.GetAsync<string>("shush.username");
+            if (user is { Success: true, Value: { Length: > 0 } })
+                _username = user.Value;
+
+            var pass = await SessionStore.GetAsync<string>("shush.password");
+            if (!Credentials.IsSignedIn && !string.IsNullOrWhiteSpace(_username) && pass is { Success: true, Value: { Length: > 0 } })
+                Credentials.SignIn(_username, pass.Value);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Storage can be unavailable (blocked, or during prerender); signing in by hand still works.
+            Logger.LogWarning(ex, "Couldn't read saved credentials from browser storage.");
+        }
+    }
+
+    private async Task SignInAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrEmpty(_password))
+            return;
+
+        Credentials.SignIn(_username.Trim(), _password);
+        try
+        {
+            await LocalStore.SetAsync("shush.username", Credentials.Username!);
+            await SessionStore.SetAsync("shush.password", _password);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't keep the credentials in browser storage.");
+        }
+
+        _password = "";
+        _open = false;
+    }
+
+    private async Task SignOutAsync()
+    {
+        Credentials.SignOut();
+        try
+        {
+            await SessionStore.DeleteAsync("shush.password");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't clear the saved password.");
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Credentials.Changed -= OnChanged;
+}

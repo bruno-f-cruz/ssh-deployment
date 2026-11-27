@@ -1,0 +1,112 @@
+@using Shush.Recipe.Options
+@inject OptionSourceRegistry OptionSources
+@inject ILogger<ParamForm> Logger
+
+@* A recipe's parameters as a form. Fixed parameters are set once per deployment: locked unless EditFixed. *@
+@if (_fields.Count == 0)
+{
+    <p class="muted">This recipe has no parameters.</p>
+}
+else
+{
+    <div class="form-grid">
+        @foreach (var field in _fields)
+        {
+            var id = $"param-{IdPrefix}-{field.Name}";
+            var value = Values.GetValueOrDefault(field.Name, field.Default ?? "");
+            var locked = ReadOnly || (field.Fixed && !EditFixed);
+            var missing = field.Required && string.IsNullOrEmpty(value);
+            <div class="field">
+                <label for="@id">
+                    @field.Label
+                    @if (field.Required) { <span class="req" title="Required">*</span> }
+                    @if (field.Fixed) { <span class="locked" title="Set once for this deployment">@(EditFixed ? "set once" : "fixed")</span> }
+                </label>
+                @if (field.Kind == PropertyEditorKind.Dropdown && !locked)
+                {
+                    <select id="@id" value="@value" @onchange="e => Set(field.Name, e.Value?.ToString())">
+                        @if (field.Required) { <option value="">Select…</option> }
+                        @foreach (var option in field.Options)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input id="@id" value="@value" readonly="@locked" autocomplete="off" spellcheck="false"
+                           list="@(locked ? null : ListId(field.OptionsFrom))"
+                           @onchange="e => Set(field.Name, e.Value?.ToString())" />
+                }
+                @if (field.Help is not null) { <span class="field__hint">@field.Help</span> }
+                @if (missing && !locked) { <span class="field__error">Required.</span> }
+            </div>
+        }
+    </div>
+
+    @foreach (var (source, options) in _options)
+    {
+        <datalist id="@ListId(source)">
+            @foreach (var option in options)
+            {
+                <option value="@option.Value">@option.Label</option>
+            }
+        </datalist>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public RecipeDocument Document { get; set; } = null!;
+    [Parameter, EditorRequired] public Dictionary<string, string> Values { get; set; } = null!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>True when creating or editing the deployment itself, so fixed values can be set.</summary>
+    [Parameter] public bool EditFixed { get; set; }
+
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public string IdPrefix { get; set; } = "p";
+
+    private List<RecipeField> _fields = [];
+    private readonly Dictionary<string, IReadOnlyList<InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);
+    private RecipeDocument? _loadedFor;
+
+    /// <summary>True when every required parameter has a value.</summary>
+    public static bool IsComplete(RecipeDocument document, IReadOnlyDictionary<string, string> values) =>
+        RecipeFormBinder.GetFields(document).All(f => !f.Required || !string.IsNullOrEmpty(values.GetValueOrDefault(f.Name)));
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_loadedFor, Document))
+            return;
+        _loadedFor = Document;
+        _fields = RecipeFormBinder.GetFields(Document);
+        _ = LoadOptionsAsync(_fields.Select(f => f.OptionsFrom).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList()!);
+    }
+
+    private async Task LoadOptionsAsync(List<string> sources)
+    {
+        foreach (var name in sources)
+        {
+            if (_options.ContainsKey(name) || !OptionSources.TryGet(name, out var source))
+                continue;
+            try
+            {
+                _options[name] = await source.GetOptionsAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Couldn't load the {Source} suggestions.", name);
+            }
+        }
+    }
+
+    private static string? ListId(string? source) =>
+        string.IsNullOrWhiteSpace(source) ? null : "opts-" + string.Concat(source.Select(c => char.IsLetterOrDigit(c) ? c : '-'));
+
+    private async Task Set(string name, string? value)
+    {
+        Values[name] = value ?? "";
+        await OnChanged.InvokeAsync();
+    }
+}

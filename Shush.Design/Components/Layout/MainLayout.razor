@@ -1,9 +1,119 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject RunCoordinator Coordinator
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject IJSRuntime JS
 
-@Body
+<div class="shell">
+    <nav class="nav" aria-label="Main">
+        <a class="brand" href="">
+            <Logo />
+            <span class="brand__name">Shush</span>
+        </a>
+
+        <ul class="nav__list">
+            <li><NavLink class="nav__link" href="" Match="NavLinkMatch.All"><Icon Name="overview" />Overview</NavLink></li>
+            <li><NavLink class="nav__link" href="deployments"><Icon Name="deploy" />Deployments</NavLink></li>
+            <li>
+                <NavLink class="nav__link" href="runs">
+                    <Icon Name="runs" />Runs
+                    @if (_activeRuns > 0)
+                    {
+                        <span class="count" title="Runs in progress">@_activeRuns</span>
+                    }
+                </NavLink>
+            </li>
+            <li><NavLink class="nav__link" href="groups"><Icon Name="groups" />Groups</NavLink></li>
+            <li><NavLink class="nav__link" href="machines"><Icon Name="machines" />Machines</NavLink></li>
+            <li><NavLink class="nav__link" href="recipes"><Icon Name="recipes" />Recipes</NavLink></li>
+            <li><NavLink class="nav__link" href="settings"><Icon Name="settings" />Settings</NavLink></li>
+        </ul>
+
+        <div class="nav__footer">
+            <SignInPanel />
+        </div>
+    </nav>
+
+    <main class="main">
+        <div class="main__inner">
+            <ErrorBoundary @ref="_boundary">
+                <ChildContent>@Body</ChildContent>
+                <ErrorContent Context="ex">
+                    <div class="alert alert--error" role="alert">
+                        <Icon Name="warn" />
+                        <div class="grow">
+                            <strong>This page hit an error.</strong>
+                            <p class="small">@ex.Message</p>
+                        </div>
+                        <button type="button" class="btn btn--small" @onclick="Recover">Try again</button>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
+        </div>
+    </main>
+</div>
+
+<div class="toasts" aria-live="polite">
+    @foreach (var notice in Notifier.Notices)
+    {
+        <div class="toast @(notice.Kind == NoticeKind.Error ? "toast--error" : "")" role="@(notice.Kind == NoticeKind.Error ? "alert" : "status")">
+            <span class="grow">@notice.Message</span>
+            <button type="button" aria-label="Dismiss" @onclick="() => Notifier.Dismiss(notice.Id)">&#10005;</button>
+        </div>
+    }
+</div>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
+    The connection to the server had a problem.
     <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
+    <span class="dismiss">&#10005;</span>
 </div>
+
+@code {
+    private ErrorBoundary? _boundary;
+    private int _activeRuns;
+
+    protected override void OnInitialized()
+    {
+        _activeRuns = Coordinator.ActiveRunIds.Count;
+        Coordinator.RunChanged += OnRunChanged;
+        Notifier.Changed += OnNotice;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || ClientTime.Known)
+            return;
+        try
+        {
+            ClientTime.OffsetMinutes = await JS.InvokeAsync<int>("shushTimezoneOffset");
+            ClientTime.Known = true;
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+            // Times stay in UTC.
+        }
+    }
+
+    protected override void OnParametersSet() => _boundary?.Recover();
+
+    private void Recover() => _boundary?.Recover();
+
+    private void OnRunChanged(int _) => InvokeAsync(() =>
+    {
+        var count = Coordinator.ActiveRunIds.Count;
+        if (count == _activeRuns) return;
+        _activeRuns = count;
+        StateHasChanged();
+    });
+
+    private void OnNotice() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        Notifier.Changed -= OnNotice;
+    }
+}

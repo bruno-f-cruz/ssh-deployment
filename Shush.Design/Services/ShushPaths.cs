@@ -4,30 +4,22 @@ namespace Shush.Design.Services;
 
 public sealed record AppLogPath(string Path);
 
-/// <summary>Directories recipes are discovered from: shipped built-ins (base) and user copies (user).</summary>
-public sealed record RecipePaths(string BaseDir, string UserDir);
-public static class ShushPaths
+/// <summary>Where the app keeps its data: the database, run logs and data-protection keys, all under one folder.</summary>
+public sealed class ShushPaths
 {
-    public static string GetShushDirectory(IWebHostEnvironment env, ShushSettings settings)
+    public ShushPaths(string contentRoot, ShushSettings settings)
     {
-        var dir = Path.Combine(env.ContentRootPath, settings.DataDirectoryName);
-        Directory.CreateDirectory(dir);
-        return dir;
+        DataDirectory = Path.Combine(contentRoot, settings.DataDirectoryName);
+        Directory.CreateDirectory(DataDirectory);
+        Directory.CreateDirectory(LogsDirectory);
+        Directory.CreateDirectory(KeysDirectory);
     }
 
-    /// <summary>Directory for user-uploaded / user-edited recipe YAML files (overlays the built-ins by name).</summary>
-    public static string GetUserRecipesDirectory(IWebHostEnvironment env, ShushSettings settings)
-    {
-        var dir = Path.Combine(GetShushDirectory(env, settings), "recipes");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    public string DataDirectory { get; }
+    public string DatabaseFile => Path.Combine(DataDirectory, "shush.db");
+    public string LogsDirectory => Path.Combine(DataDirectory, "logs");
+    public string KeysDirectory => Path.Combine(DataDirectory, "keys");
 
-    /// <summary>Directory for user-defined machine group YAML files (overlays the built-ins by name).</summary>
-    public static string GetUserGroupsDirectory(IWebHostEnvironment env, ShushSettings settings)
-    {
-        var dir = Path.Combine(GetShushDirectory(env, settings), "groups");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    /// <summary>Shipped content, next to the binary.</summary>
+    public static string Shipped(string folder) => Path.Combine(AppContext.BaseDirectory, folder);
 }

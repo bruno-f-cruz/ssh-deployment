@@ -1,0 +1,18 @@
+@* A run's machines as one bar: done, running, failed, then the rest. *@
+<div class="runbar" role="img" aria-label="@Description">
+    @if (Succeeded > 0) { <span class="seg-ok" style="flex: @Succeeded"></span> }
+    @if (Running > 0) { <span class="seg-run" style="flex: @Running"></span> }
+    @if (Failed > 0) { <span class="seg-fail" style="flex: @Failed"></span> }
+    @if (Other > 0) { <span class="seg-pend" style="flex: @Other"></span> }
+</div>
+
+@code {
+    [Parameter] public int Succeeded { get; set; }
+    [Parameter] public int Running { get; set; }
+    [Parameter] public int Failed { get; set; }
+    [Parameter] public int Total { get; set; }
+
+    private int Other => Math.Max(0, Total - Succeeded - Running - Failed);
+
+    private string Description => $"{Succeeded} done, {Running} running, {Failed} failed, {Other} not started";
+}

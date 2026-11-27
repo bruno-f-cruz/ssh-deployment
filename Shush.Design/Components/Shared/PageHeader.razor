@@ -1,0 +1,27 @@
+@* Breadcrumbs, the page title, an optional line under it, facts, and the page's actions on the right. *@
+<header class="page-header">
+    <div class="page-header__text">
+        @if (Crumbs is not null)
+        {
+            <p class="crumbs">@Crumbs</p>
+        }
+        <h1>@Title</h1>
+        @if (Lede is not null)
+        {
+            <p class="page-header__lede">@Lede</p>
+        }
+        @Facts
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public RenderFragment? Crumbs { get; set; }
+    [Parameter] public RenderFragment? Lede { get; set; }
+    [Parameter] public RenderFragment? Facts { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

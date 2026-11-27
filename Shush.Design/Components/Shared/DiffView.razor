@@ -1,0 +1,43 @@
+@* A line diff of two texts (e.g. two recipe versions). Unchanged stretches fold away unless Full. *@
+@if (_lines.Count == 0 || _lines.All(l => l.Kind == DiffKind.Unchanged))
+{
+    <p class="muted">@(NoChanges ?? "No changes.")</p>
+}
+else
+{
+    <div class="diff" role="table" aria-label="@AriaLabel">
+        @foreach (var line in Full ? _lines.Cast<DiffLine?>() : TextDiff.Hunks(_lines, Context))
+        {
+            if (line is null)
+            {
+                <div class="diff__gap" role="row">Unchanged lines</div>
+                continue;
+            }
+            <div class="diff__line @(line.Kind switch { DiffKind.Added => "diff__add", DiffKind.Removed => "diff__del", _ => "" })" role="row">
+                <span>@line.OldNumber</span><span>@line.NewNumber</span>
+                <span aria-label="@(line.Kind switch { DiffKind.Added => "added", DiffKind.Removed => "removed", _ => "unchanged" })">@(line.Kind switch { DiffKind.Added => "+", DiffKind.Removed => "−", _ => " " })</span>
+                <span>@line.Text</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Old { get; set; } = "";
+    [Parameter, EditorRequired] public string New { get; set; } = "";
+    [Parameter] public bool Full { get; set; }
+    [Parameter] public int Context { get; set; } = 3;
+    [Parameter] public string? NoChanges { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "Changes";
+
+    private IReadOnlyList<DiffLine> _lines = [];
+    private (string, string)? _for;
+
+    protected override void OnParametersSet()
+    {
+        if (_for == (Old, New))
+            return;
+        _for = (Old, New);
+        _lines = TextDiff.Lines(Old, New);
+    }
+}

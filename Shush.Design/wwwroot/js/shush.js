@@ -17,3 +17,11 @@ window.downloadFile = function (fileName, content, mimeType) {
     anchor.click();
     URL.revokeObjectURL(url);
 };
+
+window.shushTimezoneOffset = function () {
+    return new Date().getTimezoneOffset();
+};
+
+window.shushCopy = function (text) {
+    if (navigator.clipboard) navigator.clipboard.writeText(text);
+};
