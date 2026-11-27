@@ -1,0 +1,101 @@
+@page "/deployments"
+@implements IDisposable
+@inject DeploymentService DeploymentData
+@inject RunCoordinator Coordinator
+@inject ClientTime ClientTime
+
+<PageTitle>Deployments · Shush</PageTitle>
+
+<PageHeader Title="Deployments">
+    <Lede>A deployment is a recipe deployed to a group of rigs. It remembers the values you last used, so deploying again is one click.</Lede>
+    <Actions><a class="btn btn--primary" href="deployments/new"><Icon Name="plus" Size="16" />New deployment</a></Actions>
+</PageHeader>
+
+<section class="panel panel--flush" aria-label="Deployments">
+    @if (_deployments is null)
+    {
+        <p class="empty muted">Loading…</p>
+    }
+    else if (_deployments.Count == 0)
+    {
+        <EmptyState Title="No deployments yet">
+            <ChildContent>Pick a recipe and a group of rigs to create the first one.</ChildContent>
+            <Actions><a class="btn btn--primary" href="deployments/new">New deployment</a></Actions>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Deployment</th>
+                        <th scope="col">Group</th>
+                        <th scope="col">Last run</th>
+                        <th scope="col">When</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in _deployments)
+                    {
+                        <tr>
+                            <td>
+                                <a class="title" href="deployments/@d.Id">@d.Name</a>
+                                <div class="sub">@d.RecipeName</div>
+                            </td>
+                            <td><a href="groups/@d.GroupId">@d.GroupName</a><div class="sub">@Ui.Plural(d.MachineCount, "rig")</div></td>
+                            <td>
+                                @if (d.LastRun is { } run)
+                                {
+                                    <a href="runs/@run.RunId" style="text-decoration: none"><StatusText Tone="Ui.Of(run.Status)" Label="@Summary(run)" /></a>
+                                }
+                                else
+                                {
+                                    <span class="muted">Never deployed</span>
+                                }
+                            </td>
+                            <td>
+                                @if (d.LastRun is { } run2)
+                                {
+                                    <span title="@Ui.When(run2.StartedAt, ClientTime)">@Ui.Ago(run2.StartedAt)</span>
+                                }
+                            </td>
+                            <td class="actions-cell"><a class="btn btn--small" href="deployments/@d.Id">Open</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private List<DeploymentSummary>? _deployments;
+    private LiveRefresh? _live;
+
+    public static string Summary(LastRunSummary run) => run.Status switch
+    {
+        RunStatus.Running => $"Running, {run.Succeeded} of {run.Machines} done",
+        RunStatus.Succeeded => $"Succeeded on {run.Succeeded} of {run.Machines}",
+        RunStatus.Failed => $"Failed on {run.Failed} of {run.Machines}",
+        _ => Ui.Of(run.Status).Label,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnRunChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _deployments = await DeploymentData.ListAsync();
+
+    private void OnRunChanged(int _) => _live?.Mark();
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        _live?.Dispose();
+    }
+}

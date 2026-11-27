@@ -173,14 +173,14 @@ code { font-size: 0.92em; background: var(--surface-2); border: 1px solid var(--
 
 /* ---------- Tabs ---------- */
 
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .tab {
-    min-height: 44px; padding: 0 16px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none;
+    min-height: 44px; padding: 0 16px; border: 0; background: none;
     font: inherit; font-size: 15px; font-weight: 500; color: var(--muted); cursor: pointer; white-space: nowrap; text-decoration: none;
     display: inline-flex; align-items: center;
 }
 .tab:hover { color: var(--ink); }
-.tab[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--ink); }
 
 /* ---------- Forms ---------- */
 
@@ -381,3 +381,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .tok-ref { color: var(--blue-text); }
 .tok-str { color: var(--teal-text); }
 .tok-comment { color: var(--muted); font-style: italic; }
+
+/* FocusOnNavigate focuses the page title for screen readers; it needs no visible ring. */
+h1:focus, h1:focus-visible { outline: none; }

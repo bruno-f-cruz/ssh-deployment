@@ -4,7 +4,11 @@ services:
     ports:
       - "5036:8080"
     volumes:
+      # The database (shush.db), run logs and the keys that encrypt secret variables live here.
       - shush-data:/app/.shush
 
 volumes:
+  # External, so `docker compose down -v` can never delete it. Create it once:
+  #   docker volume create shush-data
   shush-data:
+    external: true

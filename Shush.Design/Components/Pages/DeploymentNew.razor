@@ -1,0 +1,147 @@
+@page "/deployments/new"
+@inject DeploymentService Deployments
+@inject RecipeService Recipes
+@inject GroupService Groups
+@inject Notifier Notifier
+@inject NavigationManager Nav
+
+<PageTitle>New deployment · Shush</PageTitle>
+
+<PageHeader Title="New deployment">
+    <Crumbs><a href="deployments">Deployments</a> <span>/</span> <span>New</span></Crumbs>
+    <Lede>Choose what to deploy and where. You can deploy the same recipe to the same group more than once, e.g. a prod and a dev install side by side, as long as their fixed values (install folder, shortcut) differ.</Lede>
+</PageHeader>
+
+<form class="stack" @onsubmit="CreateAsync" @onsubmit:preventDefault="true">
+    <section class="panel">
+        <h2>Recipe and group</h2>
+        <div class="form-grid">
+            <div class="field">
+                <label for="new-recipe">Recipe</label>
+                <select id="new-recipe" value="@_recipeId" @onchange="OnRecipeChanged">
+                    <option value="0">Select a recipe…</option>
+                    @foreach (var recipe in _recipes)
+                    {
+                        <option value="@recipe.Id">@recipe.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="new-group">Group</label>
+                <select id="new-group" value="@_groupId" @onchange="OnGroupChanged">
+                    <option value="0">Select a group…</option>
+                    @foreach (var group in _groups)
+                    {
+                        <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                    }
+                </select>
+                @if (_groups.Count == 0)
+                {
+                    <span class="field__hint">No groups yet. <a href="groups">Create one</a> first.</span>
+                }
+            </div>
+            <div class="field">
+                <label for="new-name">Name</label>
+                <input id="new-name" @bind="_name" @bind:event="oninput" @bind:after="() => _nameTouched = true" placeholder="e.g. VrForaging dev" />
+                <span class="field__hint">How it's listed. Defaults to the recipe and group.</span>
+            </div>
+        </div>
+    </section>
+
+    @if (_document is not null)
+    {
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Parameters</h2>
+                <span class="panel__sub">Fixed values are set here, once. The others can change at every deploy.</span>
+            </div>
+            <ParamForm Document="_document" Values="_values" EditFixed="true" IdPrefix="new" />
+        </section>
+    }
+
+    <div class="row">
+        <button type="submit" class="btn btn--primary" disabled="@(!CanCreate)">Create deployment</button>
+        <a class="btn btn--ghost" href="deployments">Cancel</a>
+    </div>
+</form>
+
+@code {
+    [SupplyParameterFromQuery(Name = "recipe")] public int? RecipeQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "group")] public int? GroupQuery { get; set; }
+
+    private List<RecipeSummary> _recipes = [];
+    private List<GroupSummary> _groups = [];
+    private int _recipeId;
+    private int _groupId;
+    private string _name = "";
+    private bool _nameTouched;
+    private RecipeDocument? _document;
+    private Dictionary<string, string> _values = new();
+    private bool _busy;
+
+    private bool CanCreate => !_busy && _recipeId > 0 && _groupId > 0 && _document is not null && ParamForm.IsComplete(_document, _values);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _recipes = await Recipes.ListAsync();
+        _groups = await Groups.ListAsync();
+        if (RecipeQuery is { } r && _recipes.Any(x => x.Id == r))
+            await SelectRecipeAsync(r);
+        if (GroupQuery is { } g && _groups.Any(x => x.Id == g))
+            _groupId = g;
+        SuggestName();
+    }
+
+    private async Task OnRecipeChanged(ChangeEventArgs e)
+    {
+        await SelectRecipeAsync(int.TryParse(e.Value?.ToString(), out var id) ? id : 0);
+        SuggestName();
+    }
+
+    private void OnGroupChanged(ChangeEventArgs e)
+    {
+        _groupId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        SuggestName();
+    }
+
+    private async Task SelectRecipeAsync(int id)
+    {
+        _recipeId = id;
+        _document = null;
+        _values = new();
+        if (id == 0)
+            return;
+        var version = await Recipes.CurrentVersionAsync(id);
+        _document = YamlRecipeSerializer.Deserialize(version.Yaml);
+        _values = DeploymentService.EffectiveParams(_document, new Dictionary<string, string>());
+    }
+
+    private void SuggestName()
+    {
+        if (_nameTouched && _name.Length > 0)
+            return;
+        var recipe = _recipes.FirstOrDefault(r => r.Id == _recipeId)?.Name;
+        var group = _groups.FirstOrDefault(g => g.Id == _groupId)?.Name;
+        _name = recipe is null ? "" : group is null ? recipe : $"{recipe} on {group}";
+        _nameTouched = false;
+    }
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        try
+        {
+            var deployment = await Deployments.CreateAsync(_name, _recipeId, _groupId, _values);
+            Notifier.Success($"Created '{deployment.Name}'.");
+            Nav.NavigateTo($"deployments/{deployment.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,384 @@
+@page "/runs/{Id:int}"
+@implements IDisposable
+@inject RunService Runs
+@inject RunCoordinator Coordinator
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Run #@Id · Shush</PageTitle>
+
+@if (_loaded && _run is null)
+{
+    <PageHeader Title="This run doesn't exist">
+        <Actions><a class="btn" href="runs">All runs</a></Actions>
+    </PageHeader>
+}
+else if (_run is not null)
+{
+    var tone = Ui.Of(_run.Status);
+    <PageHeader Title="@_run.DeploymentName">
+        <Crumbs><a href="runs">Runs</a> <span>/</span> <span>#@_run.Id, @Ui.Kind(_run.Kind).ToLowerInvariant()</span></Crumbs>
+        <Facts>
+            <dl class="facts">
+                @if (_run.DeploymentId is { } deploymentId)
+                {
+                    <div><dt>Deployment</dt><dd><a href="deployments/@deploymentId">@_run.DeploymentName</a></dd></div>
+                }
+                @if (_run.GroupId is { } groupId)
+                {
+                    <div><dt>Group</dt><dd><a href="groups/@groupId">@_run.GroupName</a></dd></div>
+                }
+                <div><dt>Recipe</dt><dd><a href="recipes/@_run.RecipeId">@_run.Recipe.Name</a>, v@(_run.RecipeVersion.Number)</dd></div>
+                @foreach (var (name, value) in _params.Where(p => !string.IsNullOrEmpty(p.Value)))
+                {
+                    <div><dt>@name</dt><dd class="mono small">@value</dd></div>
+                }
+                <div><dt>Started</dt><dd>@Ui.When(_run.StartedAt, ClientTime)@(_run.StartedBy is null ? "" : $" by {_run.StartedBy}")</dd></div>
+                @if (_run.FinishedAt is not null)
+                {
+                    <div><dt>Took</dt><dd>@Ui.Duration(_run.StartedAt, _run.FinishedAt)</dd></div>
+                }
+            </dl>
+        </Facts>
+        <Actions>
+            @if (IsActive)
+            {
+                <ConfirmButton Class="btn btn--danger" Question="Stop the run? Rigs mid-step finish that step first." ConfirmLabel="Cancel run" OnConfirm="Cancel">Cancel run</ConfirmButton>
+            }
+            else
+            {
+                @if (_run.Kind == RunKind.DryRun && _run.DeploymentId is not null)
+                {
+                    <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="DeployForRealAsync">Deploy with these values</button>
+                }
+                @if (_run.Kind != RunKind.DryRun && Failed.Count > 0 && _run.DeploymentId is not null)
+                {
+                    <button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="() => RetryAsync(Failed)">Retry failed rigs (@Failed.Count)</button>
+                }
+            }
+        </Actions>
+    </PageHeader>
+
+    @if (!Credentials.IsSignedIn && !IsActive && (Failed.Count > 0 || _run.Kind == RunKind.DryRun))
+    {
+        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in (bottom left) to retry or deploy.</span></div>
+    }
+
+    <section class="panel" aria-labelledby="progress-h">
+        <div class="panel__head">
+            <h2 id="progress-h">@Headline(tone)</h2>
+            <p>@Sentence()</p>
+        </div>
+        <RunBar Succeeded="Count(MachineStatus.Succeeded)" Running="Count(MachineStatus.Running)" Failed="Count(MachineStatus.Failed)" Total="_run.Machines.Count" />
+        <div class="legend">
+            <span><span class="swatch seg-ok"></span>@(_run.Kind == RunKind.DryRun ? "Checked" : "Done")</span>
+            <span><span class="swatch seg-run" style="animation: none"></span>Running</span>
+            <span><span class="swatch seg-fail"></span>Failed</span>
+            <span><span class="swatch seg-skip"></span>Skipped step</span>
+            <span><span class="swatch seg-pend"></span>Not started</span>
+        </div>
+    </section>
+
+    <div class="columns">
+        <section class="wide" aria-label="Rigs">
+            <RigBoard Run="_run" Selected="_selected" OnSelect="SelectAsync" />
+        </section>
+
+        <aside class="narrow panel" aria-labelledby="rig-h">
+            @if (SelectedMachine is { } machine)
+            {
+                var mTone = Ui.Of(machine.Status);
+                <div class="stack" style="gap: 6px">
+                    <h2 id="rig-h" style="font-size: 22px"><a href="machines/@Uri.EscapeDataString(machine.MachineName)" style="text-decoration: none">@machine.MachineName</a></h2>
+                    <p class="@mTone.Text" style="font-weight: 500">@RigBoard.StatusLine(machine)</p>
+                    @if (!string.IsNullOrEmpty(machine.Error))
+                    {
+                        <p class="small t-fail">@machine.Error</p>
+                    }
+                    @if (!string.IsNullOrEmpty(machine.Commit))
+                    {
+                        <p class="small muted">Checked out <span class="mono">@Ui.ShortCommit(machine.Commit)</span></p>
+                    }
+                </div>
+
+                @if (Json.Read<PreflightResult?>(machine.PreflightJson, null) is { } preflight)
+                {
+                    <div class="stack" style="gap: 8px">
+                        <h3>Pre-flight</h3>
+                        <ul class="checks">
+                            @foreach (var check in preflight.Checks)
+                            {
+                                <li>
+                                    @switch (check.Level)
+                                    {
+                                        case CheckLevel.Ok: <Icon Name="check" Color="var(--teal-text)" Stroke="2.2" /> break;
+                                        case CheckLevel.Warning: <Icon Name="warn" Color="var(--gold-text)" /> break;
+                                        default: <Icon Name="x" Color="var(--crimson)" Stroke="2.2" /> break;
+                                    }
+                                    <span><strong>@check.Name.</strong> @check.Message</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @if (_run.Kind == RunKind.DryRun)
+                {
+                    <DryRunPlan Machine="machine" />
+                }
+                else
+                {
+                    <div class="stack" style="gap: 8px">
+                        <h3>Steps</h3>
+                        <ol class="steps-list">
+                            @foreach (var step in StepRows(machine))
+                            {
+                                <li>
+                                    <span class="step-dot @Ui.Segment(step.Status)" aria-hidden="true"></span>
+                                    <span class="grow" style="@(step.Status is null ? "color: var(--muted)" : "")">@step.Name</span>
+                                    <span class="right">@step.Right</span>
+                                </li>
+                            }
+                        </ol>
+                    </div>
+                }
+
+                <div class="stack" style="gap: 8px">
+                    <div class="row"><h3>Log</h3><span class="spacer"></span>
+                        @if (!string.IsNullOrEmpty(_log))
+                        {
+                            <button type="button" class="link-btn small" @onclick="DownloadLogAsync">Download</button>
+                        }
+                    </div>
+                    <pre class="log" id="rig-log">@(string.IsNullOrEmpty(_log) ? "Nothing logged yet." : _log)</pre>
+                </div>
+
+                @if (!IsActive && machine.Status is MachineStatus.Failed or MachineStatus.Cancelled or MachineStatus.Interrupted
+                     && _run.Kind != RunKind.DryRun && _run.DeploymentId is not null)
+                {
+                    <div class="row"><button type="button" class="btn btn--primary" disabled="@(!CanStart)" @onclick="() => RetryAsync([machine.MachineName])">Retry @machine.MachineName</button></div>
+                }
+            }
+            else
+            {
+                <EmptyState Title="Select a rig">Its steps, checks and log show here.</EmptyState>
+            }
+        </aside>
+    </div>
+
+    @if (_previous is not null && _run.Kind != RunKind.DryRun)
+    {
+        <section class="panel" aria-labelledby="changed-h">
+            <div class="panel__head">
+                <h2 id="changed-h">What changed since run #@_previous.Id</h2>
+                <span class="panel__sub">The previous successful run of this deployment, @Ui.Ago(_previous.StartedAt).</span>
+            </div>
+            @if (_paramChanges.Count == 0 && _previous.RecipeVersionId == _run.RecipeVersionId)
+            {
+                <p class="muted">Nothing: same recipe version and the same values.</p>
+            }
+            else
+            {
+                @if (_paramChanges.Count > 0)
+                {
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead><tr><th scope="col">Value</th><th scope="col">Before</th><th scope="col">Now</th></tr></thead>
+                            <tbody>
+                                @foreach (var change in _paramChanges)
+                                {
+                                    <tr><td>@change.Name</td><td class="mono small">@change.Old</td><td class="mono small">@change.New</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (_previous.RecipeVersionId != _run.RecipeVersionId)
+                {
+                    <h3>Recipe v@(_previous.RecipeVersion.Number) to v@(_run.RecipeVersion.Number)</h3>
+                    <DiffView Old="@_previous.RecipeVersion.Yaml" New="@_run.RecipeVersion.Yaml" AriaLabel="Recipe changes" />
+                }
+            }
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool _loaded;
+    private Run? _run;
+    private Run? _previous;
+    private Dictionary<string, string> _params = new();
+    private IReadOnlyList<(string Name, string? Old, string? New)> _paramChanges = [];
+    private string? _selected;
+    private string _log = "";
+    private LiveRefresh? _live;
+    private bool _starting;
+    private int? _loadedId;
+
+    private bool IsActive => _run is not null && (_run.Status == RunStatus.Running || Coordinator.IsActive(_run.Id));
+    private bool CanStart => Credentials.IsSignedIn && !_starting;
+    private RunMachine? SelectedMachine => _run?.Machines.FirstOrDefault(m => string.Equals(m.MachineName, _selected, StringComparison.OrdinalIgnoreCase));
+    private List<string> Failed => _run?.Machines.Where(m => m.Status is MachineStatus.Failed or MachineStatus.Interrupted).Select(m => m.MachineName).ToList() ?? [];
+    private int Count(MachineStatus status) => _run?.Machines.Count(m => m.Status == status) ?? 0;
+
+    protected override void OnInitialized()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnRunChanged;
+        Credentials.Changed += OnCredentialsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
+        _selected = null;
+        _previous = null;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _run = await Runs.GetAsync(Id);
+        _loaded = true;
+        if (_run is null)
+            return;
+
+        _params = Json.ReadParams(_run.ParamValuesJson);
+
+        // Default to the first rig that needs a look: failed, then running, then the first one.
+        _selected ??= (_run.Machines.FirstOrDefault(m => m.Status == MachineStatus.Failed)
+                       ?? _run.Machines.FirstOrDefault(m => m.Status == MachineStatus.Running)
+                       ?? _run.Machines.FirstOrDefault())?.MachineName;
+
+        if (_previous is null && _run.DeploymentId is { } deploymentId && _run.Kind != RunKind.DryRun)
+        {
+            _previous = await Runs.PreviousSuccessfulAsync(deploymentId, _run.Id);
+            if (_previous is not null)
+                _paramChanges = TextDiff.Params(Json.ReadParams(_previous.ParamValuesJson), _params);
+        }
+
+        LoadLog();
+    }
+
+    private void LoadLog() => _log = _selected is null ? "" : RunLogReader.ForMachine(_run?.LogFile, _selected);
+
+    private async Task SelectAsync(string machine)
+    {
+        _selected = machine;
+        LoadLog();
+        await Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsActive)
+            await JS.InvokeVoidAsync("scrollLogToBottom", "rig-log");
+    }
+
+    private string Headline(Tone tone) => _run!.Status switch
+    {
+        RunStatus.Running => _run.Kind == RunKind.DryRun ? "Dry run in progress" : "Run in progress",
+        RunStatus.Succeeded => _run.Kind == RunKind.DryRun ? "Dry run finished: nothing on the rigs changed" : "Deployed",
+        RunStatus.Failed => _run.Kind == RunKind.DryRun ? "Dry run found problems" : "Finished with failures",
+        RunStatus.Cancelled => "Cancelled",
+        _ => "Interrupted: the app restarted during this run",
+    };
+
+    private string Sentence()
+    {
+        var parts = new List<string>();
+        var done = Count(MachineStatus.Succeeded);
+        parts.Add($"{done} of {_run!.Machines.Count} rigs {(_run.Kind == RunKind.DryRun ? "checked" : "done")}");
+        if (Count(MachineStatus.Running) > 0) parts.Add($"{Count(MachineStatus.Running)} running");
+        if (Count(MachineStatus.Failed) > 0) parts.Add($"{Count(MachineStatus.Failed)} failed");
+        if (Count(MachineStatus.Waiting) > 0) parts.Add($"{Count(MachineStatus.Waiting)} waiting");
+        if (Count(MachineStatus.Cancelled) > 0) parts.Add($"{Count(MachineStatus.Cancelled)} cancelled");
+        return string.Join(", ", parts);
+    }
+
+    private sealed record StepRow(string Name, StepStatus? Status, string Right);
+
+    private static IEnumerable<StepRow> StepRows(RunMachine machine)
+    {
+        var planned = Json.Read(machine.PlannedStepsJson, new List<string>());
+        var byIndex = machine.Steps.ToDictionary(s => s.Index);
+        var count = Math.Max(planned.Count, machine.Steps.Count == 0 ? 0 : machine.Steps.Max(s => s.Index) + 1);
+        for (var i = 0; i < count; i++)
+        {
+            if (byIndex.TryGetValue(i, out var step))
+            {
+                var right = step.Status switch
+                {
+                    StepStatus.Succeeded => Ui.Duration(step.StartedAt, step.FinishedAt),
+                    StepStatus.Running => "running",
+                    StepStatus.Failed => "failed",
+                    _ => step.SkipReason?.StartsWith("when") == true ? "skipped (when)" : "skipped",
+                };
+                yield return new StepRow(step.Name, step.Status, right);
+            }
+            else
+            {
+                yield return new StepRow(i < planned.Count ? planned[i] : $"Step {i + 1}", null, "");
+            }
+        }
+    }
+
+    private void Cancel()
+    {
+        Coordinator.Cancel(Id);
+        Notifier.Info("Cancelling. Rigs finish the step they're on, then stop.");
+    }
+
+    private async Task RetryAsync(IReadOnlyList<string> machines) =>
+        await StartAsync(new StartRunRequest(_run!.DeploymentId!.Value, RunKind.Retry, machines, SourceRunId: _run.Id));
+
+    private async Task DeployForRealAsync() =>
+        await StartAsync(new StartRunRequest(_run!.DeploymentId!.Value, RunKind.Deploy, Params: _params));
+
+    private async Task StartAsync(StartRunRequest request)
+    {
+        _starting = true;
+        try
+        {
+            var id = await Coordinator.StartAsync(request, Credentials.ToSecrets(), Credentials.Username);
+            Nav.NavigateTo($"runs/{id}");
+        }
+        catch (RecipeValidationException ex)
+        {
+            Notifier.Error($"The recipe isn't valid: {string.Join(" ", ex.Errors)}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task DownloadLogAsync() =>
+        await JS.InvokeVoidAsync("downloadFile", $"run-{Id}-{_selected}.log", _log, "text/plain");
+
+    private void OnRunChanged(int runId)
+    {
+        if (runId == Id)
+            _live?.Mark();
+    }
+
+    private void OnCredentialsChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        Credentials.Changed -= OnCredentialsChanged;
+        _live?.Dispose();
+    }
+}

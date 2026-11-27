@@ -1,0 +1,399 @@
+@page "/deployments/{Id:int}"
+@implements IDisposable
+@inject DeploymentService Deployments
+@inject RecipeService Recipes
+@inject RunService Runs
+@inject VariableService Variables
+@inject RunCoordinator Coordinator
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject NavigationManager Nav
+
+<PageTitle>@(_deployment?.Name ?? "Deployment") · Shush</PageTitle>
+
+@if (_loaded && _deployment is null)
+{
+    <PageHeader Title="This deployment doesn't exist">
+        <Lede>It may have been deleted. Its runs are still in the run history.</Lede>
+        <Actions><a class="btn" href="deployments">All deployments</a></Actions>
+    </PageHeader>
+}
+else if (_deployment is not null && _document is not null)
+{
+    <PageHeader Title="@_deployment.Name">
+        <Crumbs><a href="deployments">Deployments</a> <span>/</span> <span>@_deployment.Name</span></Crumbs>
+        <Lede>@_deployment.Description</Lede>
+        <Facts>
+            <dl class="facts">
+                <div><dt>Recipe</dt><dd><a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a>, v@(_version?.Number)</dd></div>
+                <div><dt>Group</dt><dd><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</dd></div>
+                @if (_history.FirstOrDefault(r => r.Kind != RunKind.DryRun) is { } last)
+                {
+                    <div><dt>Last run</dt><dd><a href="runs/@last.Id"><StatusText Tone="Ui.Of(last.Status)" /></a> <span class="muted">@Ui.Ago(last.StartedAt)</span></dd></div>
+                }
+            </dl>
+        </Facts>
+        <Actions>
+            <button type="button" class="btn" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.DryRun)">Dry run</button>
+            <button type="button" class="btn btn--primary" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.Deploy)">
+                Deploy to @Ui.Plural(_deployment.Group.Members.Count, "rig")
+            </button>
+        </Actions>
+    </PageHeader>
+
+    @if (!Credentials.IsSignedIn)
+    {
+        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in with your SSH account (bottom left) to deploy or dry run.</span></div>
+    }
+
+    @if (_activeRun is { } active)
+    {
+        <div class="alert alert--info">
+            <Icon Name="spin" Color="var(--blue)" />
+            <span class="grow">A @Ui.Kind(active.Kind).ToLowerInvariant() of this deployment is running: @active.Succeeded of @active.Machines rigs done.</span>
+            <a class="btn btn--small" href="runs/@active.Id">Open the run</a>
+        </div>
+    }
+
+    @if (_problems.Count > 0)
+    {
+        <div class="alert alert--warn" role="status">
+            <Icon Name="warn" />
+            <div class="grow">
+                <strong>Check before deploying</strong>
+                <ul>@foreach (var problem in _problems) { <li>@problem</li> }</ul>
+            </div>
+        </div>
+    }
+
+    <div class="tabs" role="tablist" aria-label="Deployment">
+        @foreach (var (key, label) in Tabs)
+        {
+            <button type="button" role="tab" class="tab" aria-selected="@(_tab == key)" @onclick="() => _tab = key">@label</button>
+        }
+    </div>
+
+    @switch (_tab)
+    {
+        case "params":
+            <section class="panel" aria-label="Parameters">
+                <div class="panel__head">
+                    <h2>Parameters</h2>
+                    <span class="panel__sub">The last values used are kept. Fixed values are set once for this deployment.</span>
+                </div>
+                <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" EditFixed="_editFixed" IdPrefix="dep" />
+                @if (_document.Params.Values.Any(p => p.IsFixed))
+                {
+                    <div class="row">
+                        @if (_editFixed)
+                        {
+                            <span class="small t-warn">Changing a fixed value changes where this deployment installs (folder, shortcut). The old install stays on the rigs.</span>
+                            <button type="button" class="btn btn--small" @onclick="() => _editFixed = false">Done</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="link-btn small" @onclick="() => _editFixed = true">Change fixed values</button>
+                        }
+                    </div>
+                }
+            </section>
+            break;
+
+        case "rigs":
+            <section class="panel panel--flush" aria-label="Last deployed">
+                <div class="panel__head">
+                    <h2>Last deployed, per rig</h2>
+                    <span class="panel__sub">The newest successful deploy of this deployment on each rig. Other deployments on the same rig are tracked separately.</span>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th scope="col">Rig</th><th scope="col">Deployed</th><th scope="col">Values</th><th scope="col">Commit</th><th scope="col">Recipe</th><th scope="col"><span class="visually-hidden">Run</span></th></tr></thead>
+                        <tbody>
+                            @foreach (var member in _deployment.Group.Members.OrderBy(m => m.MachineName, MachineNameComparer.Instance))
+                            {
+                                var last = _lastDeployed.FirstOrDefault(l => string.Equals(l.MachineName, member.MachineName, StringComparison.OrdinalIgnoreCase));
+                                <tr>
+                                    <td><a class="title" href="machines/@Uri.EscapeDataString(member.MachineName)">@member.MachineName</a></td>
+                                    @if (last is null)
+                                    {
+                                        <td class="muted" colspan="5">Never deployed</td>
+                                    }
+                                    else
+                                    {
+                                        <td title="@Ui.When(last.At, ClientTime)">@Ui.Ago(last.At)</td>
+                                        <td class="small">@ChosenValues(last.Params)</td>
+                                        <td class="mono small">@Ui.ShortCommit(last.Commit)</td>
+                                        <td>v@(last.RecipeVersion)@(last.RecipeVersion != _version?.Number ? " (older)" : "")</td>
+                                        <td class="actions-cell"><a href="runs/@last.RunId">Run #@last.RunId</a></td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            break;
+
+        case "history":
+            <section class="panel panel--flush" aria-label="Run history">
+                <div class="panel__head">
+                    <h2>History</h2>
+                    <span class="panel__sub">Roll back deploys again with a past run's recipe version and values.</span>
+                </div>
+                @if (_history.Count == 0)
+                {
+                    <EmptyState Title="No runs yet">Deploy or dry run to see the results here.</EmptyState>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead><tr><th scope="col">Run</th><th scope="col">Result</th><th scope="col">Values</th><th scope="col">Recipe</th><th scope="col">When</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                            <tbody>
+                                @foreach (var run in _history)
+                                {
+                                    <tr>
+                                        <td><a class="title" href="runs/@run.Id">#@run.Id</a> <span class="badge badge--kind">@Ui.Kind(run.Kind)</span></td>
+                                        <td><StatusText Tone="Ui.Of(run.Status)" Label="@ResultLabel(run)" /></td>
+                                        <td class="small">@ChosenValues(run.Params)</td>
+                                        <td>v@(run.RecipeVersion)</td>
+                                        <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)<div class="sub">@run.StartedBy</div></td>
+                                        <td class="actions-cell">
+                                            @if (run.Kind != RunKind.DryRun && run.Status == RunStatus.Succeeded && run.Id != LatestSuccessId)
+                                            {
+                                                <ConfirmButton Class="btn btn--small" Question="@($"Deploy run #{run.Id}'s version and values to every rig?")" ConfirmLabel="Roll back"
+                                                               Disabled="@(!CanRun)" OnConfirm="() => StartAsync(RunKind.Rollback, run.Id)">
+                                                    <Icon Name="rollback" Size="16" />Roll back to this
+                                                </ConfirmButton>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+            break;
+
+        case "settings":
+            <section class="panel" aria-label="Deployment settings">
+                <h2>Settings</h2>
+                <form class="form-grid" @onsubmit="SaveSettingsAsync" @onsubmit:preventDefault="true">
+                    <div class="field">
+                        <label for="dep-name">Name</label>
+                        <input id="dep-name" @bind="_name" />
+                    </div>
+                    <div class="field">
+                        <label for="dep-group">Group</label>
+                        <select id="dep-group" @bind="_groupId">
+                            @foreach (var group in _groups)
+                            {
+                                <option value="@group.Id">@group.Name (@Ui.Plural(group.MachineCount, "rig"))</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field" style="grid-column: 1 / -1">
+                        <label for="dep-desc">Description</label>
+                        <textarea id="dep-desc" rows="2" @bind="_description" placeholder="What this deployment is for (optional)"></textarea>
+                    </div>
+                    <div class="row"><button type="submit" class="btn btn--primary">Save settings</button></div>
+                </form>
+            </section>
+            <section class="panel" aria-label="Delete deployment">
+                <h2>Delete this deployment</h2>
+                <p class="muted">Its runs stay in the run history. Nothing on the rigs changes.</p>
+                <div class="row">
+                    <ConfirmButton Question="@($"Delete '{_deployment.Name}'?")" OnConfirm="DeleteAsync"><Icon Name="trash" Size="16" />Delete deployment</ConfirmButton>
+                </div>
+            </section>
+            break;
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private static readonly (string Key, string Label)[] Tabs =
+        [("params", "Parameters"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
+
+    private bool _loaded;
+    private string _tab = "params";
+    private Deployment? _deployment;
+    private RecipeVersion? _version;
+    private RecipeDocument? _document;
+    private Dictionary<string, string> _values = new();
+    private bool _editFixed;
+    private List<string> _problems = [];
+    private List<LastDeployed> _lastDeployed = [];
+    private List<RunListItem> _history = [];
+    private RunListItem? _activeRun;
+    private List<GroupSummary> _groups = [];
+    private string _name = "";
+    private string? _description;
+    private int _groupId;
+    private bool _starting;
+    private int? _loadedId;
+
+    private bool CanRun => Credentials.IsSignedIn && !_starting && _document is not null && ParamForm.IsComplete(_document, _values)
+                           && _deployment?.Group.Members.Count > 0;
+
+    private int? LatestSuccessId => _history.FirstOrDefault(r => r.Kind != RunKind.DryRun && r.Status == RunStatus.Succeeded)?.Id;
+
+    [Inject] private GroupService Groups { get; set; } = null!;
+
+    private LiveRefresh? _live;
+
+    protected override void OnInitialized()
+    {
+        _live = new LiveRefresh(() => InvokeAsync(async () => { await LoadRunsAsync(); StateHasChanged(); }));
+        Coordinator.RunChanged += OnRunChanged;
+        Credentials.Changed += OnCredentialsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _deployment = await Deployments.GetAsync(Id);
+        _loaded = true;
+        if (_deployment is null)
+            return;
+
+        _version = await Recipes.CurrentVersionAsync(_deployment.RecipeId);
+        _document = YamlRecipeSerializer.Deserialize(_version.Yaml);
+        var saved = Json.ReadParams(_deployment.ParamValuesJson);
+        _values = DeploymentService.EffectiveParams(_document, saved);
+        _name = _deployment.Name;
+        _description = _deployment.Description;
+        _groupId = _deployment.GroupId;
+        _groups = await Groups.ListAsync();
+
+        _problems = [];
+        var dropped = saved.Keys.Where(k => !_document.Params.ContainsKey(k)).ToList();
+        if (dropped.Count > 0)
+            _problems.Add($"This deployment has values for {string.Join(", ", dropped)}, which the recipe no longer declares. They aren't used.");
+        if (_deployment.Group.Members.Count == 0)
+            _problems.Add($"'{_deployment.Group.Name}' has no machines yet. Add some on the group's page.");
+
+        try
+        {
+            var names = (await Variables.ResolveAsync(_deployment.GroupId, null)).Select(v => v.Name).ToList();
+            Recipes.Validator.Validate(_document, names);
+        }
+        catch (RecipeValidationException ex)
+        {
+            _problems.AddRange(ex.Errors.Select(e => e.Contains("no variable named")
+                ? e + " Set it on the group (or globally), or a machine override must cover every rig."
+                : e));
+        }
+
+        await LoadRunsAsync();
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        if (_deployment is null)
+            return;
+        _history = await Runs.ListAsync(take: 50, deploymentId: Id);
+        _lastDeployed = await Deployments.LastDeployedAsync(Id);
+        _activeRun = _history.FirstOrDefault(r => r.Status == RunStatus.Running);
+    }
+
+    /// <summary>The values operators choose each time (not the fixed ones), e.g. "ref v1.4.0".</summary>
+    private string ChosenValues(IReadOnlyDictionary<string, string> values)
+    {
+        if (_document is null) return "";
+        var chosen = _document.Params.Where(p => !p.Value.IsFixed && values.ContainsKey(p.Key))
+            .Select(p => $"{p.Key} {values[p.Key]}");
+        return string.Join(", ", chosen);
+    }
+
+    private static string ResultLabel(RunListItem run) => run.Status switch
+    {
+        RunStatus.Running => $"Running, {run.Succeeded} of {run.Machines} done",
+        RunStatus.Succeeded => run.Kind == RunKind.DryRun ? $"Checked {run.Machines}" : $"Succeeded on {run.Succeeded} of {run.Machines}",
+        RunStatus.Failed => $"Failed on {run.Failed} of {run.Machines}",
+        _ => Ui.Of(run.Status).Label,
+    };
+
+    private async Task SaveValuesAsync()
+    {
+        try
+        {
+            await Deployments.SaveParamValuesAsync(Id, _values);
+        }
+        catch (Exception ex)
+        {
+            Notifier.Error($"Couldn't save the values: {ex.Message}");
+        }
+    }
+
+    private async Task StartAsync(RunKind kind, int? sourceRunId = null)
+    {
+        if (!Credentials.IsSignedIn)
+        {
+            Notifier.Error("Sign in with your SSH username and password first (bottom left).");
+            return;
+        }
+
+        _starting = true;
+        try
+        {
+            var values = kind is RunKind.Deploy or RunKind.DryRun ? _values : null;
+            var id = await Coordinator.StartAsync(new StartRunRequest(Id, kind, Params: values, SourceRunId: sourceRunId), Credentials.ToSecrets(), Credentials.Username);
+            Nav.NavigateTo($"runs/{id}");
+        }
+        catch (RecipeValidationException ex)
+        {
+            Notifier.Error($"The recipe isn't valid: {string.Join(" ", ex.Errors)}");
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            await Deployments.UpdateAsync(Id, _name, _description, _groupId);
+            Notifier.Success("Settings saved.");
+            await LoadAsync();
+        }
+        catch (ShushDataException ex)
+        {
+            Notifier.Error(ex.Message);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        await Deployments.DeleteAsync(Id);
+        Notifier.Success($"Deleted '{_deployment?.Name}'.");
+        Nav.NavigateTo("deployments");
+    }
+
+    private void OnRunChanged(int runId) => _live?.Mark();
+
+    private void OnCredentialsChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Coordinator.RunChanged -= OnRunChanged;
+        Credentials.Changed -= OnCredentialsChanged;
+        _live?.Dispose();
+    }
+}

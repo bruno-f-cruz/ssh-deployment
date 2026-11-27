@@ -8,6 +8,7 @@ WORKDIR /src
 # go missing (reproduced and confirmed outside Docker), causing 404s on that script at runtime.
 # Restoring and publishing in one shot with full source present avoids it.
 COPY Shush/ Shush/
+COPY Shush.Data/ Shush.Data/
 COPY Shush.Design/ Shush.Design/
 RUN dotnet publish Shush.Design/Shush.Design.csproj -c Release -o /app/publish
 

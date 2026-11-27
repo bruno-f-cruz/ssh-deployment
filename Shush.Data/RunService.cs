@@ -9,7 +9,11 @@ public sealed record NewRun(
 
 public sealed record RunListItem(
     int Id, RunKind Kind, RunStatus Status, string DeploymentName, int? DeploymentId, string? GroupName, string RecipeName,
-    int RecipeVersion, string? StartedBy, DateTime StartedAt, DateTime? FinishedAt, int Machines, int Succeeded, int Failed);
+    int RecipeVersion, string? StartedBy, DateTime StartedAt, DateTime? FinishedAt, int Machines, int Succeeded, int Failed,
+    int Running = 0, string ParamValuesJson = "{}")
+{
+    public IReadOnlyDictionary<string, string> Params => Json.ReadParams(ParamValuesJson);
+}
 
 public sealed class RunService(IDbContextFactory<ShushDbContext> factory)
 {
@@ -74,7 +78,9 @@ public sealed class RunService(IDbContextFactory<ShushDbContext> factory)
                 r.Id, r.Kind, r.Status, r.DeploymentName, r.DeploymentId, r.GroupName, r.Recipe.Name, r.RecipeVersion.Number,
                 r.StartedBy, r.StartedAt, r.FinishedAt, r.Machines.Count,
                 r.Machines.Count(m => m.Status == MachineStatus.Succeeded),
-                r.Machines.Count(m => m.Status == MachineStatus.Failed)))
+                r.Machines.Count(m => m.Status == MachineStatus.Failed),
+                r.Machines.Count(m => m.Status == MachineStatus.Running),
+                r.ParamValuesJson))
             .ToListAsync();
     }
 
