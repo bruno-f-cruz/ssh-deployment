@@ -1,0 +1,587 @@
+@page "/recipes/{Id:int}"
+@using Shush.Design.Components.Recipes
+@inject RecipeService RecipeService
+@inject DeploymentService DeploymentService
+@inject CredentialStore Credentials
+@inject Notifier Notifier
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@(_recipe?.Name ?? "Recipe") · Recipes · Shush</PageTitle>
+
+<NavigationLock ConfirmExternalNavigation="@(_draft is not null && Dirty)" OnBeforeInternalNavigation="OnBeforeNavigation" />
+
+@if (_notFound)
+{
+    <PageHeader Title="Recipe not found">
+        <Crumbs><a href="recipes">Recipes</a></Crumbs>
+    </PageHeader>
+    <section class="panel">
+        <EmptyState Title="There's no recipe with that id">
+            It may have been deleted. <a href="recipes">Back to recipes</a>
+        </EmptyState>
+    </section>
+}
+else if (_recipe is null || _current is null || _draft is null)
+{
+    <p class="muted">Loading recipe…</p>
+}
+else
+{
+    <PageHeader Title="@_recipe.Name">
+        <Crumbs><a href="recipes">Recipes</a> / @_recipe.Name</Crumbs>
+        <Facts>
+            <dl class="facts">
+                <div><dt>Version</dt><dd>v@(_current.Number)</dd></div>
+                <div><dt>Updated</dt><dd title="@_recipe.UpdatedAt.ToString("u")">@Ui.Ago(_recipe.UpdatedAt)</dd></div>
+                <div><dt>Used by</dt><dd>@Ui.Plural(_deployments.Count, "deployment")</dd></div>
+                @if (_recipe.IsBuiltIn)
+                {
+                    <div><dt>Origin</dt><dd><span class="badge">ships with the app</span></dd></div>
+                }
+            </dl>
+        </Facts>
+        <Actions>
+            <button type="button" class="btn" @onclick="Export"><Icon Name="download" />Export .yml</button>
+            @if (_recipe.IsBuiltIn)
+            {
+                <ConfirmButton Class="btn" Question="@ResetQuestion" ConfirmLabel="Reset to default" OnConfirm="ResetToShipped"
+                               Disabled="@(!ShippedDiffers || _busy)" Title="@(ShippedDiffers ? null : "This is already the version that ships with the app.")">
+                    <Icon Name="rollback" />Reset to default
+                </ConfirmButton>
+            }
+            else
+            {
+                <button type="button" class="btn" @onclick="StartRename" disabled="@(_renaming || _busy)">Rename</button>
+                <ConfirmButton Question="@($"Delete {_recipe.Name}?")" ConfirmLabel="Delete recipe" OnConfirm="Delete" Disabled="@_busy">
+                    <Icon Name="trash" />Delete
+                </ConfirmButton>
+            }
+        </Actions>
+    </PageHeader>
+
+    @if (_pendingNavigation is not null)
+    {
+        <div class="alert alert--warn" role="alert">
+            <Icon Name="warn" />
+            <div class="grow">
+                <strong>This recipe has unsaved changes.</strong>
+                <p class="small">Save them first, or leave and lose them.</p>
+            </div>
+            <button type="button" class="btn btn--small btn--danger" @onclick="LeaveAnyway">Leave without saving</button>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _pendingNavigation = null">Stay</button>
+        </div>
+    }
+
+    @if (_actionError is not null)
+    {
+        <div class="alert alert--error" role="alert">
+            <Icon Name="warn" />
+            <div class="grow">@_actionError</div>
+            <button type="button" class="btn btn--icon" @onclick="() => _actionError = null" aria-label="Dismiss"><Icon Name="x" /></button>
+        </div>
+    }
+
+    @if (_renaming)
+    {
+        <section class="panel" aria-labelledby="rename-heading">
+            <h2 id="rename-heading">Rename recipe</h2>
+            @if (Dirty)
+            {
+                <p class="muted">Save or discard your changes before renaming.</p>
+            }
+            <form class="inline-form" @onsubmit="Rename" @onsubmit:preventDefault="true">
+                <div class="field">
+                    <label for="rename-input">New name</label>
+                    <input id="rename-input" @bind="_renameName" autocomplete="off" />
+                    @if (_renameError is not null)
+                    {
+                        <span class="field__error">@_renameError</span>
+                    }
+                    else
+                    {
+                        <span class="field__hint">Deployments keep using the recipe; the rename is saved as a new version.</span>
+                    }
+                </div>
+                <button type="submit" class="btn btn--primary" disabled="@(Dirty || _busy)">Rename recipe</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _renaming = false">Cancel</button>
+            </form>
+        </section>
+    }
+
+    @if (ShippedDiffers)
+    {
+        <div class="alert alert--info">
+            <Icon Name="info" />
+            <div class="grow">
+                <strong>This recipe differs from the version that ships with the app.</strong>
+                <p class="small">The app may have been updated, or someone edited it here. Reset to default to use the shipped version; the current one stays in the history.</p>
+            </div>
+            <ConfirmButton Class="btn btn--small" Question="@ResetQuestion" ConfirmLabel="Reset to default" OnConfirm="ResetToShipped" Disabled="@_busy">
+                Reset to default
+            </ConfirmButton>
+        </div>
+    }
+
+    <div class="tabs" role="tablist" aria-label="Recipe">
+        @foreach (var (key, label) in Tabs)
+        {
+            <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@(_tab == key ? "true" : "false")" aria-controls="panel-@key"
+                    @onclick="() => SelectTab(key)">
+                @label
+                @if (key == "editor" && Dirty)
+                {
+                    <span class="dirty-dot" title="Unsaved changes" aria-label="unsaved changes"></span>
+                }
+            </button>
+        }
+    </div>
+
+    @if (_tab == "editor")
+    {
+        <div id="panel-editor" role="tabpanel" aria-labelledby="tab-editor" class="stack">
+            <div class="panel editor-bar">
+                <div class="row">
+                    <div class="toggles" role="group" aria-label="Editor view">
+                        <button type="button" class="toggle" aria-pressed="@(!_raw ? "true" : "false")" @onclick="() => SetRaw(false)">Structured</button>
+                        <button type="button" class="toggle" aria-pressed="@(_raw ? "true" : "false")" @onclick="() => SetRaw(true)">Raw YAML</button>
+                    </div>
+                    <span class="spacer"></span>
+                    @if (Dirty)
+                    {
+                        <span class="status t-warn"><span class="dot dot--warn" aria-hidden="true"></span>Unsaved changes</span>
+                        <button type="button" class="btn btn--ghost" @onclick="Discard" disabled="@_busy">Discard changes</button>
+                    }
+                    else
+                    {
+                        <span class="muted small">Saved as v@(_current.Number)</span>
+                    }
+                    <button type="button" class="btn btn--primary" @onclick="Save" disabled="@(!Dirty || _errors.Count > 0 || _busy)"
+                            title="@(_errors.Count > 0 ? "Fix the problems listed below first." : null)">
+                        Save recipe
+                    </button>
+                </div>
+            </div>
+
+            @if (_errors.Count > 0)
+            {
+                <div class="alert alert--error" role="alert">
+                    <Icon Name="warn" />
+                    <div class="grow">
+                        <strong>@(_errors.Count == 1 ? "Fix this problem before saving:" : $"Fix these {_errors.Count} problems before saving:")</strong>
+                        <ul>
+                            @foreach (var error in _errors)
+                            {
+                                <li>@error</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
+
+            @if (_raw)
+            {
+                <section class="panel" aria-label="Raw YAML">
+                    <p class="small muted">Edits are checked as you type and show in the Structured view once they're valid. See docs/recipes.md for the recipe language.</p>
+                    <div class="yaml-editor">
+                        <pre id="recipe-yaml-pre" aria-hidden="true"></pre>
+                        <textarea id="recipe-yaml" spellcheck="false" aria-label="Recipe YAML"
+                                  @bind="_rawYaml" @bind:event="oninput" @bind:after="ValidateRaw"></textarea>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <div class="columns">
+                    <section class="panel wide" aria-label="Steps">
+                        <StepEditor @ref="_stepEditor" Draft="_draft" Errors="_errors" OnChanged="OnDraftChanged" />
+                    </section>
+                    <section class="panel narrow" aria-label="Parameters and vars">
+                        <ParamEditor @ref="_paramEditor" Draft="_draft" OnChanged="OnDraftChanged" />
+                    </section>
+                </div>
+            }
+        </div>
+    }
+    else if (_tab == "history")
+    {
+        <div id="panel-history" role="tabpanel" aria-labelledby="tab-history" class="stack">
+            <RecipeHistory Versions="_versions" OnRestore="Restore" />
+        </div>
+    }
+    else
+    {
+        <div id="panel-used-by" role="tabpanel" aria-labelledby="tab-used-by">
+            <section class="panel panel--flush">
+                <div class="panel__head">
+                    <h2>Deployments using this recipe</h2>
+                    <a class="btn btn--small" href="deployments/new?recipe=@Id"><Icon Name="plus" />New deployment</a>
+                </div>
+                @if (_deployments.Count == 0)
+                {
+                    <EmptyState Title="No deployments use this recipe yet">
+                        A deployment runs a recipe on a group of rigs.
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Deployment</th>
+                                    <th scope="col">Group</th>
+                                    <th scope="col" class="num">Machines</th>
+                                    <th scope="col">Last run</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in _deployments)
+                                {
+                                    <tr>
+                                        <td>
+                                            <a class="title" href="deployments/@d.Id">@d.Name</a>
+                                            @if (!string.IsNullOrWhiteSpace(d.Description))
+                                            {
+                                                <div class="sub">@d.Description</div>
+                                            }
+                                        </td>
+                                        <td><a href="groups/@d.GroupId">@d.GroupName</a></td>
+                                        <td class="num">@d.MachineCount</td>
+                                        <td>
+                                            @if (d.LastRun is { } run)
+                                            {
+                                                <a href="runs/@run.RunId" class="status-link"><StatusText Tone="Ui.Of(run.Status)" /></a>
+                                                <div class="sub">@Ui.Kind(run.Kind), @Ui.Ago(run.StartedAt)</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">Never run</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    /// <summary><c>editor</c> (default), <c>history</c> or <c>used-by</c>.</summary>
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+
+    /// <summary><c>raw</c> opens the editor in Raw YAML (a new recipe does).</summary>
+    [SupplyParameterFromQuery(Name = "mode")] public string? Mode { get; set; }
+
+    private static readonly (string Key, string Label)[] Tabs = [("editor", "Editor"), ("history", "History"), ("used-by", "Used by")];
+
+    private Recipe? _recipe;
+    private RecipeVersion? _current;
+    private List<RecipeVersion> _versions = [];
+    private List<DeploymentSummary> _deployments = [];
+    private bool _notFound;
+    private int? _loadedId;
+    private string _tab = "editor";
+    private bool _busy;
+    private string? _actionError;
+
+    // The draft, and the saved YAML it started from (as stored, and as the serializer writes it).
+    private RecipeDraft? _draft;
+    private string _savedYaml = "";
+    private string _savedNormalized = "";
+    private IReadOnlyList<string> _errors = [];
+    private bool _raw;
+    private string _rawYaml = "";
+    private bool _rawNeedsInit;
+    private StepEditor? _stepEditor;
+    private ParamEditor? _paramEditor;
+
+    private bool _renaming;
+    private string _renameName = "";
+    private string? _renameError;
+
+    private string? _pendingNavigation;
+    private bool _leaving;
+
+    private bool ShippedDiffers =>
+        _recipe is { IsBuiltIn: true, ShippedHash: not null } && _current is not null && _recipe.ShippedHash != _current.Hash;
+
+    private string ResetQuestion => Dirty
+        ? "Reset to the shipped version? Your unsaved changes will be lost."
+        : "Reset to the shipped version? The current one stays in the history.";
+
+    private bool DirtyStructured => _draft is not null && _draft.ToYaml() != _savedNormalized;
+
+    private bool Dirty => _raw ? _rawYaml != _savedYaml && _rawYaml != _savedNormalized : DirtyStructured;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
+        _tab = Tabs.Any(t => t.Key == Tab) ? Tab! : "editor";
+        _raw = string.Equals(Mode, "raw", StringComparison.OrdinalIgnoreCase);
+        await LoadAsync(resetEditor: true);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_rawNeedsInit && _raw && _tab == "editor" && _draft is not null)
+        {
+            _rawNeedsInit = false;
+            await JS.InvokeVoidAsync("shushYaml.init", "recipe-yaml", "recipe-yaml-pre");
+        }
+    }
+
+    private async Task LoadAsync(bool resetEditor)
+    {
+        _recipe = await RecipeService.GetAsync(Id);
+        if (_recipe is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _notFound = false;
+        _versions = await RecipeService.VersionsAsync(Id);
+        _current = _versions[0];
+        _deployments = await DeploymentService.ListAsync(recipeId: Id);
+        if (resetEditor || _draft is null)
+            LoadDraft(_current.Yaml);
+    }
+
+    /// <summary>Starts editing from saved YAML, throwing away any draft.</summary>
+    private void LoadDraft(string yaml)
+    {
+        _savedYaml = yaml;
+        try
+        {
+            _draft = RecipeDraft.FromYaml(yaml, RecipeService.Validator);
+            _savedNormalized = _draft.ToYaml();
+            _errors = _draft.Validate();
+        }
+        catch (Exception ex) when (ex is not RecipeValidationException)
+        {
+            // Stored YAML that no longer parses can still be fixed by hand.
+            _draft = new RecipeDraft(new RecipeDocument { Name = _recipe?.Name ?? "" }, RecipeService.Validator);
+            _savedNormalized = yaml;
+            _errors = [$"YAML parse error: {ex.Message}"];
+            _raw = true;
+        }
+
+        _rawYaml = yaml;
+        _rawNeedsInit = true;
+        _stepEditor?.Reset();
+        _paramEditor?.Reset();
+    }
+
+    private void SelectTab(string key)
+    {
+        _tab = key;
+        if (key == "editor")
+            _rawNeedsInit = true;
+    }
+
+    // ---- Editing ----
+
+    private void OnDraftChanged() => _errors = _draft!.Validate();
+
+    private void ValidateRaw()
+    {
+        if (_draft!.TryApplyRawYaml(_rawYaml, out var errors))
+            _errors = [];
+        else
+            _errors = errors;
+    }
+
+    private void SetRaw(bool raw)
+    {
+        if (raw == _raw)
+            return;
+
+        if (raw)
+        {
+            // Unchanged: show the stored text, comments and all. Changed: show what the structured edits produce.
+            _rawYaml = DirtyStructured ? _draft!.ToYaml() : _savedYaml;
+            _raw = true;
+            _rawNeedsInit = true;
+            return;
+        }
+
+        if (!_draft!.TryApplyRawYaml(_rawYaml, out var errors))
+        {
+            _errors = errors;
+            Notifier.Error("The YAML has problems, so it can't be shown as structured steps yet. Fix the errors listed, then switch.");
+            return;
+        }
+
+        _errors = [];
+        _raw = false;
+        _stepEditor?.Reset();
+        _paramEditor?.Reset();
+    }
+
+    private void Discard()
+    {
+        LoadDraft(_savedYaml);
+        Notifier.Info("Changes discarded.");
+    }
+
+    private async Task Save()
+    {
+        string yaml;
+        if (_raw)
+        {
+            ValidateRaw();
+            if (_errors.Count > 0)
+                return;
+            yaml = _rawYaml; // keeps the comments
+        }
+        else
+        {
+            yaml = _draft!.ToYaml();
+        }
+
+        _busy = true;
+        try
+        {
+            var previous = _current!.Number;
+            var version = await RecipeService.SaveAsync(Id, yaml, VersionSource.Edit, Credentials.Username);
+            await LoadAsync(resetEditor: true);
+            if (version.Number == previous)
+                Notifier.Info("Nothing changed, so no new version was saved.");
+            else
+                Notifier.Success($"Saved {_recipe!.Name} as v{version.Number}.");
+        }
+        catch (RecipeValidationException ex)
+        {
+            _errors = ex.Errors;
+        }
+        catch (ShushDataException ex)
+        {
+            _errors = [ex.Message];
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Export()
+    {
+        var content = _raw ? _rawYaml : DirtyStructured ? _draft!.ToYaml() : _savedYaml;
+        var name = string.Concat(_recipe!.Name.Split(Path.GetInvalidFileNameChars()));
+        await JS.InvokeVoidAsync("downloadFile", $"{name}.yml", content, "text/yaml");
+    }
+
+    // ---- Recipe actions ----
+
+    private async Task RunAction(Func<Task> action)
+    {
+        _actionError = null;
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        catch (ShushDataException ex)
+        {
+            _actionError = ex.Message;
+        }
+        catch (RecipeValidationException ex)
+        {
+            _actionError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task ResetToShipped() => RunAction(async () =>
+    {
+        var version = await RecipeService.ResetToShippedAsync(Id, Credentials.Username);
+        await LoadAsync(resetEditor: true);
+        Notifier.Success($"Reset {_recipe!.Name} to the shipped version, saved as v{version.Number}.");
+    });
+
+    private Task Restore(RecipeVersion old) => RunAction(async () =>
+    {
+        var previous = _current!.Number;
+        var version = await RecipeService.RestoreAsync(old.Id, Credentials.Username);
+        await LoadAsync(resetEditor: true);
+        if (version.Number == previous)
+            Notifier.Info($"v{old.Number} is the same as the current version, so nothing changed.");
+        else
+            Notifier.Success($"Restored v{old.Number} as v{version.Number}.");
+    });
+
+    private void StartRename()
+    {
+        _renameName = _recipe!.Name;
+        _renameError = null;
+        _renaming = true;
+    }
+
+    private async Task Rename()
+    {
+        _renameError = null;
+        var name = _renameName.Trim();
+        if (string.Equals(name, _recipe!.Name, StringComparison.Ordinal))
+        {
+            _renaming = false;
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await RecipeService.RenameAsync(Id, name, Credentials.Username);
+            await LoadAsync(resetEditor: true);
+            _renaming = false;
+            Notifier.Success($"Renamed to {_recipe!.Name}.");
+        }
+        catch (ShushDataException ex)
+        {
+            _renameError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task Delete() => RunAction(async () =>
+    {
+        var name = _recipe!.Name;
+        await RecipeService.DeleteAsync(Id);
+        Notifier.Success($"Deleted {name}.");
+        _leaving = true;
+        Nav.NavigateTo("recipes");
+    });
+
+    // ---- Unsaved changes ----
+
+    private void OnBeforeNavigation(LocationChangingContext context)
+    {
+        if (_leaving || _draft is null || !Dirty)
+            return;
+        context.PreventNavigation();
+        _pendingNavigation = context.TargetLocation;
+    }
+
+    private void LeaveAnyway()
+    {
+        var target = _pendingNavigation;
+        _pendingNavigation = null;
+        _leaving = true;
+        if (target is not null)
+            Nav.NavigateTo(target);
+    }
+}
