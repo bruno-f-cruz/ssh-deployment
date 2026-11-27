@@ -188,7 +188,7 @@ else if (_deployment is not null && _document is not null)
                             {
                                 var last = _lastDeployed.FirstOrDefault(l => string.Equals(l.MachineName, member.MachineName, StringComparison.OrdinalIgnoreCase));
                                 <tr>
-                                    <td><a class="title" href="machines/@Uri.EscapeDataString(member.MachineName)">@member.MachineName</a></td>
+                                    <td><RigName Name="@member.MachineName" Lookup="true" /></td>
                                     @if (last is null)
                                     {
                                         <td class="muted" colspan="5">Never deployed</td>

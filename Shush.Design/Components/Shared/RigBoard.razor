@@ -33,7 +33,8 @@
                                 aria-label="@($"{machine.MachineName}: {StatusLine(machine)}")"
                                 @onclick="() => OnSelect.InvokeAsync(machine.MachineName)">
                             <span class="tile__top">
-                                <span class="tile__name">@(room.Name == "Other" ? machine.MachineName : shortName)</span>
+                                <RigName Name="@machine.MachineName" Label="@(room.Name == "Other" ? machine.MachineName : shortName)"
+                                         Host="Hosts?.GetValueOrDefault(machine.MachineName)" Link="false" Class="tile__name" />
                                 @switch (machine.Status)
                                 {
                                     case MachineStatus.Succeeded: <Icon Name="check" Color="var(--teal-text)" Stroke="2.4" /> break;
@@ -63,6 +64,8 @@
 
 @code {
     [Parameter, EditorRequired] public Run Run { get; set; } = null!;
+    /// <summary>Hostnames to show under each rig, from <see cref="MachineService.HostnamesAsync"/>.</summary>
+    [Parameter] public IReadOnlyDictionary<string, RigHost>? Hosts { get; set; }
     [Parameter] public string? Selected { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 

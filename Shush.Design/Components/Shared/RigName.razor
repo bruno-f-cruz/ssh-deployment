@@ -1,0 +1,75 @@
+@* A rig's ID with its hostname beneath it. Use it wherever a rig appears as an item (rows, tiles, headers). *@
+@inject MachineService MachineService
+<span class="rig-name @Class">
+    @if (Link)
+    {
+        <a class="rig-name__id" href="@($"machines/{Uri.EscapeDataString(Name)}")">@(Label ?? Name)</a>
+    }
+    else
+    {
+        <span class="rig-name__id">@(Label ?? Name)</span>
+    }
+    @if (IsUnresolved)
+    {
+        <span class="rig-name__host rig-name__host--missing" title="The machine registry doesn't know this name">not in registry</span>
+    }
+    else if (string.IsNullOrWhiteSpace(HostText))
+    {
+        <span class="rig-name__host rig-name__host--none" title="Hostname not looked up yet">—</span>
+    }
+    else
+    {
+        <span class="rig-name__host" title="Hostname">@HostText</span>
+    }
+</span>
+
+@code {
+    /// <summary>The rig ID, e.g. FRG.4-A.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    /// <summary>The hostname the registry resolved it to; null when not known yet.</summary>
+    [Parameter] public string? Hostname { get; set; }
+
+    /// <summary>The registry said it doesn't know this machine.</summary>
+    [Parameter] public bool Unresolved { get; set; }
+
+    /// <summary>Shortcut: hostname and registry status from the machine's row.</summary>
+    [Parameter] public Machine? Machine { get; set; }
+
+    /// <summary>Shortcut: hostname and registry status from <see cref="MachineService.HostnamesAsync"/>.</summary>
+    [Parameter] public RigHost? Host { get; set; }
+
+    /// <summary>Link the ID to the machine's page. Off inside buttons or on the machine's own page.</summary>
+    [Parameter] public bool Link { get; set; } = true;
+
+    /// <summary>Text to show instead of the name (e.g. the short "A" inside a room on the rig board).</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Extra classes, e.g. rig-name--large for a page header.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>
+    /// Look the hostname up itself when the page didn't pass one. One query per rig: fine for a table of a group's
+    /// rigs, but pages listing many rigs should load <see cref="MachineService.HostnamesAsync"/> once and pass <see cref="Host"/>.
+    /// </summary>
+    [Parameter] public bool Lookup { get; set; }
+
+    private RigHost? _looked;
+    private string? _lookedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Lookup || Hostname is not null || Machine is not null || Host is not null)
+            return;
+        if (string.Equals(_lookedFor, Name, StringComparison.OrdinalIgnoreCase))
+            return;
+        _lookedFor = Name;
+        _looked = (await MachineService.HostnamesAsync([Name])).GetValueOrDefault(Name);
+    }
+
+    private RigHost? Known => Host ?? _looked;
+
+    private string? HostText => Hostname ?? Machine?.Hostname ?? Known?.Hostname;
+
+    private bool IsUnresolved => Unresolved || Known?.Unresolved == true || Machine?.ProbeError == MachineService.NotInRegistry;
+}

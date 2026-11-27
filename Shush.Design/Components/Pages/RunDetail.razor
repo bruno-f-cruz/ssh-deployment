@@ -1,6 +1,7 @@
 @page "/runs/{Id:int}"
 @implements IDisposable
 @inject RunService Runs
+@inject MachineService MachineData
 @inject RunCoordinator Coordinator
 @inject CredentialStore Credentials
 @inject DeploymentService Deployments
@@ -98,7 +99,7 @@ else if (_run is not null)
 
     <div class="columns">
         <section class="wide" aria-label="Rigs">
-            <RigBoard Run="_run" Selected="_selected" OnSelect="SelectAsync" />
+            <RigBoard Run="_run" Hosts="_hosts" Selected="_selected" OnSelect="SelectAsync" />
         </section>
 
         <aside class="narrow panel" aria-labelledby="rig-h">
@@ -106,7 +107,7 @@ else if (_run is not null)
             {
                 var mTone = Ui.Of(machine.Status);
                 <div class="stack" style="gap: 6px">
-                    <h2 id="rig-h" style="font-size: 22px"><a href="machines/@Uri.EscapeDataString(machine.MachineName)" style="text-decoration: none">@machine.MachineName</a></h2>
+                    <h2 id="rig-h" style="font-size: 22px"><RigName Name="@machine.MachineName" Host="_hosts.GetValueOrDefault(machine.MachineName)" Class="rig-name--large" /></h2>
                     <p class="@mTone.Text" style="font-weight: 500">@RigBoard.StatusLine(machine)</p>
                     @* The pre-flight list below already explains a pre-flight failure; don't repeat it. *@
                     @if (!string.IsNullOrEmpty(machine.Error) && Json.Read<PreflightResult?>(machine.PreflightJson, null) is not { HasErrors: true })
@@ -227,6 +228,7 @@ else if (_run is not null)
     private bool _loaded;
     private Run? _run;
     private Run? _previous;
+    private Dictionary<string, RigHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _params = new();
     private IReadOnlyList<(string Name, string? Old, string? New)> _paramChanges = [];
     private string? _selected;
@@ -271,6 +273,7 @@ else if (_run is not null)
         _params = Json.ReadParams(_run.ParamValuesJson);
         if (_run.DeploymentId is { } dep)
             _sshUser = (await Deployments.GetAsync(dep))?.SshUser;
+        _hosts = await MachineData.HostnamesAsync(_run.Machines.Select(m => m.MachineName));
 
         // Default to the first rig that needs a look: failed, then running, then the first one.
         _selected ??= (_run.Machines.FirstOrDefault(m => m.Status == MachineStatus.Failed)

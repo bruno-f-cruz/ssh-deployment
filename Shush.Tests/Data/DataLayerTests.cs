@@ -559,3 +559,43 @@ public class RunListForMachineTests : DataTestBase
         Assert.Null((await Runs.ListAsync()).Single().MachineStatus);
     }
 }
+
+public class MachineHostnameTests : DataTestBase
+{
+    [Fact]
+    public async Task Recording_a_hostname_adds_the_machine_and_keeps_the_latest()
+    {
+        await Machines.RecordHostnameAsync("FRG.4-A", "w10dt714001");
+        var machine = await Machines.GetAsync("FRG.4-A");
+        Assert.NotNull(machine);
+        Assert.Equal("w10dt714001", machine.Hostname);
+
+        // Names are case-insensitive: no second row, and a changed hostname replaces the old one.
+        await Machines.RecordHostnameAsync("frg.4-a", "w10dt714002");
+        var all = await Machines.ListAsync();
+        Assert.Equal("w10dt714002", Assert.Single(all).Hostname);
+        Assert.Equal("FRG.4-A", all[0].Name);
+
+        // A blank answer doesn't erase what we knew.
+        await Machines.RecordHostnameAsync("FRG.4-A", null);
+        Assert.Equal("w10dt714002", (await Machines.GetAsync("FRG.4-A"))!.Hostname);
+    }
+
+    [Fact]
+    public async Task Hostnames_report_machines_the_registry_doesnt_know()
+    {
+        await Groups.CreateAsync("FRG", machines: ["FRG.4-A", "FRG.4-B", "FRG.4-C"]);
+        await Machines.RecordHostnameAsync("FRG.4-A", "w10dt714001");
+        await Machines.RecordUnresolvedAsync("FRG.4-B", MachineService.NotInRegistry);
+
+        var hosts = await Machines.HostnamesAsync(["frg.4-a", "FRG.4-B", "FRG.4-C", "FRG.9-Z"]);
+        Assert.Equal(new RigHost("w10dt714001", false), hosts["FRG.4-A"]);
+        Assert.True(hosts["frg.4-b"].Unresolved);
+        Assert.Equal(new RigHost(null, false), hosts["FRG.4-C"]);
+        Assert.False(hosts.ContainsKey("FRG.9-Z"));
+
+        // Once the registry knows it, it's no longer flagged.
+        await Machines.RecordHostnameAsync("FRG.4-B", "w10dt714003");
+        Assert.Equal(new RigHost("w10dt714003", false), (await Machines.HostnamesAsync(["FRG.4-B"]))["FRG.4-B"]);
+    }
+}

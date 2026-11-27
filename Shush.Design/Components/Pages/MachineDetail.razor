@@ -10,6 +10,7 @@
 <PageTitle>@Name · Shush</PageTitle>
 
 <PageHeader Title="@Name">
+    <TitleContent><RigName Name="@Name" Machine="_machine" Link="false" Class="rig-name--large" /></TitleContent>
     <Crumbs><a href="machines">Machines</a> / @Name</Crumbs>
     <Facts>
         <dl class="facts">
@@ -66,6 +67,9 @@
                 }
             </div>
             <dl class="kv">
+                <dt>Hostname</dt>
+                <dd class="mono">@(_machine?.Hostname ?? "Unknown")</dd>
+
                 <dt>Address</dt>
                 <dd class="mono">@(_machine?.ReachableAddress ?? "Unknown")</dd>
 

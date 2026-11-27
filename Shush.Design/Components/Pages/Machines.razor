@@ -29,7 +29,7 @@
     <div class="panel__head">
         <div class="row machines__filters">
             <label class="visually-hidden" for="machine-search">Search machines</label>
-            <input id="machine-search" type="search" placeholder="Search by name, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
+            <input id="machine-search" type="search" placeholder="Search by name, hostname, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
             <div class="toggles" role="group" aria-label="Show machines">
                 <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @(_machines?.Count ?? 0)</button>
                 <button type="button" class="toggle" aria-pressed="@Ui.Aria(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">
@@ -75,7 +75,7 @@
                         @foreach (var machine in shown)
                         {
                             <tr>
-                                <td><a class="title" href="@($"machines/{Uri.EscapeDataString(machine.Name)}")">@machine.Name</a></td>
+                                <td><RigName Name="@machine.Name" Machine="machine" /></td>
                                 <td><MachineHealth Machine="machine" /></td>
                                 <td>
                                     @if (string.IsNullOrEmpty(machine.LoggedOnUser))
@@ -180,6 +180,7 @@
 
     private bool Matches(Machine machine, string term) =>
         machine.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || (machine.Hostname?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
         || (machine.LoggedOnUser?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
         || (_groupsOf.GetValueOrDefault(machine.Name)?.Any(g => g.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) ?? false);
 

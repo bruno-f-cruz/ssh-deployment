@@ -151,6 +151,7 @@ public sealed class RunCoordinator(
                     return;
                 }
 
+                await machines.RecordHostnameAsync(machine, info.hostname);
                 var resolved = await variables.ResolveAsync(groupId, machine);
                 foreach (var variable in resolved)
                     allResolved.Add(variable);
