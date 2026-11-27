@@ -29,6 +29,17 @@ public sealed class StepSpec
     [YamlIgnore]
     public bool IsEnabled => Enabled ?? true;
 
+    /// <summary>Why a disabled step is skipped, when not just "disabled" (e.g. a deployment turned it off). Never serialized.</summary>
+    [YamlIgnore]
+    public string? DisabledReason { get; set; }
+
+    /// <summary>
+    /// What a deployment's overrides call this step: its id, else its display name. Steps without an id should keep
+    /// their names unique, or an override applies to every step with that name.
+    /// </summary>
+    [YamlIgnore]
+    public string Key => !string.IsNullOrWhiteSpace(Id) ? Id.Trim() : DisplayName;
+
     /// <summary>What progress and logs call this step.</summary>
     [YamlIgnore]
     public string DisplayName =>

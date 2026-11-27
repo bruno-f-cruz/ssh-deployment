@@ -104,7 +104,7 @@ public sealed class SerializedRecipe : IRecipe
                 // will never be captured, and there's nothing useful to construct.
                 if (!spec.IsEnabled)
                 {
-                    yield return new PlannedStep(displayName, spec.Id, Step: null, Enabled: false, () => NoOutputs, "disabled");
+                    yield return new PlannedStep(displayName, spec.Id, Step: null, Enabled: false, () => NoOutputs, spec.DisabledReason ?? "disabled");
                     continue;
                 }
 

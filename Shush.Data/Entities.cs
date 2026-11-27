@@ -2,7 +2,7 @@ namespace Shush.Data;
 
 // All times are UTC (see ShushDbContext's DateTime convention).
 
-public enum VersionSource { BuiltIn, Edit, Import, Reset, Legacy, Restore }
+public enum VersionSource { BuiltIn, Edit, Import, Reset, Legacy, Restore, Duplicate }
 
 /// <summary>A recipe. Its content lives in immutable <see cref="RecipeVersion"/>s; the newest is the current one.</summary>
 public sealed class Recipe
@@ -16,6 +16,9 @@ public sealed class Recipe
     /// <summary>The newest shipped YAML, for "Reset to default" (a built-in recipe only).</summary>
     public string? ShippedYaml { get; set; }
     public string? ShippedHash { get; set; }
+
+    /// <summary>When the recipe was made by duplicating another: which one and which version (e.g. "VrForagingExperiment v3").</summary>
+    public string? CopiedFrom { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -62,6 +65,9 @@ public sealed class Machine
 {
     public string Name { get; set; } = "";
     public string? Notes { get; set; }
+
+    /// <summary>The hostname (or IP) the machine registry last resolved the name to. Kept so it shows when the registry is down.</summary>
+    public string? Hostname { get; set; }
 
     public DateTime? LastProbeAt { get; set; }
     public bool? Reachable { get; set; }
@@ -127,6 +133,15 @@ public sealed class Deployment
     /// <summary>JSON object of param name → value.</summary>
     public string ParamValuesJson { get; set; } = "{}";
 
+    /// <summary>
+    /// JSON of the <see cref="Shush.Recipe.Serialization.RecipeOverrides"/>: steps turned off and inputs changed for this
+    /// deployment only, applied on top of the recipe's current version (so recipe edits still reach it).
+    /// </summary>
+    public string OverridesJson { get; set; } = "{}";
+
+    /// <summary>The SSH account this deployment connects as. Null: whoever is signed in.</summary>
+    public string? SshUser { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -158,6 +173,9 @@ public sealed class Run
     public string? GroupName { get; set; }
 
     public string ParamValuesJson { get; set; } = "{}";
+
+    /// <summary>The deployment's overrides when the run started, so a retry or rollback repeats them.</summary>
+    public string OverridesJson { get; set; } = "{}";
     public string? StartedBy { get; set; }
     public DateTime StartedAt { get; set; }
     public DateTime? FinishedAt { get; set; }

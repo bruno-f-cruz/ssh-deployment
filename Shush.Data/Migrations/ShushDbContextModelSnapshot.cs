@@ -37,12 +37,19 @@ namespace Shush.Data.Migrations
                         .HasColumnType("TEXT")
                         .UseCollation("NOCASE");
 
+                    b.Property<string>("OverridesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ParamValuesJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("RecipeId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SshUser")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -113,6 +120,9 @@ namespace Shush.Data.Migrations
                     b.Property<double?>("FreeGb")
                         .HasColumnType("REAL");
 
+                    b.Property<string>("Hostname")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("LastBoot")
                         .HasColumnType("TEXT");
 
@@ -170,6 +180,9 @@ namespace Shush.Data.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("CopiedFrom")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
@@ -264,6 +277,10 @@ namespace Shush.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("LogFile")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OverridesJson")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ParamValuesJson")
