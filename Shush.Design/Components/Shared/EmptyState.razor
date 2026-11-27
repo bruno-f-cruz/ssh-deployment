@@ -1,9 +1,6 @@
+@* A quiet one-line "nothing here": the title, an optional short hint after it, and an optional action. *@
 <div class="empty">
-    <strong>@Title</strong>
-    @if (ChildContent is not null)
-    {
-        <div>@ChildContent</div>
-    }
+    <span><span class="empty__title">@Title</span>@if (ChildContent is not null) { <span class="empty__hint"> @ChildContent</span> }</span>
     @Actions
 </div>
 

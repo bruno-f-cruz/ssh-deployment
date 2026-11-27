@@ -330,8 +330,6 @@ a.rig-name__id:hover { color: var(--purple); text-decoration: underline; }
 
 /* ---------- Empty states ---------- */
 
-.empty { padding: 28px 24px; text-align: left; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; color: var(--ink-2); }
-.empty strong { color: var(--ink); font-size: 16px; }
 
 /* ---------- Code and diffs ---------- */
 
@@ -469,3 +467,37 @@ h1:focus, h1:focus-visible { outline: none; }
 .stack-sm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
 .alert .signin { max-width: 380px; }
+
+/* ---------- Simplification layer: menus, clickable rows, meta lines, quiet empties ---------- */
+
+.menu { position: relative; display: inline-block; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.btn--icon { width: 40px; padding: 0; justify-content: center; }
+.menu__list {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 220px; padding: 6px;
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); display: flex; flex-direction: column;
+}
+.menu__item {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 6px;
+    background: none; font: inherit; font-size: 14px; color: var(--ink); text-align: left; text-decoration: none; cursor: pointer;
+}
+.menu__item:hover, .menu__item:focus-visible { background: var(--bg); }
+.menu__item--danger { color: var(--crimson); }
+.menu__sep { height: 1px; background: var(--line); margin: 4px 6px; }
+
+tr.is-link { cursor: pointer; }
+tr.is-link:hover td { background: var(--bg); }
+a.row-link { color: inherit; text-decoration: none; font-weight: 600; }
+tr.is-link:hover a.row-link { text-decoration: underline; text-underline-offset: 2px; }
+
+/* One line of context under a title: "VrForagingExperiment v1 · VR-Foraging (15 rigs) · as svc_vr". */
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; color: var(--muted); font-size: 15px; margin: 2px 0 0; }
+.meta > * + *::before { content: "·"; margin: 0 10px; color: var(--line-strong); }
+.meta a { color: var(--ink-2); }
+
+.empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 18px 24px; color: var(--muted); font-size: 15px; }
+.panel:not(.panel--flush) > .empty { padding: 4px 0; }
+.empty__title { color: var(--ink-2); }
+.empty__hint { color: var(--muted); }
