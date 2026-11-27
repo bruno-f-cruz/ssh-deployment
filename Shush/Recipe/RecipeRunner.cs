@@ -1,11 +1,26 @@
 using Microsoft.Extensions.Logging;
-using Shush;
+using Shush.Recipe.Steps;
 
 namespace Shush.Recipe;
 
+/// <summary>An environment variable the runner sets on a machine before the recipe's steps.</summary>
+/// <param name="Scope">Machine (default) or User.</param>
+/// <param name="Secret">Redact the value from logs.</param>
+public sealed record EnvironmentAssignment(string Name, string Value, string Scope = "Machine", bool Secret = false);
+
+/// <summary>What differs per machine in a run: the variables <c>${group.NAME}</c> reads, and environment variables to set.</summary>
+public sealed class MachineRunSettings
+{
+    public static MachineRunSettings Empty { get; } = new();
+
+    public IReadOnlyDictionary<string, string> Variables { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyList<EnvironmentAssignment> Environment { get; init; } = [];
+}
+
 public class RecipeRunner
 {
-    private const int MaxConcurrentDeployments = 16;
+    /// <summary>The name the environment-variables phase reports under, as if it were a step.</summary>
+    public const string EnvironmentStepName = "Environment variables";
 
     private readonly IRecipe _recipe;
     private readonly Dictionary<string, MachineInfo> _machines;
@@ -14,17 +29,22 @@ public class RecipeRunner
     private readonly ILogger<RecipeRunner> _logger;
     private readonly IDeploymentProgress? _display;
     private readonly IReadOnlyList<SharedAccessGrant> _machineWideAccess;
+    private readonly Func<string, MachineRunSettings> _settingsFor;
+    private readonly int _maxConcurrency;
 
     /// <param name="machineWideAccess">
     /// Grants applied on every machine before any recipe-declared ones (from <see cref="ShushSettings.SharedAccess"/>).
     /// </param>
+    /// <param name="settingsFor">Each machine's variables and environment variables; none when null.</param>
     public RecipeRunner(
         IRecipe recipe,
         Dictionary<string, MachineInfo> machines,
         Secrets secrets,
         ILoggerFactory loggerFactory,
         IDeploymentProgress? display = null,
-        IReadOnlyList<SharedAccessGrant>? machineWideAccess = null)
+        IReadOnlyList<SharedAccessGrant>? machineWideAccess = null,
+        Func<string, MachineRunSettings>? settingsFor = null,
+        int maxConcurrency = 16)
     {
         _machineWideAccess = machineWideAccess ?? [];
         var errors = _machineWideAccess.SelectMany(g => g.Validate()).ToList();
@@ -37,24 +57,32 @@ public class RecipeRunner
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<RecipeRunner>();
         _display = display;
+        _settingsFor = settingsFor ?? (_ => MachineRunSettings.Empty);
+        _maxConcurrency = Math.Max(1, maxConcurrency);
     }
+
+    /// <summary>The step names a machine reports, in order: the environment phase (when it has any), then the recipe's steps.</summary>
+    public static IReadOnlyList<string> PlannedStepNames(IRecipe recipe, MachineRunSettings settings) =>
+        settings.Environment.Count > 0 ? [EnvironmentStepName, .. recipe.StepNames] : recipe.StepNames;
 
     public async Task RunAsync(CancellationToken ct = default)
     {
         var failures = new System.Collections.Concurrent.ConcurrentDictionary<string, Exception>();
 
         ThreadPool.GetMinThreads(out _, out var minIocp);
-        ThreadPool.SetMinThreads(MaxConcurrentDeployments, minIocp);
+        ThreadPool.SetMinThreads(_maxConcurrency, minIocp);
 
         var options = new ParallelOptions
         {
             CancellationToken = ct,
-            MaxDegreeOfParallelism = MaxConcurrentDeployments,
+            MaxDegreeOfParallelism = _maxConcurrency,
         };
 
         await Parallel.ForEachAsync(_machines, options, async (kv, cancellationToken) =>
         {
             var (boxId, machineInfo) = (kv.Key, kv.Value);
+            var settings = _settingsFor(boxId);
+            _display?.ReportPlan(boxId, PlannedStepNames(_recipe, settings));
 
             _logger.LogInformation("[{BoxId}] Starting recipe '{Recipe}'.", boxId, _recipe.Name);
 
@@ -62,7 +90,7 @@ public class RecipeRunner
             {
                 await using var context = await MachineContext.ConnectAsync(boxId, machineInfo, _secrets, _loggerFactory, cancellationToken);
 
-                var plan = _recipe.CreatePlan();
+                var plan = _recipe.CreatePlan(new PlanContext(boxId, settings.Variables));
 
                 // Grant before any step creates files: new files inherit the ACL of their parent.
                 foreach (var grant in _machineWideAccess.Concat(plan.SharedAccess).Distinct())
@@ -74,6 +102,9 @@ public class RecipeRunner
                     await context.EnsureSharedAccessAsync(grant, cancellationToken);
                 }
 
+                if (settings.Environment.Count > 0)
+                    await ApplyEnvironmentAsync(boxId, context, settings.Environment, cancellationToken);
+
                 foreach (var planned in plan.Steps())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -82,8 +113,9 @@ public class RecipeRunner
 
                     if (!planned.Enabled)
                     {
-                        _logger.LogInformation("[{BoxId}] Skipping step: {Step} (disabled).", boxId, stepName);
-                        _display?.ReportStep(boxId, success: true, $"{stepName} (skipped)");
+                        var reason = planned.SkipReason ?? "disabled";
+                        _logger.LogInformation("[{BoxId}] Skipping step: {Step} ({Reason}).", boxId, stepName, reason);
+                        _display?.ReportSkipped(boxId, stepName, reason);
                         continue;
                     }
 
@@ -93,9 +125,11 @@ public class RecipeRunner
                     try
                     {
                         await planned.Step!.ExecuteAsync(context, cancellationToken);
-                        planned.CaptureOutputs();
+                        var outputs = planned.CaptureOutputs();
                         _logger.LogInformation("[{BoxId}] Step '{Step}' completed successfully.", boxId, stepName);
                         _display?.ReportStep(boxId, success: true, stepName);
+                        if (outputs.Count > 0)
+                            _display?.ReportOutputs(boxId, stepName, outputs);
                     }
                     catch (Exception ex)
                     {
@@ -106,6 +140,7 @@ public class RecipeRunner
                 }
 
                 _logger.LogInformation("[{BoxId}] Recipe '{Recipe}' finished.", boxId, _recipe.Name);
+                _display?.ReportSucceeded(boxId);
             }
             catch (OperationCanceledException)
             {
@@ -129,6 +164,36 @@ public class RecipeRunner
             throw new AggregateException(
                 $"Recipe '{_recipe.Name}' failed on {failures.Count} machine(s): {summary}",
                 failures.Values);
+        }
+    }
+
+    private async Task ApplyEnvironmentAsync(
+        string boxId, MachineContext context, IReadOnlyList<EnvironmentAssignment> environment, CancellationToken ct)
+    {
+        _logger.LogInformation("[{BoxId}] Executing step: {Step}.", boxId, EnvironmentStepName);
+        _display?.ReportStepStart(boxId, EnvironmentStepName);
+        try
+        {
+            foreach (var assignment in environment)
+            {
+                ct.ThrowIfCancellationRequested();
+                var step = new SetEnvironmentVariableStep
+                {
+                    Name = assignment.Name,
+                    Value = assignment.Value,
+                    Scope = assignment.Scope,
+                    Secret = assignment.Secret,
+                };
+                await step.ExecuteAsync(context, ct);
+            }
+
+            _display?.ReportStep(boxId, success: true, EnvironmentStepName);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, EnvironmentStepName);
+            _display?.ReportStep(boxId, success: false, EnvironmentStepName);
+            throw;
         }
     }
 }

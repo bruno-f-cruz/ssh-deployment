@@ -2,8 +2,8 @@ namespace Shush.Recipe.Serialization;
 
 /// <summary>
 /// An <see cref="IRecipe"/> backed by a <see cref="RecipeDocument"/>. Each <see cref="CreatePlan"/>
-/// call builds a fresh scope (params from supplied values/defaults, vars resolved once) and lazily
-/// resolves + binds each step against the outputs captured from earlier steps.
+/// call builds a fresh scope (the machine's group variables, params from supplied values/defaults, vars
+/// resolved once) and lazily resolves + binds each step against the outputs captured from earlier steps.
 /// </summary>
 public sealed class SerializedRecipe : IRecipe
 {
@@ -29,11 +29,14 @@ public sealed class SerializedRecipe : IRecipe
     public string Name => _document.Name;
 
     public IReadOnlyList<string> StepNames =>
-        _document.Steps.Select(s => s.Id ?? s.Type).ToList();
+        _document.Steps.Select(s => s.DisplayName).ToList();
 
-    public IRecipeExecutionPlan CreatePlan()
+    public IRecipeExecutionPlan CreatePlan(PlanContext? context = null)
     {
         var scope = new ResolutionScope();
+
+        foreach (var (name, value) in context?.GroupVariables ?? new Dictionary<string, string>())
+            scope.SetGroupVariable(name, value);
 
         foreach (var (name, decl) in _document.Params)
         {
@@ -48,7 +51,7 @@ public sealed class SerializedRecipe : IRecipe
             scope.SetParam(name, value);
         }
 
-        // Vars resolve once, before any step runs (params + functions only, enforced by validation).
+        // Vars resolve once, before any step runs (params, group variables and functions only, enforced by validation).
         foreach (var (name, expr) in _document.Vars)
             scope.SetVar(name, ReferenceResolver.ResolveString(expr, scope, _functions));
 
@@ -68,6 +71,8 @@ public sealed class SerializedRecipe : IRecipe
 
         return grants;
     }
+
+    private static readonly IReadOnlyDictionary<string, string> NoOutputs = new Dictionary<string, string>();
 
     private sealed class Plan : IRecipeExecutionPlan
     {
@@ -93,14 +98,25 @@ public sealed class SerializedRecipe : IRecipe
         {
             foreach (var spec in _document.Steps)
             {
-                var displayName = spec.Id ?? spec.Type;
+                var displayName = spec.DisplayName;
 
-                // A disabled step is never resolved or bound — it can't reference outputs that
+                // A step that doesn't run is never resolved or bound — it can't reference outputs that
                 // will never be captured, and there's nothing useful to construct.
                 if (!spec.IsEnabled)
                 {
-                    yield return new PlannedStep(displayName, spec.Id, Step: null, Enabled: false, CaptureOutputs: () => { });
+                    yield return new PlannedStep(displayName, spec.Id, Step: null, Enabled: false, () => NoOutputs, "disabled");
                     continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(spec.When))
+                {
+                    var condition = ReferenceResolver.ResolveString(spec.When, _scope, _functions);
+                    if (!ConditionEvaluator.Evaluate(condition))
+                    {
+                        yield return new PlannedStep(
+                            displayName, spec.Id, Step: null, Enabled: false, () => NoOutputs, $"when: {spec.When.Trim()} is false");
+                        continue;
+                    }
                 }
 
                 var descriptor = _registry.Get(spec.Type);
@@ -108,19 +124,19 @@ public sealed class SerializedRecipe : IRecipe
                 var step = StepBinder.Bind(descriptor, resolvedWith);
                 var id = spec.Id;
 
-                void CaptureOutputs()
+                IReadOnlyDictionary<string, string> CaptureOutputs()
                 {
-                    if (id is null)
-                        return;
-
                     var outputs = new Dictionary<string, string>();
                     foreach (var output in descriptor.Outputs)
                         outputs[output.Name] = output.Property.GetValue(step)?.ToString() ?? string.Empty;
 
-                    _scope.SetStepOutputs(id, outputs);
+                    if (id is not null)
+                        _scope.SetStepOutputs(id, outputs);
+
+                    return outputs;
                 }
 
-                yield return new PlannedStep(displayName, id, step, Enabled: true, CaptureOutputs);
+                yield return new PlannedStep(displayName, id, step, Enabled: true, CaptureOutputs, ResolvedInputs: resolvedWith);
             }
         }
     }

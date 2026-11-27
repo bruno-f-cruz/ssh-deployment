@@ -1,5 +1,29 @@
 name: VrForagingExperiment
 params:
+  ref:
+    type: String
+    label: Git ref
+    help: The tag, branch or commit of Aind.Experiment.VrForaging to deploy.
+    default: main
+    optionsFrom: git.refs(https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging)
+  installFolder:
+    type: String
+    label: Install folder
+    help: The folder under C:/git the experiment is cloned into. A dev deployment uses its own (e.g. Aind.Experiment.VrForaging-dev), so it installs next to prod.
+    default: Aind.Experiment.VrForaging
+    fixed: true
+  shortcutName:
+    type: String
+    label: Desktop shortcut
+    help: The name of the shortcut on the public desktop (e.g. DEV-VrForagingExperiment for dev).
+    default: VrForagingExperiment
+    fixed: true
+  iconFile:
+    type: String
+    label: Shortcut icon
+    help: The icon in the repository's assets folder (icon.ico for prod, icon_dev.ico for dev).
+    default: icon.ico
+    fixed: true
   clabeVersion:
     type: String
     label: clabe version
@@ -9,33 +33,39 @@ params:
 vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
-# Deploys Aind.Experiment.VrForaging to the behavior rigs, and the clabe daemon that serves each rig's runs and enrolls
+# Deploys Aind.Experiment.VrForaging to the behavior rigs (prod, or a dev install next to it: see the fixed params), and the clabe daemon that serves each rig's runs and enrolls
 # the rig with the hub. Runs as the SSH user: that must be the user logged on to the rig (the daemon runs in their
 # session).
 steps:
 # Stop the daemon before anything changes: deploy.ps1 recreates .venv, and no session may start meanwhile. Refused
 # while a session runs; nothing to stop on a new rig. The last step starts it again.
 - type: DeployClabeDaemon
+  name: Stop the clabe daemon
   with:
     stopOnly: true
 - type: RunScript
+  name: Trust git folders
   with:
     commands:
     - git config --global --unset-all safe.directory 2>$null; if ($LASTEXITCODE -eq 5) { $global:LASTEXITCODE = 0 }
     - git config --global --add safe.directory '*'
 - id: clone
+  name: Clone
   type: GitClone
   with:
     repositoryUrl: https://github.com/AllenNeuralDynamics/Aind.Experiment.VrForaging
     rootPath: ${vars.repoRoot}
+    folderName: ${params.installFolder}
 - type: GitCheckout
+  name: Checkout
   with:
     path: ${clone.clonedPath}
-    reference: main
+    reference: ${params.ref}
     cleanExceptions:
     - .cache_manager.json
 # Sets up the Bonsai environments and recreates .venv.
 - type: RunScript
+  name: Run deploy.ps1
   with:
     workingDirectory: ${clone.clonedPath}
     commands:
@@ -43,14 +73,16 @@ steps:
     - $ProgressPreference = 'SilentlyContinue'
     - .\scripts\deploy.ps1
 - type: CreateShortcut
+  name: Desktop shortcut
   with:
     cmdPath: ${clone.clonedPath}/scripts/launcher.cmd
     shortcutDirectory: C:\Users\Public\Desktop
-    shortName: VrForagingExperiment
-    iconPath: ${clone.clonedPath}/assets/icon.ico
+    shortName: ${params.shortcutName}
+    iconPath: ${clone.clonedPath}/assets/${params.iconFile}
 # The experiments' clabe.yml. Behavior and the metadata record upload right away; every other modality (videos...) is
 # appended at the rig's scheduleTime. A literal block (|), so YAML keeps the lines as written.
 - type: WriteFile
+  name: Write clabe.yml
   with:
     targetPath: ${clone.clonedPath}/local/clabe.yml
     content: |
@@ -89,6 +121,7 @@ steps:
 # The daemon runs clabeVersion, enrolled with the hub, and starts again. Installed next to the clabe it ran before;
 # when it already runs that clabe with this hub, it only starts.
 - type: DeployClabeDaemon
+  name: Start the clabe daemon
   with:
     version: ${params.clabeVersion}
     lockRepository: ${clone.clonedPath}

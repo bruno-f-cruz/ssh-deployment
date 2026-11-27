@@ -128,7 +128,7 @@ public sealed class ClabeReleases(HttpClient http)
     public static string InstallerUrl(string reference) =>
         $"https://raw.githubusercontent.com/{Repository}/{Uri.EscapeDataString(reference)}/scripts/install.ps1";
 
-    private static HttpClient CreateClient()
+    internal static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Shush", "1.0"));

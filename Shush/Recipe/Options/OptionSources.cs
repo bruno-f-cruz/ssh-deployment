@@ -29,5 +29,26 @@ public sealed class OptionSourceRegistry
 
     public IReadOnlyCollection<string> Names => _sources.Keys;
 
-    public bool TryGet(string name, out IOptionSource source) => _sources.TryGetValue(name, out source!);
+    /// <summary>
+    /// A named source, or a parameterised one created on first use: <c>git.refs(https://github.com/owner/repo)</c>
+    /// (see <see cref="GitRefOptions"/>).
+    /// </summary>
+    public bool TryGet(string name, out IOptionSource source)
+    {
+        lock (_sources)
+        {
+            if (_sources.TryGetValue(name, out source!))
+                return true;
+
+            if (GitRefOptions.TryCreate(name, SharedHttp.Value) is { } refs)
+            {
+                _sources[name] = source = refs;
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    private static readonly Lazy<HttpClient> SharedHttp = new(ClabeReleases.CreateClient);
 }

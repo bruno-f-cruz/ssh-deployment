@@ -36,7 +36,6 @@ public class BuiltinRecipesTests
 {
     [Theory]
     [InlineData("VrForagingExperiment.yml")]
-    [InlineData("VrForagingExperimentDev.yml")]
     [InlineData("VrForagingExperimentEphys.yml")]
     [InlineData("Reboot.yml")]
     [InlineData("CleanDesktop.yml")]
