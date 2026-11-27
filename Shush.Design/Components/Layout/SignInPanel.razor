@@ -2,60 +2,31 @@
 @inject CredentialStore Credentials
 
 @* The SSH accounts deploys connect with. Deployments that name their own account use it; the others use the first one. *@
-@if (Credentials.Accounts.Count > 0)
-{
-    <span class="small muted">Signed in as</span>
-    <ul class="accounts">
-        @foreach (var account in Credentials.Accounts)
-        {
-            var primary = string.Equals(account.Username, Credentials.Primary, StringComparison.OrdinalIgnoreCase);
-            <li class="accounts__item">
-                <span class="accounts__name">
-                    <strong>@account.Username</strong>
-                    @if (account.Remembered)
-                    {
-                        <span title="Remembered on this browser"><Icon Name="lock" Size="14" /></span>
-                    }
-                </span>
-                <span class="accounts__actions">
-                    @if (Credentials.Accounts.Count > 1)
-                    {
-                        if (primary)
-                        {
-                            <span class="small muted" title="Deployments without their own SSH account use this one">default</span>
-                        }
-                        else
-                        {
-                            <button type="button" class="link-btn small" title="Use it for deployments without their own SSH account" @onclick="() => Credentials.MakePrimaryAsync(account.Username)">Make default</button>
-                        }
-                    }
-                    <button type="button" class="link-btn small" @onclick="() => Credentials.SignOutAsync(account.Username)">Sign out</button>
-                </span>
-            </li>
-        }
-    </ul>
-}
-
 @if (_open)
 {
     <SignInForm IdPrefix="ssh" OnSignedIn="() => _open = false" OnCancel="() => _open = false" />
 }
 else if (Credentials.Accounts.Count == 0)
 {
-    <span class="small muted">Sign in with your rig account to deploy.</span>
     <button type="button" class="btn btn--small" style="align-self: flex-start" @onclick="() => _open = true">
-        <Icon Name="lock" Size="16" />Sign in
+        <Icon Name="lock" Size="16" />Sign in to deploy
     </button>
 }
 else
 {
-    <span class="row">
-        <button type="button" class="link-btn small" @onclick="() => _open = true">Add an account</button>
-        @if (Credentials.Accounts.Any(a => a.Remembered))
+    <ul class="accounts">
+        @foreach (var account in Credentials.Accounts)
         {
-            <button type="button" class="link-btn small" title="Sign every account out and forget what this browser remembered" @onclick="Credentials.ForgetAllAsync">Forget all</button>
+            <li class="accounts__item" title="@(account.Remembered ? "Remembered on this browser" : "Signed in for this tab")">
+                <Icon Name="user" Size="16" />
+                <span class="accounts__name">@account.Username</span>
+                <button type="button" class="accounts__out" aria-label="@($"Sign out {account.Username}")" title="Sign out" @onclick="() => Credentials.SignOutAsync(account.Username)">
+                    <Icon Name="x" Size="14" />
+                </button>
+            </li>
         }
-    </span>
+    </ul>
+    <button type="button" class="link-btn small" style="align-self: flex-start" @onclick="() => _open = true">Add another account</button>
 }
 
 @code {

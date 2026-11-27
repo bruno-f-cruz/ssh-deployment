@@ -1,7 +1,7 @@
 @inject CredentialStore Credentials
 
 @* Signs an SSH account in. With Username set, it's for that account only (e.g. the one a deployment connects as). *@
-<form class="signin" @onsubmit="SignInAsync" @onsubmit:preventDefault="true">
+<form class="signin @(Inline ? "signin--inline" : "")" @onsubmit="SignInAsync" @onsubmit:preventDefault="true">
     @if (Username is null)
     {
         <div class="field">
@@ -11,9 +11,9 @@
     }
     <div class="field">
         <label for="@($"{IdPrefix}-pass")" class="small">@(Username is null ? "Password" : $"Password for {Username}")</label>
-        <input id="@($"{IdPrefix}-pass")" name="password" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" />
+        <input id="@($"{IdPrefix}-pass")" name="password" type="password" autocomplete="current-password" placeholder="@(Inline ? "Password" : null)" @bind="_password" @bind:event="oninput" />
     </div>
-    <label class="checkbox small">
+    <label class="checkbox small" title="Keeps the password, encrypted, in this browser until you sign out. Anyone using this browser profile can then deploy as this account. Otherwise it lasts until the tab closes. The server never stores it.">
         <input type="checkbox" @bind="_remember" />
         Remember on this browser
     </label>
@@ -24,22 +24,15 @@
             <button type="button" class="btn btn--ghost btn--small" @onclick="OnCancel">Cancel</button>
         }
     </div>
-    <p class="small muted">
-        @if (_remember)
-        {
-            <text>Kept encrypted in this browser until you sign out; anyone using this browser profile can deploy as this account.</text>
-        }
-        else
-        {
-            <text>Kept for this tab only. Never stored on the server.</text>
-        }
-    </p>
 </form>
 
 @code {
     /// <summary>The account to sign in; null lets the operator type it.</summary>
     [Parameter] public string? Username { get; set; }
     [Parameter] public string IdPrefix { get; set; } = "ssh";
+
+    /// <summary>One row (password, remember, button), e.g. inside an alert.</summary>
+    [Parameter] public bool Inline { get; set; }
     [Parameter] public EventCallback OnSignedIn { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 

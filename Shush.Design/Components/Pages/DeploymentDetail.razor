@@ -25,103 +25,66 @@ else if (_deployment is not null && _document is not null)
         <Crumbs><a href="deployments">Deployments</a> <span>/</span> <span>@_deployment.Name</span></Crumbs>
         <Lede>@_deployment.Description</Lede>
         <Facts>
-            <dl class="facts">
-                <div>
-                    <dt>Recipe</dt>
-                    <dd>
-                        <a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a>, v@(_version?.Number)
-                        @if (!_overrides.IsEmpty)
-                        {
-                            <button type="button" class="badge badge--override badge--button" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "change") for this deployment</button>
-                        }
-                    </dd>
-                </div>
-                <div><dt>Group</dt><dd><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</dd></div>
-                <div><dt>SSH account</dt><dd>@(_deployment.SshUser ?? "whoever is signed in")</dd></div>
+            <p class="meta">
+                <span><a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a> v@(_version?.Number)</span>
+                @if (!_overrides.IsEmpty)
+                {
+                    <span><button type="button" class="link-btn t-changed" title="Steps turned off or inputs changed for this deployment only" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "change")</button></span>
+                }
+                <span><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</span>
+                @if (_deployment.SshUser is { } user)
+                {
+                    <span title="The SSH account this deployment connects as">as @user</span>
+                }
                 @if (_history.FirstOrDefault(r => r.Kind != RunKind.DryRun) is { } last)
                 {
-                    <div><dt>Last run</dt><dd><a href="runs/@last.Id"><StatusText Tone="Ui.Of(last.Status)" /></a> <span class="muted">@Ui.Ago(last.StartedAt)</span></dd></div>
+                    <span><a href="runs/@last.Id" class="plain-link"><StatusText Tone="Ui.Of(last.Status)" /></a>&nbsp;@Ui.Ago(last.StartedAt)</span>
                 }
-            </dl>
+            </p>
         </Facts>
         <Actions>
-            <button type="button" class="btn btn--ghost" aria-expanded="@Ui.Aria(_duplicating)" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate</button>
             <button type="button" class="btn" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.DryRun)">Dry run</button>
             <button type="button" class="btn btn--primary" disabled="@(!CanRun)" @onclick="() => StartAsync(RunKind.Deploy)">
                 Deploy to @Ui.Plural(_deployment.Group.Members.Count, "rig")
             </button>
+            <Menu>
+                <button type="button" class="menu__item" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate…</button>
+                <button type="button" class="menu__item" @onclick="AskDetach"><Icon Name="recipes" Size="16" />Detach into its own recipe…</button>
+                <div class="menu__sep"></div>
+                <button type="button" class="menu__item menu__item--danger" @onclick="AskDelete"><Icon Name="trash" Size="16" />Delete…</button>
+            </Menu>
         </Actions>
     </PageHeader>
 
+    @if (_confirm is { } confirm)
+    {
+        <div class="alert alert--warn" role="alertdialog" aria-label="Confirm">
+            <Icon Name="warn" />
+            <span class="grow">@confirm.Question</span>
+            <button type="button" class="btn btn--small @(confirm.Danger ? "btn--danger" : "btn--primary")" @onclick="RunConfirmAsync">@confirm.Label</button>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _confirm = null">Cancel</button>
+        </div>
+    }
+
     @if (_deployment.SshUser is { } account && !Credentials.CanDeployAs(account))
     {
-        <div class="alert alert--info">
+        <div class="alert alert--info alert--signin">
             <Icon Name="lock" />
-            <div class="grow stack-sm">
-                <span>This deployment connects as <strong>@account</strong>. Sign that account in to deploy or dry run.</span>
-                <SignInForm Username="@account" IdPrefix="dep-ssh" />
-            </div>
+            <span>Connects as <strong>@account</strong>.</span>
+            <SignInForm Username="@account" IdPrefix="dep-ssh" Inline="true" />
         </div>
     }
     else if (!Credentials.CanDeployAs(null) && _deployment.SshUser is null)
     {
-        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in with your SSH account (bottom left) to deploy or dry run.</span></div>
-    }
-
-    @if (_duplicating)
-    {
-        <form class="panel" aria-label="Duplicate deployment" @onsubmit="DuplicateAsync" @onsubmit:preventDefault="true">
-            <div class="panel__head">
-                <h2>Duplicate @_deployment.Name</h2>
-                <span class="panel__sub">Same group, values, SSH account and changes. Give it its own fixed values (install folder, shortcut) so it installs next to this one.</span>
-            </div>
-            <div class="choice" role="radiogroup" aria-label="How the copy uses the recipe">
-                <label class="choice__option">
-                    <input type="radio" name="dup-mode" checked="@(!_dupDetach)" @onchange="() => _dupDetach = false" />
-                    <span>
-                        <strong>Follow @_deployment.Recipe.Name</strong>
-                        <span class="small muted">Gets every edit to the recipe. Its own changes (steps off, inputs) are kept on the deployment.</span>
-                    </span>
-                </label>
-                <label class="choice__option">
-                    <input type="radio" name="dup-mode" checked="@_dupDetach" @onchange="() => _dupDetach = true" />
-                    <span>
-                        <strong>Detach: its own recipe</strong>
-                        <span class="small muted">A copy of the recipe@(_overrides.IsEmpty ? "" : " with this deployment's changes built in") to edit freely. Later edits to @_deployment.Recipe.Name don't reach it.</span>
-                    </span>
-                </label>
-            </div>
-            <div class="form-grid">
-                <div class="field">
-                    <label for="dup-name">Name</label>
-                    <input id="dup-name" @bind="_dupName" @bind:event="oninput" />
-                </div>
-                @if (_dupDetach)
-                {
-                    <div class="field">
-                        <label for="dup-recipe">New recipe's name</label>
-                        <input id="dup-recipe" @bind="_dupRecipeName" @bind:event="oninput" />
-                    </div>
-                }
-            </div>
-            <ParamForm Document="_document" Values="_dupValues" EditFixed="true" IdPrefix="dup" />
-            @if (DuplicateClash is { } clash)
-            {
-                <p class="small t-warn">@clash</p>
-            }
-            <div class="row">
-                <button type="submit" class="btn btn--primary" disabled="@(!CanDuplicate)">Create the copy</button>
-                <button type="button" class="btn btn--ghost" @onclick="() => _duplicating = false">Cancel</button>
-            </div>
-        </form>
+        <div class="alert alert--info"><Icon Name="lock" /><span class="grow">Sign in (bottom left) to deploy.</span></div>
     }
 
     @if (_activeRun is { } active)
     {
         <div class="alert alert--info">
             <Icon Name="spin" Color="var(--blue)" />
-            <span class="grow">A @Ui.Kind(active.Kind).ToLowerInvariant() of this deployment is running: @active.Succeeded of @active.Machines rigs done.</span>
-            <a class="btn btn--small" href="runs/@active.Id">Open the run</a>
+            <span class="grow">@Ui.Kind(active.Kind) running: @active.Succeeded of @active.Machines rigs done.</span>
+            <a class="btn btn--small" href="runs/@active.Id">Open</a>
         </div>
     }
 
@@ -136,6 +99,45 @@ else if (_deployment is not null && _document is not null)
         </div>
     }
 
+    @if (_duplicating)
+    {
+        <form class="panel" aria-label="Duplicate deployment" @onsubmit="DuplicateAsync" @onsubmit:preventDefault="true">
+            <h2>Duplicate</h2>
+            <div class="choice" role="radiogroup" aria-label="Recipe">
+                <label class="choice__option">
+                    <input type="radio" name="dup-mode" checked="@(!_dupDetach)" @onchange="() => _dupDetach = false" />
+                    <span><strong>Follow the recipe</strong><span class="small muted">Gets its updates.</span></span>
+                </label>
+                <label class="choice__option">
+                    <input type="radio" name="dup-mode" checked="@_dupDetach" @onchange="() => _dupDetach = true" />
+                    <span><strong>Own copy of the recipe</strong><span class="small muted">Edit it freely; no updates.</span></span>
+                </label>
+            </div>
+            <div class="form-grid">
+                <div class="field">
+                    <label for="dup-name">Name</label>
+                    <input id="dup-name" @bind="_dupName" @bind:event="oninput" />
+                </div>
+                @if (_dupDetach)
+                {
+                    <div class="field">
+                        <label for="dup-recipe">Recipe name</label>
+                        <input id="dup-recipe" @bind="_dupRecipeName" @bind:event="oninput" />
+                    </div>
+                }
+            </div>
+            <ParamForm Document="_document" Values="_dupValues" EditFixed="true" Show="ParamSet.Fixed" IdPrefix="dup" />
+            @if (DuplicateClash is { } clash)
+            {
+                <p class="small t-warn">@clash</p>
+            }
+            <div class="row">
+                <button type="submit" class="btn btn--primary" disabled="@(!CanDuplicate)">Duplicate</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _duplicating = false">Cancel</button>
+            </div>
+        </form>
+    }
+
     <div class="tabs" role="tablist" aria-label="Deployment">
         @foreach (var (key, label) in Tabs)
         {
@@ -146,43 +148,42 @@ else if (_deployment is not null && _document is not null)
     @switch (_tab)
     {
         case "params":
-            <section class="panel" aria-label="Parameters">
-                <div class="panel__head">
-                    <h2>Parameters</h2>
-                    <span class="panel__sub">The last values used are kept. Fixed values are set once for this deployment.</span>
-                </div>
-                <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" EditFixed="_editFixed" IdPrefix="dep" />
+            <section class="panel" aria-label="Values">
+                <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" Show="ParamSet.Choosable" IdPrefix="dep" />
                 @if (_document.Params.Values.Any(p => p.IsFixed))
                 {
-                    <div class="row">
-                        @if (_editFixed)
-                        {
-                            <span class="small t-warn">Changing a fixed value changes where this deployment installs (folder, shortcut). The old install stays on the rigs.</span>
-                            <button type="button" class="btn btn--small" @onclick="() => _editFixed = false">Done</button>
-                        }
-                        else
-                        {
-                            <button type="button" class="link-btn small" @onclick="() => _editFixed = true">Change fixed values</button>
-                        }
-                    </div>
+                    @if (_editFixed)
+                    {
+                        <div class="fixed-edit">
+                            <ParamForm Document="_document" Values="_values" OnChanged="SaveValuesAsync" EditFixed="true" Show="ParamSet.Fixed" IdPrefix="dep-fixed" />
+                            <div class="row">
+                                <button type="button" class="btn btn--small" @onclick="() => _editFixed = false">Done</button>
+                                <span class="small muted">The old install stays on the rigs.</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="fixed-line">
+                            <span class="muted">Installs as</span>
+                            <span class="mono">@string.Join("  ·  ", DeploymentService.FixedValues(_document, _values).Select(f => f.Value))</span>
+                            <button type="button" class="link-btn small" @onclick="() => _editFixed = true">Change</button>
+                        </p>
+                    }
                 }
             </section>
             break;
 
         case "recipe":
             <DeploymentRecipe Document="_document" Overrides="_overrides" RecipeId="_deployment.RecipeId" RecipeName="@_deployment.Recipe.Name"
-                              VersionNumber="@(_version?.Number ?? 0)" OnChanged="SaveOverridesAsync" OnDetach="DetachAsync" />
+                              VersionNumber="@(_version?.Number ?? 0)" OnChanged="SaveOverridesAsync" />
             break;
 
         case "rigs":
-            <section class="panel panel--flush" aria-label="Last deployed">
-                <div class="panel__head">
-                    <h2>Last deployed, per rig</h2>
-                    <span class="panel__sub">The newest successful deploy of this deployment on each rig. Other deployments on the same rig are tracked separately.</span>
-                </div>
+            <section class="panel panel--flush" aria-label="Rigs">
                 <div class="table-wrap">
                     <table class="table">
-                        <thead><tr><th scope="col">Rig</th><th scope="col">Deployed</th><th scope="col">Values</th><th scope="col">Commit</th><th scope="col">Recipe</th><th scope="col"><span class="visually-hidden">Run</span></th></tr></thead>
+                        <thead><tr><th scope="col">Rig</th><th scope="col">Last deployed</th><th scope="col">Values</th><th scope="col">Commit</th></tr></thead>
                         <tbody>
                             @foreach (var member in _deployment.Group.Members.OrderBy(m => m.MachineName, MachineNameComparer.Instance))
                             {
@@ -191,15 +192,19 @@ else if (_deployment is not null && _document is not null)
                                     <td><RigName Name="@member.MachineName" Lookup="true" /></td>
                                     @if (last is null)
                                     {
-                                        <td class="muted" colspan="5">Never deployed</td>
+                                        <td class="muted" colspan="3">Never</td>
                                     }
                                     else
                                     {
-                                        <td title="@Ui.When(last.At, ClientTime)">@Ui.Ago(last.At)</td>
+                                        <td title="@Ui.When(last.At, ClientTime)">
+                                            <a href="runs/@last.RunId">@Ui.Ago(last.At)</a>
+                                            @if (last.RecipeVersion != _version?.Number)
+                                            {
+                                                <div class="sub">older recipe (v@(last.RecipeVersion))</div>
+                                            }
+                                        </td>
                                         <td class="small">@ChosenValues(last.Params)</td>
                                         <td class="mono small">@Ui.ShortCommit(last.Commit)</td>
-                                        <td>v@(last.RecipeVersion)@(last.RecipeVersion != _version?.Number ? " (older)" : "")</td>
-                                        <td class="actions-cell"><a href="runs/@last.RunId">Run #@last.RunId</a></td>
                                     }
                                 </tr>
                             }
@@ -211,37 +216,23 @@ else if (_deployment is not null && _document is not null)
 
         case "history":
             <section class="panel panel--flush" aria-label="Run history">
-                <div class="panel__head">
-                    <h2>History</h2>
-                    <span class="panel__sub">Roll back deploys again with a past run's recipe version and values.</span>
-                </div>
                 @if (_history.Count == 0)
                 {
-                    <EmptyState Title="No runs yet">Deploy or dry run to see the results here.</EmptyState>
+                    <EmptyState Title="No runs yet." />
                 }
                 else
                 {
                     <div class="table-wrap">
                         <table class="table">
-                            <thead><tr><th scope="col">Run</th><th scope="col">Result</th><th scope="col">Values</th><th scope="col">Recipe</th><th scope="col">When</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                            <thead><tr><th scope="col">Run</th><th scope="col">Result</th><th scope="col">Values</th><th scope="col">When</th></tr></thead>
                             <tbody>
                                 @foreach (var run in _history)
                                 {
-                                    <tr>
-                                        <td><a class="title" href="runs/@run.Id">#@run.Id</a> <span class="badge badge--kind">@Ui.Kind(run.Kind)</span></td>
+                                    <tr class="is-link">
+                                        <td><a class="row-link" href="runs/@run.Id">#@run.Id</a><div class="sub">@Ui.Kind(run.Kind)</div></td>
                                         <td><StatusText Tone="Ui.Of(run.Status)" Label="@ResultLabel(run)" /></td>
                                         <td class="small">@ChosenValues(run.Params)</td>
-                                        <td>v@(run.RecipeVersion)</td>
                                         <td title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)<div class="sub">@run.StartedBy</div></td>
-                                        <td class="actions-cell">
-                                            @if (run.Kind != RunKind.DryRun && run.Status == RunStatus.Succeeded && run.Id != LatestSuccessId)
-                                            {
-                                                <ConfirmButton Class="btn btn--small" Question="@($"Deploy run #{run.Id}'s version and values to every rig?")" ConfirmLabel="Roll back"
-                                                               Disabled="@(!CanRun)" OnConfirm="() => StartAsync(RunKind.Rollback, run.Id)">
-                                                    <Icon Name="rollback" Size="16" />Roll back to this
-                                                </ConfirmButton>
-                                            }
-                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -252,8 +243,7 @@ else if (_deployment is not null && _document is not null)
             break;
 
         case "settings":
-            <section class="panel" aria-label="Deployment settings">
-                <h2>Settings</h2>
+            <section class="panel" aria-label="Settings">
                 <form class="form-grid" @onsubmit="SaveSettingsAsync" @onsubmit:preventDefault="true">
                     <div class="field">
                         <label for="dep-name">Name</label>
@@ -270,38 +260,29 @@ else if (_deployment is not null && _document is not null)
                     </div>
                     <div class="field">
                         <label for="dep-ssh">SSH account</label>
-                        <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="Whoever is signed in" autocomplete="off" />
+                        <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="The signed-in account" autocomplete="off" />
                         <datalist id="dep-ssh-accounts">
                             @foreach (var a in Credentials.Accounts)
                             {
                                 <option value="@a.Username"></option>
                             }
                         </datalist>
-                        <span class="field__hint">The rig account this deployment connects as. Leave empty to use the signed-in (default) account.</span>
                     </div>
                     <div class="field" style="grid-column: 1 / -1">
                         <label for="dep-desc">Description</label>
-                        <textarea id="dep-desc" rows="2" @bind="_description" placeholder="What this deployment is for (optional)"></textarea>
+                        <textarea id="dep-desc" rows="2" @bind="_description" placeholder="Optional"></textarea>
                     </div>
-                    <div class="row"><button type="submit" class="btn btn--primary">Save settings</button></div>
+                    <div class="row"><button type="submit" class="btn btn--primary">Save</button></div>
                 </form>
-            </section>
-            <section class="panel" aria-label="Delete deployment">
-                <h2>Delete this deployment</h2>
-                <p class="muted">Its runs stay in the run history. Nothing on the rigs changes.</p>
-                <div class="row">
-                    <ConfirmButton Question="@($"Delete '{_deployment.Name}'?")" OnConfirm="DeleteAsync"><Icon Name="trash" Size="16" />Delete deployment</ConfirmButton>
-                </div>
             </section>
             break;
     }
 }
-
 @code {
     [Parameter] public int Id { get; set; }
 
     private static readonly (string Key, string Label)[] Tabs =
-        [("params", "Parameters"), ("recipe", "Recipe"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
+        [("params", "Deploy"), ("recipe", "Recipe"), ("rigs", "Rigs"), ("history", "History"), ("settings", "Settings")];
 
     private bool _loaded;
     private string _tab = "params";
@@ -322,6 +303,9 @@ else if (_deployment is not null && _document is not null)
     private int? _loadedId;
     private RecipeOverrides _overrides = new();
     private string? _sshUser;
+
+    private sealed record Confirmation(string Question, string Label, Func<Task> Action, bool Danger);
+    private Confirmation? _confirm;
 
     private bool _duplicating;
     private bool _dupDetach;
@@ -445,8 +429,34 @@ else if (_deployment is not null && _document is not null)
         }
     }
 
+    private void AskDetach()
+    {
+        if (_deployment is null)
+            return;
+        _duplicating = false;
+        _confirm = new Confirmation(
+            $"Give '{_deployment.Name}' its own copy of {_deployment.Recipe.Name}{(_overrides.IsEmpty ? "" : $", with its {Ui.Plural(_overrides.Count, "change")} built in")}? It stops getting the recipe's updates.",
+            "Detach", DetachAsync, Danger: false);
+    }
+
+    private void AskDelete()
+    {
+        if (_deployment is null)
+            return;
+        _duplicating = false;
+        _confirm = new Confirmation($"Delete '{_deployment.Name}'? Its runs stay in the history; nothing on the rigs changes.", "Delete", DeleteAsync, Danger: true);
+    }
+
+    private async Task RunConfirmAsync()
+    {
+        if (_confirm is not { } confirm)
+            return;
+        _confirm = null;
+        await confirm.Action();
+    }
     private void ToggleDuplicate()
     {
+        _confirm = null;
         _duplicating = !_duplicating;
         if (!_duplicating || _deployment is null)
             return;

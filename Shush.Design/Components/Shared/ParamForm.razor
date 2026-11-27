@@ -3,14 +3,14 @@
 @inject ILogger<ParamForm> Logger
 
 @* A recipe's parameters as a form. Fixed parameters are set once per deployment: locked unless EditFixed. *@
-@if (_fields.Count == 0)
+@if (Shown.Count == 0)
 {
-    <p class="muted">This recipe has no parameters.</p>
+    <p class="muted">No values to choose.</p>
 }
 else
 {
     <div class="form-grid">
-        @foreach (var field in _fields)
+        @foreach (var field in Shown)
         {
             var id = $"param-{IdPrefix}-{field.Name}";
             var value = Values.GetValueOrDefault(field.Name, field.Default ?? "");
@@ -20,7 +20,7 @@ else
                 <label for="@id">
                     @field.Label
                     @if (field.Required) { <span class="req" title="Required">*</span> }
-                    @if (field.Fixed) { <span class="locked" title="Set once for this deployment">@(EditFixed ? "set once" : "fixed")</span> }
+                    @if (field.Fixed && Show == ParamSet.All) { <span class="locked" title="Set once for this deployment">@(EditFixed ? "set once" : "fixed")</span> }
                 </label>
                 @if (field.Kind == PropertyEditorKind.Dropdown && !locked)
                 {
@@ -38,7 +38,7 @@ else
                            list="@(locked ? null : ListId(field.OptionsFrom))"
                            @onchange="e => Set(field.Name, e.Value?.ToString())" />
                 }
-                @if (field.Help is not null) { <span class="field__hint">@field.Help</span> }
+                @if (field.Help is not null) { <span class="field__hint field__hint--clamp" title="@field.Help">@field.Help</span> }
                 @if (missing && !locked) { <span class="field__error">Required.</span> }
             </div>
         }
@@ -65,6 +65,16 @@ else
 
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public string IdPrefix { get; set; } = "p";
+
+    /// <summary>Which parameters to show: all, only the ones chosen at each deploy, or only the fixed ones.</summary>
+    [Parameter] public ParamSet Show { get; set; } = ParamSet.All;
+
+    private List<RecipeField> Shown => Show switch
+    {
+        ParamSet.Choosable => _fields.Where(f => !f.Fixed).ToList(),
+        ParamSet.Fixed => _fields.Where(f => f.Fixed).ToList(),
+        _ => _fields,
+    };
 
     private List<RecipeField> _fields = [];
     private readonly Dictionary<string, IReadOnlyList<InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);

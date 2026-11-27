@@ -10,82 +10,76 @@
 <PageTitle>Overview · Shush</PageTitle>
 
 <PageHeader Title="Overview">
-    <Actions><a class="btn btn--primary" href="deployments/new"><Icon Name="plus" Size="16" />New deployment</a></Actions>
+    <Facts>
+        <p class="meta">
+            <span>@(_active.Count == 0 ? "Nothing running" : Ui.Plural(_active.Count, "run") + " in progress")</span>
+            <span class="@(Attention == 0 ? "t-ok" : _failures.Count > 0 ? "t-fail" : "t-warn")">@(Attention == 0 ? "All rigs healthy" : Ui.Plural(Attention, "rig") + (Attention == 1 ? " needs" : " need") + " attention")</span>
+        </p>
+    </Facts>
 </PageHeader>
 
-<div class="columns">
-    <section class="wide panel" aria-labelledby="now-h">
+@if (_active.Count > 0)
+{
+    <section class="panel" aria-labelledby="now-h">
         <h2 id="now-h">Running now</h2>
-        @if (_active.Count == 0)
-        {
-            <p class="muted">Nothing is running. Open a deployment to deploy it.</p>
-        }
         @foreach (var run in _active)
         {
             var done = run.Machines.Count(m => m.Status == MachineStatus.Succeeded);
             var running = run.Machines.Count(m => m.Status == MachineStatus.Running);
             var failed = run.Machines.Count(m => m.Status == MachineStatus.Failed);
-            <div class="stack" style="gap: 10px; padding-top: 4px">
-                <div class="row">
-                    <div class="stack" style="gap: 2px">
-                        <strong style="font-size: 17px">@run.DeploymentName</strong>
-                        <span class="small muted">@Ui.Kind(run.Kind), started @Ui.When(run.StartedAt, ClientTime)@(run.StartedBy is null ? "" : $" by {run.StartedBy}")</span>
-                    </div>
-                    <span class="spacer"></span>
-                    <a class="btn btn--small" href="runs/@run.Id">Open run</a>
-                </div>
+            <a class="live-run" href="runs/@run.Id">
+                <span class="live-run__head">
+                    <strong>@run.DeploymentName</strong>
+                    <span class="small muted">@Ui.Kind(run.Kind) · @done of @run.Machines.Count done@(failed > 0 ? $" · {failed} failed" : "")@(run.StartedBy is null ? "" : $" · {run.StartedBy}")</span>
+                </span>
                 <RunBar Succeeded="done" Running="running" Failed="failed" Total="run.Machines.Count" />
-                <p class="small">@done of @run.Machines.Count rigs done@(running > 0 ? $", {running} running" : "")@(failed > 0 ? $", {failed} failed" : "")</p>
-            </div>
+            </a>
         }
     </section>
+}
 
-    <section class="narrow panel" aria-labelledby="att-h">
-        <h2 id="att-h">Needs attention</h2>
-        @if (_failures.Count == 0 && _unreachable.Count == 0)
-        {
-            <p class="muted">Nothing. Every rig's last deploy succeeded, and every known rig answered the last health check.</p>
-        }
-        @foreach (var failure in _failures)
-        {
-            <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
-                <Icon Name="x" Color="var(--crimson)" Stroke="2.4" Size="20" />
-                <div class="stack" style="gap: 2px; min-width: 0">
+@if (Attention > 0)
+{
+    <section class="panel panel--flush" aria-labelledby="att-h">
+        <div class="panel__head"><h2 id="att-h">Needs attention</h2></div>
+        <ul class="attention">
+            @foreach (var failure in _failures)
+            {
+                <li>
+                    <Icon Name="x" Color="var(--crimson)" Stroke="2.4" Size="18" />
                     <RigName Name="@failure.Machine" Host="_hosts.GetValueOrDefault(failure.Machine)" />
-                    <span class="t-fail" style="font-weight: 500; margin-top: 2px">Failed in @failure.DeploymentName</span>
-                    @if (!string.IsNullOrEmpty(failure.Error))
-                    {
-                        <span class="small" style="color: var(--ink-2)">@Shorten(failure.Error)</span>
-                    }
-                    <a class="small" href="runs/@failure.RunId">Open run #@failure.RunId</a>
-                </div>
-            </div>
-        }
-        @foreach (var machine in _unreachable)
-        {
-            <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
-                <Icon Name="warn" Color="var(--gold-text)" Size="20" />
-                <div class="stack" style="gap: 2px; min-width: 0">
-                    <RigName Name="@machine.Name" Machine="machine" />
-                    <span class="t-warn" style="font-weight: 500; margin-top: 2px">Isn't answering</span>
-                    <span class="small" style="color: var(--ink-2)">
-                        @(machine.LastSeenAt is { } seen ? $"Last seen {Ui.Ago(seen)}." : "Never seen.") Checked @(machine.LastProbeAt is { } probe ? Ui.Ago(probe) : "")
+                    <span class="grow attention__why" title="@failure.Error">
+                        <span class="t-fail">Failed in @failure.DeploymentName</span>
+                        @if (!string.IsNullOrEmpty(failure.Error))
+                        {
+                            <span class="muted"> · @Shorten(failure.Error)</span>
+                        }
                     </span>
-                </div>
-            </div>
-        }
+                    <a class="small" href="runs/@failure.RunId">Run #@failure.RunId</a>
+                </li>
+            }
+            @foreach (var machine in _unreachable)
+            {
+                <li>
+                    <Icon Name="warn" Color="var(--gold-text)" Size="18" />
+                    <RigName Name="@machine.Name" Machine="machine" />
+                    <span class="grow attention__why">
+                        <span class="t-warn">Not answering</span>
+                        <span class="muted"> · @(machine.LastSeenAt is { } seen ? $"last seen {Ui.Ago(seen)}" : "never seen")</span>
+                    </span>
+                </li>
+            }
+        </ul>
     </section>
-</div>
+}
 
 <section class="panel panel--flush" aria-labelledby="dep-h">
     <div class="panel__head">
         <h2 id="dep-h">Deployments</h2>
-        <a class="small" href="deployments">All deployments</a>
     </div>
     @if (_deployments.Count == 0)
     {
-        <EmptyState Title="No deployments yet">
-            <ChildContent>A deployment is a recipe deployed to a group of rigs.</ChildContent>
+        <EmptyState Title="No deployments yet.">
             <Actions><a class="btn btn--primary" href="deployments/new">New deployment</a></Actions>
         </EmptyState>
     }
@@ -93,24 +87,23 @@
     {
         <div class="table-wrap">
             <table class="table">
-                <thead><tr><th scope="col">Deployment</th><th scope="col">Last run</th><th scope="col">When</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                <thead><tr><th scope="col">Deployment</th><th scope="col">Last run</th></tr></thead>
                 <tbody>
                     @foreach (var d in _deployments)
                     {
-                        <tr>
-                            <td><a class="title" href="deployments/@d.Id">@d.Name</a><div class="sub">@d.RecipeName on @d.GroupName</div></td>
+                        <tr class="is-link">
+                            <td><a class="row-link" href="deployments/@d.Id">@d.Name</a><div class="sub">@d.GroupName</div></td>
                             <td>
                                 @if (d.LastRun is { } run)
                                 {
-                                    <a href="runs/@run.RunId" style="text-decoration: none"><StatusText Tone="Ui.Of(run.Status)" Label="@Deployments.Summary(run)" /></a>
+                                    <StatusText Tone="Ui.Of(run.Status)" Label="@Deployments.Summary(run)" />
+                                    <div class="sub" title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)</div>
                                 }
                                 else
                                 {
                                     <span class="muted">Never deployed</span>
                                 }
                             </td>
-                            <td>@(d.LastRun is { } r ? Ui.Ago(r.StartedAt) : "")</td>
-                            <td class="actions-cell"><a class="btn btn--small" href="deployments/@d.Id">Deploy</a></td>
                         </tr>
                     }
                 </tbody>
@@ -118,7 +111,6 @@
         </div>
     }
 </section>
-
 @code {
     private List<Run> _active = [];
     private List<(string Machine, int RunId, string DeploymentName, string? Error, DateTime At)> _failures = [];
@@ -144,7 +136,9 @@
         _deployments = await DeploymentData.ListAsync();
     }
 
-    private static string Shorten(string text) => text.Length > 160 ? text[..157] + "…" : text;
+    private int Attention => _failures.Count + _unreachable.Count;
+
+    private static string Shorten(string text) => text.Length > 90 ? text[..87] + "…" : text;
 
     private void OnChanged(int _) => _live?.Mark();
 

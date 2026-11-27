@@ -9,12 +9,11 @@
 
 <PageHeader Title="New deployment">
     <Crumbs><a href="deployments">Deployments</a> <span>/</span> <span>New</span></Crumbs>
-    <Lede>Choose what to deploy and where. You can deploy the same recipe to the same group more than once, e.g. a prod and a dev install side by side, as long as their fixed values (install folder, shortcut) differ.</Lede>
 </PageHeader>
 
 <form class="stack" @onsubmit="CreateAsync" @onsubmit:preventDefault="true">
     <section class="panel">
-        <h2>Recipe and group</h2>
+        <h2>What and where</h2>
         <div class="form-grid">
             <div class="field">
                 <label for="new-recipe">Recipe</label>
@@ -43,7 +42,6 @@
             <div class="field">
                 <label for="new-name">Name</label>
                 <input id="new-name" @bind="_name" @bind:event="oninput" @bind:after="() => _nameTouched = true" placeholder="e.g. VrForaging dev" />
-                <span class="field__hint">How it's listed. Defaults to the recipe and group.</span>
             </div>
         </div>
     </section>
@@ -51,16 +49,13 @@
     @if (_document is not null)
     {
         <section class="panel">
-            <div class="panel__head">
-                <h2>Parameters</h2>
-                <span class="panel__sub">Fixed values are set here, once. The others can change at every deploy.</span>
-            </div>
+            <h2>Values</h2>
             <ParamForm Document="_document" Values="_values" EditFixed="true" IdPrefix="new" />
         </section>
     }
 
     <div class="row">
-        <button type="submit" class="btn btn--primary" disabled="@(!CanCreate)">Create deployment</button>
+        <button type="submit" class="btn btn--primary" disabled="@(!CanCreate)">Create</button>
         <a class="btn btn--ghost" href="deployments">Cancel</a>
     </div>
 </form>
