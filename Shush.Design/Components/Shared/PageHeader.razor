@@ -5,7 +5,7 @@
         {
             <p class="crumbs">@Crumbs</p>
         }
-        <h1>@Title</h1>
+        <h1>@if (TitleContent is not null) { @TitleContent } else { @Title }</h1>
         @if (Lede is not null)
         {
             <p class="page-header__lede">@Lede</p>
@@ -20,6 +20,8 @@
 
 @code {
     [Parameter, EditorRequired] public string Title { get; set; } = "";
+    /// <summary>Markup for the title instead of plain text (e.g. a rig ID with its hostname). <see cref="Title"/> still names the page.</summary>
+    [Parameter] public RenderFragment? TitleContent { get; set; }
     [Parameter] public RenderFragment? Crumbs { get; set; }
     [Parameter] public RenderFragment? Lede { get; set; }
     [Parameter] public RenderFragment? Facts { get; set; }

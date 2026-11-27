@@ -3,6 +3,9 @@ using Shush.Recipe;
 
 namespace Shush.Data;
 
+/// <summary>What a page needs to show under a rig's ID: its hostname, and whether the registry said it doesn't exist.</summary>
+public sealed record RigHost(string? Hostname, bool Unresolved);
+
 public sealed record GroupSummary(int Id, string Name, string? Description, int MachineCount, int DeploymentCount);
 
 public sealed class GroupService(IDbContextFactory<ShushDbContext> factory)
@@ -124,6 +127,9 @@ public sealed class GroupService(IDbContextFactory<ShushDbContext> factory)
 
 public sealed class MachineService(IDbContextFactory<ShushDbContext> factory)
 {
+    /// <summary>The probe error recorded when the machine registry doesn't know a machine.</summary>
+    public const string NotInRegistry = "Not found in the machine registry.";
+
     public async Task<List<Machine>> ListAsync()
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -143,6 +149,50 @@ public sealed class MachineService(IDbContextFactory<ShushDbContext> factory)
         await using var db = await factory.CreateDbContextAsync();
         var machines = await db.Machines.AsNoTracking().Where(m => list.Contains(m.Name)).ToListAsync();
         return machines.ToDictionary(m => m.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Hostname and registry status for each of <paramref name="names"/> (case-insensitive); unknown names are left out.</summary>
+    public async Task<Dictionary<string, RigHost>> HostnamesAsync(IEnumerable<string> names)
+    {
+        var lower = names.Select(n => n.ToLowerInvariant()).Distinct().ToList();
+        await using var db = await factory.CreateDbContextAsync();
+        var rows = await db.Machines.AsNoTracking().Where(m => lower.Contains(m.Name.ToLower()))
+            .Select(m => new { m.Name, m.Hostname, m.ProbeError }).ToListAsync();
+        var map = new Dictionary<string, RigHost>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+            map[row.Name] = new RigHost(row.Hostname, row.ProbeError == NotInRegistry);
+        return map;
+    }
+
+    /// <summary>Records the hostname the machine registry resolved <paramref name="name"/> to, adding the machine if it's new.</summary>
+    public async Task RecordHostnameAsync(string name, string? hostname)
+    {
+        name = name.Trim();
+        if (name.Length == 0)
+            return;
+        hostname = string.IsNullOrWhiteSpace(hostname) ? null : hostname.Trim();
+
+        await using var db = await factory.CreateDbContextAsync();
+        await EnsureExistAsync(db, [name]);
+        await db.SaveChangesAsync();
+
+        var lower = name.ToLowerInvariant();
+        var machine = await db.Machines.FirstAsync(m => m.Name.ToLower() == lower);
+        var changed = false;
+        if (hostname is not null && !string.Equals(machine.Hostname, hostname, StringComparison.OrdinalIgnoreCase))
+        {
+            machine.Hostname = hostname;
+            changed = true;
+        }
+        if (machine.ProbeError == NotInRegistry)
+        {
+            // The registry knows it now; whether it answers is for the next probe to say.
+            machine.ProbeError = null;
+            machine.Reachable = null;
+            changed = true;
+        }
+        if (changed)
+            await db.SaveChangesAsync();
     }
 
     public async Task SetNotesAsync(string name, string? notes)

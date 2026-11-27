@@ -51,7 +51,8 @@
             <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
                 <Icon Name="x" Color="var(--crimson)" Stroke="2.4" Size="20" />
                 <div class="stack" style="gap: 2px; min-width: 0">
-                    <strong>@failure.Machine failed in @failure.DeploymentName</strong>
+                    <RigName Name="@failure.Machine" Host="_hosts.GetValueOrDefault(failure.Machine)" />
+                    <span class="t-fail" style="font-weight: 500; margin-top: 2px">Failed in @failure.DeploymentName</span>
                     @if (!string.IsNullOrEmpty(failure.Error))
                     {
                         <span class="small" style="color: var(--ink-2)">@Shorten(failure.Error)</span>
@@ -65,7 +66,8 @@
             <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
                 <Icon Name="warn" Color="var(--gold-text)" Size="20" />
                 <div class="stack" style="gap: 2px; min-width: 0">
-                    <strong><a href="machines/@Uri.EscapeDataString(machine.Name)" style="text-decoration: none">@machine.Name</a> isn't answering</strong>
+                    <RigName Name="@machine.Name" Machine="machine" />
+                    <span class="t-warn" style="font-weight: 500; margin-top: 2px">Isn't answering</span>
                     <span class="small" style="color: var(--ink-2)">
                         @(machine.LastSeenAt is { } seen ? $"Last seen {Ui.Ago(seen)}." : "Never seen.") Checked @(machine.LastProbeAt is { } probe ? Ui.Ago(probe) : "")
                     </span>
@@ -121,6 +123,7 @@
     private List<Run> _active = [];
     private List<(string Machine, int RunId, string DeploymentName, string? Error, DateTime At)> _failures = [];
     private List<Machine> _unreachable = [];
+    private Dictionary<string, RigHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
     private List<DeploymentSummary> _deployments = [];
     private LiveRefresh? _live;
 
@@ -137,6 +140,7 @@
         _active = await RunData.ActiveAsync();
         _failures = await RunData.RecentFailuresAsync();
         _unreachable = (await MachineData.ListAsync()).Where(m => m.Reachable == false).ToList();
+        _hosts = await MachineData.HostnamesAsync(_failures.Select(f => f.Machine));
         _deployments = await DeploymentData.ListAsync();
     }
 

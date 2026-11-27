@@ -219,7 +219,7 @@ else
                             {
                                 var machine = _machines.GetValueOrDefault(member.MachineName);
                                 <tr>
-                                    <td><a class="title" href="@MachineHref(member.MachineName)">@member.MachineName</a></td>
+                                    <td><RigName Name="@member.MachineName" Machine="machine" /></td>
                                     <td><MachineHealth Machine="machine" /></td>
                                     <td>
                                         @if (string.IsNullOrEmpty(machine?.LoggedOnUser))
@@ -388,7 +388,7 @@ else
                             @foreach (var o in _overrides)
                             {
                                 <tr>
-                                    <td><a class="title" href="@MachineHref(o.MachineName!)">@o.MachineName</a></td>
+                                    <td><RigName Name="@(o.MachineName!)" Machine="_machines.GetValueOrDefault(o.MachineName!)" /></td>
                                     <td class="mono">@o.Name</td>
                                     <td>
                                         @if (o.IsSecret)
@@ -584,7 +584,6 @@ else
         return $"Overrides {string.Join(" and ", parts)}";
     }
 
-    private static string MachineHref(string name) => $"machines/{Uri.EscapeDataString(name)}";
 
     // ----- Header -----
 
@@ -652,6 +651,7 @@ else
             await GroupService.AddMembersAsync(Id, names);
             await LoadAsync();
             var added = _group!.Members.Count - before;
+            _ = ResolveInBackgroundAsync(names);
             Notifier.Success(added == 0 ? "Those machines are already in the group." : $"Added {Ui.Plural(added, "machine")}.");
 
             if (_registryNames is not null)
@@ -669,6 +669,23 @@ else
         finally
         {
             _busy = false;
+        }
+    }
+
+    /// <summary>Fills in the new machines' hostnames without holding the page up.</summary>
+    private async Task ResolveInBackgroundAsync(IReadOnlyCollection<string> names)
+    {
+        try
+        {
+            await Task.Run(() => Health.ResolveAsync(names, _cts.Token));
+            if (_cts.IsCancellationRequested || _group is null)
+                return;
+            _machines = await MachineService.GetManyAsync(_group.Members.Select(m => m.MachineName));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was closed.
         }
     }
 

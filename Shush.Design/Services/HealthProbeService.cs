@@ -27,10 +27,37 @@ public sealed class HealthChecker(MachineService machines, MachineRegistryServic
         }
 
         if (info is null)
-            await machines.RecordUnresolvedAsync(machine, "Not found in the machine registry.");
+            await machines.RecordUnresolvedAsync(machine, MachineService.NotInRegistry);
         else
+        {
+            await machines.RecordHostnameAsync(machine, info.hostname);
             await machines.RecordProbeAsync(machine, await HostProber.ProbeAsync(info.hostname, ct: ct));
+        }
 
+        Probed?.Invoke();
+    }
+
+    /// <summary>
+    /// Looks the machines up in the registry and records their hostnames (no port-22 probe). Quick, so a newly added
+    /// machine shows its hostname right away. Registry failures are logged and skipped.
+    /// </summary>
+    public async Task ResolveAsync(IEnumerable<string> names, CancellationToken ct = default)
+    {
+        await Parallel.ForEachAsync(names, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct }, async (name, _) =>
+        {
+            try
+            {
+                var info = await registry.ResolveAsync(name);
+                if (info is null)
+                    await machines.RecordUnresolvedAsync(name, MachineService.NotInRegistry);
+                else
+                    await machines.RecordHostnameAsync(name, info.hostname);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning("Couldn't look {Machine} up in the machine registry ({Message}).", name, ex.Message);
+            }
+        });
         Probed?.Invoke();
     }
 

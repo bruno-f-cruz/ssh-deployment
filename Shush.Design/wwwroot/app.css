@@ -219,6 +219,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .table .title { font-weight: 600; text-decoration: none; }
 .table .sub { font-size: 14px; color: var(--muted); margin-top: 2px; }
 
+/* A rig's ID with its hostname beneath it (RigName.razor). */
+.rig-name { display: inline-flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.25; vertical-align: top; }
+.rig-name__id { font-weight: 600; color: var(--ink); text-decoration: none; white-space: nowrap; }
+a.rig-name__id:hover { color: var(--purple); text-decoration: underline; }
+.rig-name__host { font-family: var(--mono); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted); white-space: nowrap; }
+.rig-name__host--none { color: var(--line-strong); }
+.rig-name__host--missing { color: var(--crimson); }
+.rig-name--large { gap: 4px; }
+.rig-name--large .rig-name__id { font-size: inherit; }
+.rig-name--large .rig-name__host { font-size: 14px; }
+
 /* ---------- Status ---------- */
 
 .status { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; white-space: nowrap; }
@@ -271,7 +282,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .tile:hover { border-color: var(--ink-2); }
 .tile--fail { border-color: var(--crimson-edge); }
 .tile[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-.tile__top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tile__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .tile__name { font-size: 16px; font-weight: 600; }
 .tile__segs { display: flex; gap: 3px; }
 .tile__segs > span { flex: 1; height: 6px; border-radius: 2px; }
