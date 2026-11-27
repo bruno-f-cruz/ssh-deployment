@@ -1,0 +1,775 @@
+@page "/groups/{Id:int}"
+@implements IDisposable
+@inject GroupService GroupService
+@inject MachineService MachineService
+@inject VariableService Variables
+@inject DeploymentService Deployments
+@inject MachineRegistryService Registry
+@inject HealthChecker Health
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@(_group?.Name ?? "Group") · Shush</PageTitle>
+
+@if (_loaded && _group is null)
+{
+    <PageHeader Title="Group not found">
+        <Crumbs><a href="groups">Groups</a></Crumbs>
+    </PageHeader>
+    <section class="panel">
+        <EmptyState Title="This group doesn't exist">
+            It may have been deleted. <a href="groups">See all groups</a>.
+        </EmptyState>
+    </section>
+}
+else if (_group is not null)
+{
+    <PageHeader Title="@_group.Name">
+        <Crumbs><a href="groups">Groups</a> / @_group.Name</Crumbs>
+        <Lede>
+            @if (!string.IsNullOrWhiteSpace(_group.Description))
+            {
+                @_group.Description
+            }
+            else
+            {
+                <span class="muted">No description.</span>
+            }
+        </Lede>
+        <Facts>
+            <dl class="facts">
+                <div><dt>Machines</dt><dd>@_group.Members.Count</dd></div>
+                <div><dt>Deployments</dt><dd>@(_deployments?.Count ?? 0)</dd></div>
+                <div><dt>Created</dt><dd>@Ui.When(_group.CreatedAt, ClientTime)</dd></div>
+            </dl>
+        </Facts>
+        <Actions>
+            @if (!_editing)
+            {
+                <button type="button" class="btn" @onclick="StartEdit">Edit name</button>
+            }
+            <ConfirmButton Question="@($"Delete {_group.Name}?")" OnConfirm="DeleteAsync">Delete group</ConfirmButton>
+            <a class="btn btn--primary" href="@($"deployments/new?group={Id}")"><Icon Name="plus" />New deployment</a>
+        </Actions>
+    </PageHeader>
+
+    @if (_deleteError is not null)
+    {
+        <div class="alert alert--error" role="alert">
+            <Icon Name="warn" />
+            <div class="grow">
+                <strong>The group wasn't deleted.</strong>
+                <p class="small">@_deleteError</p>
+            </div>
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _deleteError = null">Dismiss</button>
+        </div>
+    }
+
+    @if (_editing)
+    {
+        <section class="panel">
+            <form class="inline-form" @onsubmit="SaveDetailsAsync" @onsubmit:preventDefault>
+                <div class="field">
+                    <label for="edit-name">Name</label>
+                    <input id="edit-name" type="text" @bind="_editName" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label for="edit-description">Description <span class="muted small">optional</span></label>
+                    <input id="edit-description" type="text" @bind="_editDescription" autocomplete="off" />
+                </div>
+                <button type="submit" class="btn btn--primary">Save</button>
+                <button type="button" class="btn btn--ghost" @onclick="() => _editing = false">Cancel</button>
+            </form>
+            @if (_editError is not null)
+            {
+                <p class="field__error" role="alert">@_editError</p>
+            }
+        </section>
+    }
+
+    <div class="tabs" role="tablist" aria-label="Group">
+        <button type="button" role="tab" id="tab-machines" class="tab" aria-selected="@(_tab == "machines")" aria-controls="panel-machines"
+                @onclick='() => _tab = "machines"'>Machines (@_group.Members.Count)</button>
+        <button type="button" role="tab" id="tab-variables" class="tab" aria-selected="@(_tab == "variables")" aria-controls="panel-variables"
+                @onclick="ShowVariablesAsync">Variables</button>
+        <button type="button" role="tab" id="tab-deployments" class="tab" aria-selected="@(_tab == "deployments")" aria-controls="panel-deployments"
+                @onclick='() => _tab = "deployments"'>Deployments (@(_deployments?.Count ?? 0))</button>
+    </div>
+
+    @switch (_tab)
+    {
+        case "variables":
+            <div id="panel-variables" role="tabpanel" aria-labelledby="tab-variables" class="stack">
+                @VariablesTab
+            </div>
+            break;
+        case "deployments":
+            <div id="panel-deployments" role="tabpanel" aria-labelledby="tab-deployments" class="stack">
+                @DeploymentsTab
+            </div>
+            break;
+        default:
+            <div id="panel-machines" role="tabpanel" aria-labelledby="tab-machines" class="stack">
+                @MachinesTab
+            </div>
+            break;
+    }
+}
+else
+{
+    <p class="muted">Loading the group…</p>
+}
+
+@code {
+    private RenderFragment MachinesTab => __builder =>
+    {
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Add machines</h2>
+                <span class="panel__sub">
+                    @if (_registryNames is not null)
+                    {
+                        @($"Suggestions come from the machine registry ({Ui.Plural(_registryNames.Count, "machine")}).")
+                    }
+                    else if (_registryError is not null)
+                    {
+                        @("The machine registry didn't answer, so there are no suggestions. You can still type names.")
+                    }
+                </span>
+            </div>
+            <form class="inline-form" @onsubmit="AddMachinesAsync" @onsubmit:preventDefault>
+                <div class="field group-detail__add">
+                    <label for="add-machines">Machine names</label>
+                    <input id="add-machines" type="text" list="registry-names" @bind="_addText" @bind:event="oninput"
+                           autocomplete="off" spellcheck="false" placeholder="FRG.0-A FRG.0-B, FRG.1-A" />
+                    <span class="field__hint">Several at once: separate them with spaces, commas or new lines.</span>
+                </div>
+                <button type="submit" class="btn btn--primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_addText))"><Icon Name="plus" />Add machines</button>
+            </form>
+            @if (_registryNames is not null)
+            {
+                <datalist id="registry-names">
+                    @foreach (var name in _registryNames)
+                    {
+                        <option value="@name"></option>
+                    }
+                </datalist>
+            }
+            <div class="row">
+                <label class="btn btn--small group-detail__file">
+                    <Icon Name="upload" />Import a YAML list
+                    <InputFile OnChange="ImportAsync" accept=".yml,.yaml,text/yaml,application/x-yaml" class="visually-hidden" />
+                </label>
+                <button type="button" class="btn btn--small" @onclick="ExportAsync" disabled="@(_group!.Members.Count == 0)">
+                    <Icon Name="download" />Export as YAML
+                </button>
+                <span class="small muted">The YAML looks like <code>machines: [FRG.0-A, FRG.0-B]</code>. Importing adds to the group.</span>
+            </div>
+            @if (_machinesError is not null)
+            {
+                <div class="alert alert--error" role="alert">
+                    <Icon Name="warn" />
+                    <div class="grow">@_machinesError</div>
+                </div>
+            }
+        </section>
+
+        <section class="panel panel--flush">
+            <div class="panel__head">
+                <h2>Machines</h2>
+                <div class="row">
+                    @if (_lastChecked is { } checkedAt)
+                    {
+                        <span class="panel__sub">Checked @Ui.Ago(checkedAt)</span>
+                    }
+                    <button type="button" class="btn btn--small" @onclick="CheckReachabilityAsync" disabled="@(_checking || _group!.Members.Count == 0)">
+                        @if (_checking)
+                        {
+                            <Icon Name="spin" />@("Checking…")
+                        }
+                        else
+                        {
+                            @("Check reachability")
+                        }
+                    </button>
+                </div>
+            </div>
+
+            @if (_group!.Members.Count == 0)
+            {
+                <EmptyState Title="No machines in this group yet">Add machines above, or import a YAML list.</EmptyState>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Machine</th>
+                                <th scope="col">Health</th>
+                                <th scope="col">Logged-on user</th>
+                                <th scope="col" class="num">Free disk</th>
+                                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var member in _group.Members)
+                            {
+                                var machine = _machines.GetValueOrDefault(member.MachineName);
+                                <tr>
+                                    <td><a class="title" href="@MachineHref(member.MachineName)">@member.MachineName</a></td>
+                                    <td><MachineHealth Machine="machine" /></td>
+                                    <td>
+                                        @if (string.IsNullOrEmpty(machine?.LoggedOnUser))
+                                        {
+                                            <span class="muted small">Unknown</span>
+                                        }
+                                        else
+                                        {
+                                            @machine.LoggedOnUser
+                                        }
+                                    </td>
+                                    <td class="num">
+                                        @if (machine?.FreeGb is { } free)
+                                        {
+                                            <span class="@(free < 5 ? "t-warn" : "")">@free.ToString("0.#") GB</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="muted small">Unknown</span>
+                                        }
+                                    </td>
+                                    <td class="actions-cell">
+                                        <button type="button" class="btn btn--icon" aria-label="@($"Remove {member.MachineName} from the group")"
+                                                title="Remove from the group" @onclick="() => RemoveAsync(member.MachineName)" disabled="@_busy">
+                                            <Icon Name="x" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small muted group-detail__note">
+                    Reachability is checked in the background every few minutes. The logged-on user and free disk come from the last dry run or deploy.
+                </p>
+            }
+        </section>
+    };
+
+    private RenderFragment VariablesTab => __builder =>
+    {
+        <VariableEditor Scope="VariableScope.Group" GroupId="Id" Title="Group variables"
+                        Help="Every machine in this group gets these, unless the machine has its own value."
+                        EmptyTitle="No group variables yet"
+                        EmptyText="Add one to give every machine in this group the same value, overriding the global one."
+                        OnChanged="ReloadVariablesAsync" />
+
+        <section class="panel panel--flush">
+            <div class="panel__head">
+                <div class="stack group-detail__intro">
+                    <h2>As a rig would get them</h2>
+                    <p class="panel__sub">Global, group and machine values combined: what a deploy to this group resolves.</p>
+                </div>
+            </div>
+            <div class="group-detail__pad">
+                @if (_group!.Members.Count <= 12)
+                {
+                    <div class="toggles" role="group" aria-label="Show values as a rig would get them">
+                        <button type="button" class="toggle" aria-pressed="@(_previewMachine is null)" @onclick="() => PreviewAsync(null)">Any rig in the group</button>
+                        @foreach (var member in _group.Members)
+                        {
+                            var name = member.MachineName;
+                            <button type="button" class="toggle" aria-pressed="@(string.Equals(_previewMachine, name, StringComparison.OrdinalIgnoreCase))"
+                                    @onclick="() => PreviewAsync(name)">@name</button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="field group-detail__select">
+                        <label for="preview-machine">Show values as this rig would get them</label>
+                        <select id="preview-machine" value="@(_previewMachine ?? "")" @onchange="e => PreviewAsync(e.Value as string is { Length: > 0 } v ? v : null)">
+                            <option value="">Any rig in the group</option>
+                            @foreach (var member in _group.Members)
+                            {
+                                <option value="@member.MachineName">@member.MachineName</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+
+            @if (_resolved is null)
+            {
+                <p class="muted small group-detail__pad">Loading…</p>
+            }
+            else if (_resolved.Count == 0)
+            {
+                <EmptyState Title="Nothing to resolve">
+                    No global, group@(_previewMachine is null ? "" : " or machine") variables are set, so <code>${group.NAME}</code> has nothing to read.
+                </EmptyState>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Name</th>
+                                <th scope="col">Value</th>
+                                <th scope="col">Set in</th>
+                                <th scope="col">On the rig</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var v in _resolved)
+                            {
+                                <tr>
+                                    <td class="mono">@v.Name</td>
+                                    <td>
+                                        @if (v.IsSecret)
+                                        {
+                                            <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono group-detail__value">@v.Value</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="stack group-detail__source">
+                                            <span><VariableSource Scope="v.Source" Label="@v.SourceLabel" /></span>
+                                            @if (v.Overrides.Count > 0)
+                                            {
+                                                <span class="small muted">@OverridesText(v)</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td><OnTheRig ApplyAsEnv="v.ApplyAsEnv" EnvScope="@v.EnvScope" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="panel panel--flush">
+            <div class="panel__head">
+                <div class="stack group-detail__intro">
+                    <h2>Machine overrides</h2>
+                    <p class="panel__sub">Values set on a single machine of this group. Change them on the machine's page.</p>
+                </div>
+            </div>
+            @if (_overrides is null)
+            {
+                <p class="muted small group-detail__pad">Loading…</p>
+            }
+            else if (_overrides.Count == 0)
+            {
+                <EmptyState Title="No machine overrides">Every machine in this group gets the group and global values.</EmptyState>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Machine</th>
+                                <th scope="col">Name</th>
+                                <th scope="col">Value</th>
+                                <th scope="col">On the rig</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var o in _overrides)
+                            {
+                                <tr>
+                                    <td><a class="title" href="@MachineHref(o.MachineName!)">@o.MachineName</a></td>
+                                    <td class="mono">@o.Name</td>
+                                    <td>
+                                        @if (o.IsSecret)
+                                        {
+                                            <span class="mono">••••••••</span> <span class="badge badge--secret">Secret</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono group-detail__value">@o.Value</span>
+                                        }
+                                    </td>
+                                    <td><OnTheRig ApplyAsEnv="o.ApplyAsEnv" EnvScope="@o.EnvScope" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    };
+
+    private RenderFragment DeploymentsTab => __builder =>
+    {
+        <section class="panel panel--flush">
+            <div class="panel__head">
+                <h2>Deployments using this group</h2>
+                <a class="btn btn--small" href="@($"deployments/new?group={Id}")"><Icon Name="plus" />New deployment</a>
+            </div>
+            @if (_deployments is null || _deployments.Count == 0)
+            {
+                <EmptyState Title="No deployments use this group yet">
+                    A deployment sends a recipe to this group's machines and remembers the parameters you used.
+                </EmptyState>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Deployment</th>
+                                <th scope="col">Recipe</th>
+                                <th scope="col">Last run</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in _deployments)
+                            {
+                                <tr>
+                                    <td>
+                                        <a class="title" href="@($"deployments/{d.Id}")">@d.Name</a>
+                                        @if (!string.IsNullOrWhiteSpace(d.Description))
+                                        {
+                                            <div class="sub">@d.Description</div>
+                                        }
+                                    </td>
+                                    <td><a href="@($"recipes/{d.RecipeId}")">@d.RecipeName</a></td>
+                                    <td>
+                                        @if (d.LastRun is { } run)
+                                        {
+                                            <a href="@($"runs/{run.RunId}")" class="group-detail__run">
+                                                <StatusText Tone="Ui.Of(run.Status)" />
+                                            </a>
+                                            <div class="sub">@Ui.Kind(run.Kind), <span title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)</span></div>
+                                        }
+                                        else
+                                        {
+                                            <span class="muted small">Never run</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    };
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+
+    private bool _loaded;
+    private Group? _group;
+    private Dictionary<string, Machine> _machines = new(StringComparer.OrdinalIgnoreCase);
+    private List<DeploymentSummary>? _deployments;
+    private string _tab = "machines";
+    private int? _loadedId;
+
+    private bool _editing;
+    private string _editName = "";
+    private string _editDescription = "";
+    private string? _editError;
+    private string? _deleteError;
+
+    private string _addText = "";
+    private bool _busy;
+    private string? _machinesError;
+    private List<string>? _registryNames;
+    private string? _registryError;
+    private bool _checking;
+    private DateTime? _lastChecked;
+
+    private bool _variablesLoaded;
+    private string? _previewMachine;
+    private IReadOnlyList<ResolvedVariable>? _resolved;
+    private List<VariableView>? _overrides;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
+        _tab = Tab is "variables" or "deployments" ? Tab : "machines";
+        _variablesLoaded = false;
+        _previewMachine = null;
+        _resolved = null;
+        _overrides = null;
+        _editing = false;
+        _deleteError = null;
+        await LoadAsync();
+        _loaded = true;
+        if (_tab == "variables")
+            await LoadVariablesAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        try
+        {
+            _registryNames = await Registry.GetAllNamesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Suggestions only: names can still be typed.
+            _registryError = ex.Message;
+        }
+
+        if (!_cts.IsCancellationRequested)
+            StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        _group = await GroupService.GetAsync(Id);
+        if (_group is null)
+            return;
+        _machines = await MachineService.GetManyAsync(_group.Members.Select(m => m.MachineName));
+        _deployments = await Deployments.ListAsync(groupId: Id);
+    }
+
+    private async Task ShowVariablesAsync()
+    {
+        _tab = "variables";
+        if (!_variablesLoaded)
+            await LoadVariablesAsync();
+    }
+
+    private async Task LoadVariablesAsync()
+    {
+        if (_group is null)
+            return;
+        _variablesLoaded = true;
+        if (_previewMachine is not null && !_group.Members.Any(m => string.Equals(m.MachineName, _previewMachine, StringComparison.OrdinalIgnoreCase)))
+            _previewMachine = null;
+        _resolved = await Variables.ResolveAsync(Id, _previewMachine);
+        _overrides = await Variables.MachineOverridesAsync(_group.Members.Select(m => m.MachineName).ToList());
+    }
+
+    private Task ReloadVariablesAsync() => LoadVariablesAsync();
+
+    private async Task PreviewAsync(string? machine)
+    {
+        _previewMachine = machine;
+        _resolved = await Variables.ResolveAsync(Id, machine);
+    }
+
+    private static string OverridesText(ResolvedVariable v)
+    {
+        var parts = v.Overrides.Select(o => o.Scope switch
+        {
+            VariableScope.Global => "the global value",
+            VariableScope.Group => "the group's value",
+            _ => $"{o.Label}'s value",
+        });
+        return $"Overrides {string.Join(" and ", parts)}";
+    }
+
+    private static string MachineHref(string name) => $"machines/{Uri.EscapeDataString(name)}";
+
+    // ----- Header -----
+
+    private void StartEdit()
+    {
+        _editName = _group!.Name;
+        _editDescription = _group.Description ?? "";
+        _editError = null;
+        _editing = true;
+    }
+
+    private async Task SaveDetailsAsync()
+    {
+        _editError = null;
+        try
+        {
+            await GroupService.UpdateAsync(Id, _editName, _editDescription);
+            _editing = false;
+            await LoadAsync();
+            Notifier.Success("Group saved.");
+        }
+        catch (ShushDataException ex)
+        {
+            _editError = ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        _deleteError = null;
+        try
+        {
+            var name = _group!.Name;
+            await GroupService.DeleteAsync(Id);
+            Notifier.Success($"Deleted {name}.");
+            Nav.NavigateTo("groups");
+        }
+        catch (ShushDataException ex)
+        {
+            _deleteError = ex.Message;
+        }
+    }
+
+    // ----- Machines -----
+
+    private static List<string> SplitNames(string text) =>
+        System.Text.RegularExpressions.Regex.Split(text, @"[\s,;]+").Select(n => n.Trim()).Where(n => n.Length > 0).ToList();
+
+    private async Task AddMachinesAsync()
+    {
+        var names = SplitNames(_addText);
+        if (names.Count == 0)
+            return;
+        await AddAsync(names);
+        _addText = "";
+    }
+
+    private async Task AddAsync(IReadOnlyCollection<string> names)
+    {
+        _machinesError = null;
+        _busy = true;
+        try
+        {
+            var before = _group!.Members.Count;
+            await GroupService.AddMembersAsync(Id, names);
+            await LoadAsync();
+            var added = _group!.Members.Count - before;
+            Notifier.Success(added == 0 ? "Those machines are already in the group." : $"Added {Ui.Plural(added, "machine")}.");
+
+            if (_registryNames is not null)
+            {
+                var known = new HashSet<string>(_registryNames, StringComparer.OrdinalIgnoreCase);
+                var unknown = names.Where(n => !known.Contains(n) && !System.Net.IPAddress.TryParse(n, out _)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (unknown.Count > 0)
+                    Notifier.Info($"Not in the machine registry: {string.Join(", ", unknown)}. Check the spelling, or a deploy won't find them.");
+            }
+        }
+        catch (ShushDataException ex)
+        {
+            _machinesError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveAsync(string machine)
+    {
+        _machinesError = null;
+        _busy = true;
+        try
+        {
+            await GroupService.RemoveMemberAsync(Id, machine);
+            await LoadAsync();
+            Notifier.Success($"Removed {machine} from the group.");
+        }
+        catch (ShushDataException ex)
+        {
+            _machinesError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        _machinesError = null;
+        List<string> names;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var yaml = await reader.ReadToEndAsync();
+            names = Registry.ParseYaml(yaml).Select(n => n.Trim()).Where(n => n.Length > 0).ToList();
+        }
+        catch (IOException)
+        {
+            _machinesError = $"{e.File.Name} is larger than 1 MB. A machine list is a short YAML file; check you picked the right one.";
+            return;
+        }
+        catch (Exception)
+        {
+            _machinesError = $"{e.File.Name} isn't a machine list. Expected YAML like \"machines: [FRG.0-A, FRG.0-B]\", one name per entry.";
+            return;
+        }
+
+        if (names.Count == 0)
+        {
+            _machinesError = $"{e.File.Name} has no machines in it. Expected YAML like \"machines: [FRG.0-A, FRG.0-B]\".";
+            return;
+        }
+
+        await AddAsync(names);
+    }
+
+    private async Task ExportAsync()
+    {
+        var yaml = Registry.SerializeYaml(_group!.Members.Select(m => m.MachineName));
+        var fileName = string.Concat(_group.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c == ' ' ? '-' : c));
+        await JS.InvokeVoidAsync("downloadFile", $"{fileName}.yml", yaml, "application/x-yaml");
+    }
+
+    private async Task CheckReachabilityAsync()
+    {
+        if (_group is null || _group.Members.Count == 0)
+            return;
+        _checking = true;
+        _machinesError = null;
+        StateHasChanged();
+        try
+        {
+            var names = _group.Members.Select(m => m.MachineName).ToList();
+            var before = names.ToDictionary(n => n, n => _machines.GetValueOrDefault(n)?.LastProbeAt, StringComparer.OrdinalIgnoreCase);
+
+            await Parallel.ForEachAsync(names, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = _cts.Token },
+                async (name, ct) => await Health.ProbeAsync(name, ct));
+
+            await LoadAsync();
+            var probed = names.Count(n => _machines.GetValueOrDefault(n)?.LastProbeAt != before[n]);
+            if (probed == 0)
+            {
+                _machinesError = "The machine registry didn't answer, so no machine was checked. Try again in a minute, or check the registry URL in Settings.";
+            }
+            else
+            {
+                _lastChecked = DateTime.UtcNow;
+                var reachable = names.Count(n => _machines.GetValueOrDefault(n)?.Reachable == true);
+                Notifier.Success($"{reachable} of {names.Count} machines are reachable.");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was closed.
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel(); // Not disposed: a running check may still read its token.
+    }
+}

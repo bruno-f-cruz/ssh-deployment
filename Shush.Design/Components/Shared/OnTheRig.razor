@@ -1,0 +1,14 @@
+@* What a variable does on the rig: only read by recipes, or also set as an environment variable. *@
+@if (ApplyAsEnv)
+{
+    <span class="badge badge--env">Environment variable (@EnvScope)</span>
+}
+else
+{
+    <span class="muted small">Recipe only</span>
+}
+
+@code {
+    [Parameter] public bool ApplyAsEnv { get; set; }
+    [Parameter] public string EnvScope { get; set; } = "Machine";
+}

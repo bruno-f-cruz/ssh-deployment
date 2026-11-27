@@ -1,0 +1,234 @@
+@page "/machines"
+@implements IDisposable
+@inject MachineService MachineService
+@inject GroupService GroupService
+@inject HealthChecker Health
+@inject Notifier Notifier
+@inject ClientTime ClientTime
+@inject ShushSettings Settings
+
+<PageTitle>Machines · Shush</PageTitle>
+
+<PageHeader Title="Machines">
+    <Lede>Every machine Shush knows about. Reachability is checked every @Ui.Plural(Settings.HealthProbeMinutes, "minute") without signing in; the user, disk and boot time come from the last dry run or deploy.</Lede>
+    <Actions>
+        <button type="button" class="btn" @onclick="CheckAllAsync" disabled="@_checking">
+            @if (_checking)
+            {
+                <Icon Name="spin" />@("Checking…")
+            }
+            else
+            {
+                @("Check all now")
+            }
+        </button>
+    </Actions>
+</PageHeader>
+
+<section class="panel panel--flush">
+    <div class="panel__head">
+        <div class="row machines__filters">
+            <label class="visually-hidden" for="machine-search">Search machines</label>
+            <input id="machine-search" type="search" placeholder="Search by name, user or group" @bind="_search" @bind:event="oninput" autocomplete="off" />
+            <div class="toggles" role="group" aria-label="Show machines">
+                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.All)" @onclick="() => _filter = Filter.All">All @(_machines?.Count ?? 0)</button>
+                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.Unreachable)" @onclick="() => _filter = Filter.Unreachable">
+                    Not reachable @(_machines?.Count(m => m.Reachable == false) ?? 0)
+                </button>
+                <button type="button" class="toggle" aria-pressed="@(_filter == Filter.LowDisk)" @onclick="() => _filter = Filter.LowDisk">
+                    Low disk @(_machines?.Count(m => m.FreeGb < LowDiskGb) ?? 0)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (_machines is null)
+    {
+        <p class="muted small machines__pad">Loading machines…</p>
+    }
+    else if (_machines.Count == 0)
+    {
+        <EmptyState Title="No machines yet">Machines appear here once they're in a group. <a href="groups">Go to groups</a>.</EmptyState>
+    }
+    else
+    {
+        var shown = Shown().ToList();
+        @if (shown.Count == 0)
+        {
+            <EmptyState Title="No machines match">Try a different search, or show all machines.</EmptyState>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Machine</th>
+                            <th scope="col">Health</th>
+                            <th scope="col">Logged-on user</th>
+                            <th scope="col" class="num">Free disk</th>
+                            <th scope="col">Last boot</th>
+                            <th scope="col">Groups</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var machine in shown)
+                        {
+                            <tr>
+                                <td><a class="title" href="@($"machines/{Uri.EscapeDataString(machine.Name)}")">@machine.Name</a></td>
+                                <td><MachineHealth Machine="machine" /></td>
+                                <td>
+                                    @if (string.IsNullOrEmpty(machine.LoggedOnUser))
+                                    {
+                                        <span class="muted small">Unknown</span>
+                                    }
+                                    else
+                                    {
+                                        @machine.LoggedOnUser
+                                    }
+                                </td>
+                                <td class="num">
+                                    @if (machine.FreeGb is { } free)
+                                    {
+                                        <span class="@(free < LowDiskGb ? "t-warn" : "")" title="@(free < LowDiskGb ? "Less than 5 GB free" : null)">@free.ToString("0.#") GB</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted small">Unknown</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (machine.LastBoot is { } boot)
+                                    {
+                                        <span title="@Ui.When(boot, ClientTime)">@Ui.Ago(boot)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted small">Unknown</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="row machines__groups">
+                                        @foreach (var group in _groupsOf.GetValueOrDefault(machine.Name) ?? [])
+                                        {
+                                            <a class="badge badge--group" href="@($"groups/{group.Id}")">@group.Name</a>
+                                        }
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private const double LowDiskGb = 5;
+
+    private enum Filter { All, Unreachable, LowDisk }
+
+    private List<Machine>? _machines;
+    private Dictionary<string, List<(int Id, string Name)>> _groupsOf = new(StringComparer.OrdinalIgnoreCase);
+    private string _search = "";
+    private Filter _filter = Filter.All;
+    private bool _checking;
+    private int _reloadPending;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Health.Probed += OnProbed;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _machines = await MachineService.ListAsync();
+
+        var map = new Dictionary<string, List<(int Id, string Name)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var summary in await GroupService.ListAsync())
+        {
+            var group = await GroupService.GetAsync(summary.Id);
+            if (group is null)
+                continue;
+            foreach (var member in group.Members)
+            {
+                if (!map.TryGetValue(member.MachineName, out var list))
+                    map[member.MachineName] = list = [];
+                list.Add((group.Id, group.Name));
+            }
+        }
+
+        _groupsOf = map;
+    }
+
+    private IEnumerable<Machine> Shown()
+    {
+        IEnumerable<Machine> machines = _machines ?? [];
+        machines = _filter switch
+        {
+            Filter.Unreachable => machines.Where(m => m.Reachable == false),
+            Filter.LowDisk => machines.Where(m => m.FreeGb < LowDiskGb),
+            _ => machines,
+        };
+
+        var terms = _search.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return terms.Length == 0 ? machines : machines.Where(m => terms.All(t => Matches(m, t)));
+    }
+
+    private bool Matches(Machine machine, string term) =>
+        machine.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || (machine.LoggedOnUser?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+        || (_groupsOf.GetValueOrDefault(machine.Name)?.Any(g => g.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) ?? false);
+
+    private async Task CheckAllAsync()
+    {
+        _checking = true;
+        try
+        {
+            await Health.ProbeAllAsync(_cts.Token);
+            await LoadAsync();
+            var count = _machines?.Count ?? 0;
+            var reachable = _machines?.Count(m => m.Reachable == true) ?? 0;
+            Notifier.Success($"{reachable} of {count} machines are reachable.");
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was closed.
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    // A full probe raises Probed once per machine: reload at most once a second.
+    private void OnProbed()
+    {
+        if (Interlocked.Exchange(ref _reloadPending, 1) == 1)
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+                Interlocked.Exchange(ref _reloadPending, 0);
+                await LoadAsync();
+                StateHasChanged();
+            }
+            catch (OperationCanceledException)
+            {
+                // The page was closed.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Health.Probed -= OnProbed;
+        _cts.Cancel(); // Not disposed: a pending reload may still read its token.
+    }
+}

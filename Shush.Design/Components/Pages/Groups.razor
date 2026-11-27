@@ -1,0 +1,104 @@
+@page "/groups"
+@inject GroupService GroupService
+@inject NavigationManager Nav
+
+<PageTitle>Groups · Shush</PageTitle>
+
+<PageHeader Title="Groups">
+    <Lede>A group is a list of machines plus the variables they share. Deployments send a recipe to a group.</Lede>
+</PageHeader>
+
+<section class="panel">
+    <div class="panel__head">
+        <h2>New group</h2>
+    </div>
+    <form class="inline-form" @onsubmit="CreateAsync" @onsubmit:preventDefault>
+        <div class="field">
+            <label for="group-name">Name</label>
+            <input id="group-name" type="text" @bind="_name" autocomplete="off" placeholder="e.g. FRG rigs" />
+        </div>
+        <div class="field">
+            <label for="group-description">Description <span class="muted small">optional</span></label>
+            <input id="group-description" type="text" @bind="_description" autocomplete="off" />
+        </div>
+        <button type="submit" class="btn btn--primary" disabled="@_busy"><Icon Name="plus" />Create group</button>
+    </form>
+    @if (_error is not null)
+    {
+        <p class="field__error" role="alert">@_error</p>
+    }
+</section>
+
+<section class="panel panel--flush">
+    <div class="panel__head">
+        <h2>All groups</h2>
+        @if (_groups is not null)
+        {
+            <span class="panel__sub">@Ui.Plural(_groups.Count, "group")</span>
+        }
+    </div>
+
+    @if (_groups is null)
+    {
+        <p class="muted small groups__pad">Loading groups…</p>
+    }
+    else if (_groups.Count == 0)
+    {
+        <EmptyState Title="No groups yet">Create one above, then add its machines.</EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Description</th>
+                        <th scope="col" class="num">Machines</th>
+                        <th scope="col" class="num">Deployments</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var group in _groups)
+                    {
+                        <tr>
+                            <td><a class="title" href="@($"groups/{group.Id}")">@group.Name</a></td>
+                            <td class="muted">@group.Description</td>
+                            <td class="num">@group.MachineCount</td>
+                            <td class="num">@group.DeploymentCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private List<GroupSummary>? _groups;
+    private string _name = "";
+    private string _description = "";
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => _groups = await GroupService.ListAsync();
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var group = await GroupService.CreateAsync(_name, string.IsNullOrWhiteSpace(_description) ? null : _description.Trim());
+            Nav.NavigateTo($"groups/{group.Id}");
+        }
+        catch (ShushDataException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

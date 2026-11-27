@@ -1,0 +1,20 @@
+@* Where a variable is set: Global, Group (lime), or the machine's name. *@
+@switch (Scope)
+{
+    case VariableScope.Global:
+        <span class="badge">Global</span>
+        break;
+    case VariableScope.Group:
+        <span class="badge badge--group">Group</span>
+        break;
+    default:
+        <span class="badge badge--machine">@(Label ?? "Machine")</span>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public VariableScope Scope { get; set; }
+
+    /// <summary>The machine's name, for a machine override.</summary>
+    [Parameter] public string? Label { get; set; }
+}
