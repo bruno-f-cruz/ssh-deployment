@@ -10,5 +10,8 @@ services:
 volumes:
   # External, so `docker compose down -v` can never delete it. Create it once:
   #   docker volume create shush-data
+  # Upgrading from the old compose file? Its volume was project-scoped (e.g. ssh-deployment_shush-data):
+  # point at it with SHUSH_DATA_VOLUME=ssh-deployment_shush-data (see `docker volume ls`).
   shush-data:
     external: true
+    name: ${SHUSH_DATA_VOLUME:-shush-data}

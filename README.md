@@ -85,7 +85,12 @@ docker volume create shush-data
 docker compose up -d --build
 ```
 
-Rebuilding or recreating the container keeps the database. Plain `docker run` works the same way:
+Rebuilding or recreating the container keeps the database.
+
+**Upgrading from v1's compose file:** its volume was project-scoped, so Docker named it after the folder
+(e.g. `ssh-deployment_shush-data`; check `docker volume ls`). Keep using it, and get the one-time import of
+your v1 recipes, groups and saved state, by setting `SHUSH_DATA_VOLUME` to that name (in the shell or a
+`.env` next to `docker-compose.yml`) before `docker compose up`. Plain `docker run` works the same way:
 
 ```bash
 docker build -t shush-design .
