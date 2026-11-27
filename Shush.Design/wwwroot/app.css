@@ -414,7 +414,11 @@ h1:focus, h1:focus-visible { outline: none; }
 .dstep--off .dstep__num { background: transparent; color: var(--muted); border-style: dashed; }
 .dstep__body { padding: 0 24px 16px 66px; display: flex; flex-direction: column; gap: 10px; }
 .dstep__inputs { border: 1px solid var(--line); border-radius: var(--r-md, 8px); }
-.dstep__value { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 34ch; }
+.dstep__value { white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; min-width: 16ch; }
+.dstep__value .muted { font-family: var(--font); font-size: 13px; }
+.dstep__inputs { table-layout: fixed; width: 100%; }
+.dstep__inputs th:nth-child(1) { width: 30%; }
+.dstep__inputs th:nth-child(4) { width: 230px; }
 .dstep__value textarea, .dstep__value input { width: 100%; min-width: 22ch; font: 13px/1.45 var(--mono); }
 .dstep__inputs tr.is-overridden td { background: #F7F2FE; }
 .dstep__inputs tr.is-overridden td:first-child { box-shadow: inset 3px 0 0 var(--purple); }
@@ -448,7 +452,7 @@ h1:focus, h1:focus-visible { outline: none; }
 
 /* The fixed values under a deployment's name in the list. */
 .fixed-values { display: flex; flex-wrap: wrap; gap: 2px 14px; font: 12px/1.5 var(--mono); color: var(--muted); margin-top: 2px; }
-.fixed-values b { font-weight: 500; color: var(--ink-2); }
+.fixed-values b { font-weight: 400; color: var(--ink-2); }
 .badge--button { cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; margin-left: 6px; }
 .badge--button:hover { border-color: var(--purple); }
 .stack-sm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
