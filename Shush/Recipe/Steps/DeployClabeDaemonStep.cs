@@ -30,6 +30,12 @@ public class DeployClabeDaemonStep : IRecipeStep
     [Input(OptionsFrom = "clabe.installers", Description = "The version of clabe's installer: a clabe release tag (e.g. v0.19.0), or main.")]
     public string Installer { get; init; } = "main";
 
+    [Input(OptionsFrom = "clabe.versions", Description = "The clabe release the `clabe` command is installed at, e.g. 0.19.0. Empty, \"lock\" or \"latest\": the installer's default (the newest it supports).")]
+    public string? CliVersion { get; init; }
+
+    /// <summary>The extras the `clabe` command is installed with (the installer's own default).</summary>
+    public const string CliExtras = "frontend,otel";
+
     public async Task ExecuteAsync(MachineContext context, CancellationToken cancellationToken = default)
     {
         await CheckVersionAsync(ClabeReleases.Shared, cancellationToken);
@@ -60,6 +66,9 @@ public class DeployClabeDaemonStep : IRecipeStep
             if (!string.IsNullOrWhiteSpace(Hubs))
                 arguments.Add($"-Hubs {Quote(Hubs.Trim())}");
         }
+        var cli = (CliVersion ?? "").Trim().TrimStart('v', 'V');
+        if (cli.Length > 0 && !cli.Equals("lock", StringComparison.OrdinalIgnoreCase) && !cli.Equals("latest", StringComparison.OrdinalIgnoreCase))
+            arguments.Add($"-CliPackage {Quote($"aind-clabe[{CliExtras}]=={cli}")}");
         arguments.Add(Force ? "-Force" : "-Force:$false");
 
         var installer = string.IsNullOrWhiteSpace(Installer) ? "main" : Installer.Trim();

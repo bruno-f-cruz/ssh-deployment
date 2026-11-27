@@ -28,6 +28,18 @@ public class DeployClabeDaemonStepTests
     }
 
     [Fact]
+    public void A_cli_version_pins_the_clabe_command_and_lock_or_latest_leave_the_installer_default()
+    {
+        var stop = new DeployClabeDaemonStep { StopOnly = true, CliVersion = "0.18.0rc3", Installer = "v0.18.0rc3" }.BuildCommands();
+        Assert.Contains("/clabe/v0.18.0rc3/scripts/install.ps1", stop[1]);
+        Assert.Equal("& $install -StopDaemon -CliPackage 'aind-clabe[frontend,otel]==0.18.0rc3' -Force:$false", stop[2]);
+
+        Assert.Equal("& $install -Version '0.18.0rc3' -CliPackage 'aind-clabe[frontend,otel]==0.18.0rc3' -Force:$false",
+            new DeployClabeDaemonStep { Version = "0.18.0rc3", CliVersion = "v0.18.0rc3" }.BuildCommands()[2]);
+        Assert.DoesNotContain("-CliPackage", new DeployClabeDaemonStep { Version = "latest", CliVersion = "lock" }.BuildCommands()[2]);
+    }
+
+    [Fact]
     public void Stop_only_stops_with_the_pinned_installer()
     {
         var commands = new DeployClabeDaemonStep { StopOnly = true, Version = "0.19.0", Hubs = "x", Installer = "v0.19.0" }.BuildCommands();

@@ -27,8 +27,8 @@ params:
   clabeVersion:
     type: String
     label: clabe version
-    help: The clabe release the rig's daemon runs, e.g. 0.18.0rc2. "lock" runs the release the experiment's uv.lock pins.
-    default: lock
+    help: The clabe release the rig's daemon and clabe command run, e.g. 0.18.0rc3. "lock" runs the release the experiment's uv.lock pins.
+    default: 0.18.0rc3
     optionsFrom: clabe.versions
 vars:
   repoRoot: C:/git
@@ -43,6 +43,8 @@ steps:
   name: Stop the clabe daemon
   with:
     stopOnly: true
+    cliVersion: ${params.clabeVersion}
+    installer: v0.18.0rc3
 - type: RunScript
   name: Trust git folders
   with:
@@ -124,5 +126,7 @@ steps:
   name: Start the clabe daemon
   with:
     version: ${params.clabeVersion}
+    cliVersion: ${params.clabeVersion}
+    installer: v0.18.0rc3
     lockRepository: ${clone.clonedPath}
     hubs: http://aind-behavior.corp.alleninstitute.org/clabe/
