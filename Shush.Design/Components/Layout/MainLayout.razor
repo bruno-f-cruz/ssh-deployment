@@ -1,9 +1,10 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @implements IDisposable
 @inject RunCoordinator Coordinator
 @inject Notifier Notifier
 @inject ClientTime ClientTime
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <div class="shell">
     <nav class="nav" aria-label="Main">
@@ -13,23 +14,21 @@
         </a>
 
         <ul class="nav__list">
-            <li><NavLink class="nav__link" href="" Match="NavLinkMatch.All"><Icon Name="overview" />Overview</NavLink></li>
-            <li><NavLink class="nav__link" href="deployments"><Icon Name="deploy" />Deployments</NavLink></li>
+            <li><a class="nav__link @Active("", "deployments")" href="" aria-current="@Current("", "deployments")"><Icon Name="deploy" />Deployments</a></li>
             <li>
-                <NavLink class="nav__link" href="runs">
+                <a class="nav__link @Active("runs")" href="runs" aria-current="@Current("runs")">
                     <Icon Name="runs" />Runs
                     @if (_activeRuns > 0)
                     {
                         <span class="count" title="Runs in progress">@_activeRuns</span>
                     }
-                </NavLink>
+                </a>
             </li>
-            <li><NavLink class="nav__link" href="groups"><Icon Name="groups" />Groups</NavLink></li>
-            <li><NavLink class="nav__link" href="machines"><Icon Name="machines" />Machines</NavLink></li>
-            <li><NavLink class="nav__link" href="recipes"><Icon Name="recipes" />Recipes</NavLink></li>
-            <li><NavLink class="nav__link" href="settings"><Icon Name="settings" />Settings</NavLink></li>
+            <li><a class="nav__link @Active("rigs", "groups", "machines")" href="groups" aria-current="@Current("rigs", "groups", "machines")"><Icon Name="machines" />Rigs</a></li>
+            <li><a class="nav__link @Active("recipes")" href="recipes" aria-current="@Current("recipes")"><Icon Name="recipes" />Recipes</a></li>
         </ul>
 
+        <a class="nav__link nav__link--settings @Active("settings", "logs")" href="settings" aria-current="@Current("settings", "logs")"><Icon Name="settings" />Settings</a>
         <div class="nav__footer">
             <SignInPanel />
         </div>
@@ -79,7 +78,19 @@
         _activeRuns = Coordinator.ActiveRunIds.Count;
         Coordinator.RunChanged += OnRunChanged;
         Notifier.Changed += OnNotice;
+        Nav.LocationChanged += OnLocationChanged;
     }
+
+    /// <summary>The first path segment of the current page ("" for the home page).</summary>
+    private string Section => Nav.ToBaseRelativePath(Nav.Uri).Split('/', '?', '#')[0].ToLowerInvariant();
+
+    private bool IsIn(string[] sections) => sections.Contains(Section);
+
+    private string Active(params string[] sections) => IsIn(sections) ? "active" : "";
+
+    private string? Current(params string[] sections) => IsIn(sections) ? "page" : null;
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -115,5 +126,6 @@
     {
         Coordinator.RunChanged -= OnRunChanged;
         Notifier.Changed -= OnNotice;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 }

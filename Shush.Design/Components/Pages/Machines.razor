@@ -6,9 +6,9 @@
 @inject Notifier Notifier
 @inject ShushSettings Settings
 
-<PageTitle>Machines · Shush</PageTitle>
+<PageTitle>All rigs · Shush</PageTitle>
 
-<PageHeader Title="Machines">
+<PageHeader Title="Rigs">
     <Actions>
         <button type="button" class="btn" @onclick="CheckAllAsync" disabled="@_checking"
                 title="@($"Reachability is also checked every {Ui.Plural(Settings.HealthProbeMinutes, "minute")}")">
@@ -23,6 +23,8 @@
         </button>
     </Actions>
 </PageHeader>
+
+<RigsTabs Current="machines" />
 
 <section class="panel panel--flush">
     @if (_machines is null)

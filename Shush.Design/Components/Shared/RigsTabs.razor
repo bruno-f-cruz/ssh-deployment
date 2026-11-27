@@ -1,0 +1,10 @@
+@* The two views of the Rigs section: groups of rigs, and every rig with its health. *@
+<nav class="tabs" aria-label="Rigs">
+    <a class="tab" href="groups" aria-current="@(Current == "groups" ? "page" : null)" aria-selected="@Ui.Aria(Current == "groups")">Groups</a>
+    <a class="tab" href="machines" aria-current="@(Current == "machines" ? "page" : null)" aria-selected="@Ui.Aria(Current == "machines")">All rigs</a>
+</nav>
+
+@code {
+    /// <summary>"groups" or "machines".</summary>
+    [Parameter, EditorRequired] public string Current { get; set; } = "";
+}

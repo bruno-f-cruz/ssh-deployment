@@ -16,7 +16,7 @@
 @if (_loaded && _group is null)
 {
     <PageHeader Title="Group not found">
-        <Crumbs><a href="groups">Groups</a></Crumbs>
+        <Crumbs><a href="groups">Rigs</a></Crumbs>
     </PageHeader>
     <section class="panel panel--flush">
         <EmptyState Title="This group doesn't exist.">It may have been deleted. <a href="groups">All groups</a></EmptyState>
@@ -25,7 +25,7 @@
 else if (_group is not null)
 {
     <PageHeader Title="@_group.Name">
-        <Crumbs><a href="groups">Groups</a> / @_group.Name</Crumbs>
+        <Crumbs><a href="groups">Rigs</a> / @_group.Name</Crumbs>
         <Lede>
             @if (!string.IsNullOrWhiteSpace(_group.Description))
             {

@@ -1,10 +1,11 @@
 @page "/groups"
+@page "/rigs"
 @inject GroupService GroupService
 @inject NavigationManager Nav
 
-<PageTitle>Groups · Shush</PageTitle>
+<PageTitle>Rigs · Shush</PageTitle>
 
-<PageHeader Title="Groups">
+<PageHeader Title="Rigs">
     <Actions>
         @if (!_creating)
         {
@@ -12,6 +13,8 @@
         }
     </Actions>
 </PageHeader>
+
+<RigsTabs Current="groups" />
 
 @if (_creating || _groups?.Count == 0)
 {

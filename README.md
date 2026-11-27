@@ -8,10 +8,7 @@ A web app for deploying software to many Windows lab rigs at once over SSH.
   global → group → machine, can be pushed to the rig as environment variables, and can be secret.
 - **Deployments** are a recipe deployed to a group. They remember the values you last used, so deploying
   again is one click. One recipe can have several deployments on the same rigs (e.g. prod and dev, side by
-  side) as long as their *fixed* values (install folder, shortcut) differ. **Duplicate** a deployment to make
-  another (e.g. VrForaging → VrForaging dev). A deployment can turn recipe steps off or change step inputs for
-  itself only (its **Recipe** tab) and keep following the recipe's new versions, or **detach** into its own copy
-  of the recipe.
+  side) as long as their *fixed* values (install folder, shortcut) differ. **Duplicate** a deployment to make another (e.g. VrForaging → VrForaging dev, or the same thing for another group). A deployment can turn recipe steps off for itself (its **Recipe** tab) and keeps following the recipe's new versions; for different steps, duplicate the recipe and pick the copy in the deployment's Settings. Values that differ between deployments are recipe parameters. On the **Rigs** tab, pick the group and switch rigs off for the next deploy only.
 - **Runs** show live per-rig, per-step progress on a rig board. Every run is kept: the last deploy of every
   deployment on every rig, the commit it checked out, what changed since the previous run, and one-click
   retry and rollback. A **dry run** checks every rig and shows the exact plan without changing anything.

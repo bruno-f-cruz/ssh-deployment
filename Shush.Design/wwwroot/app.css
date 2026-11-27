@@ -617,3 +617,7 @@ tr.is-link:hover .row-btn { text-decoration: underline; }
 .rigs-bar select { min-width: 260px; max-width: 420px; flex: 1 1 260px; }
 .table th.rigs-switch, .table td.rigs-switch { width: 56px; padding-right: 0; }
 .table tr.is-off td:not(.rigs-switch) { opacity: 0.45; }
+/* Side bar: Settings sits at the bottom, above the accounts. */
+.nav__link--settings { margin-top: auto; margin-bottom: 6px; }
+.nav__link--settings ~ .nav__footer { margin-top: 0; }
+a.tab { text-decoration: none; display: inline-flex; align-items: center; }
