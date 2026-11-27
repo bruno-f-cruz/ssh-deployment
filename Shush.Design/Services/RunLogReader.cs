@@ -5,15 +5,26 @@ namespace Shush.Design.Services;
 /// <summary>Reads a run's log file, or one machine's lines of it (entries are tagged [MachineName]).</summary>
 public static partial class RunLogReader
 {
-    public static string ForMachine(string? logFile, string machine, int maxLines = 400)
+    /// <summary>One machine's whole log.</summary>
+    public static string ForMachine(string? logFile, string machine) =>
+        string.Join(Environment.NewLine, MachineLines(logFile, machine));
+
+    /// <summary>The last <paramref name="maxLines"/> lines of one machine's log, and how many earlier lines were left out.</summary>
+    public static (string Text, int Hidden) ForMachineTail(string? logFile, string machine, int maxLines = 2000)
     {
+        var lines = MachineLines(logFile, machine);
+        var hidden = Math.Max(0, lines.Count - maxLines);
+        return (string.Join(Environment.NewLine, lines.Skip(hidden)), hidden);
+    }
+
+    private static List<string> MachineLines(string? logFile, string machine)
+    {
+        var output = new List<string>();
         if (logFile is null || !File.Exists(logFile))
-            return string.Empty;
+            return output;
 
         var tag = $"[{machine}]";
-        var output = new List<string>();
         var include = false;
-
         foreach (var line in ReadLines(logFile))
         {
             if (EntryHeader().IsMatch(line))
@@ -21,10 +32,8 @@ public static partial class RunLogReader
             if (include)
                 output.Add(line);
         }
-
-        return string.Join(Environment.NewLine, output.TakeLast(maxLines));
+        return output;
     }
-
     public static string Whole(string? path)
     {
         if (path is null || !File.Exists(path))
