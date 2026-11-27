@@ -1,7 +1,7 @@
 @* A "⋯" button that opens a short list of secondary actions. Put <button class="menu__item"> or <a class="menu__item"> inside.
    Closes on picking an item, clicking elsewhere, or Escape (shush.js). *@
 <details class="menu @Class">
-    <summary class="btn @(Label is null ? "btn--icon" : "")" aria-label="@(Label ?? "More actions")" title="@(Label ?? "More actions")">
+    <summary class="btn @(Label is null ? "btn--icon" : "")" aria-label="@(AriaLabel ?? Label ?? "More actions")" title="@(AriaLabel ?? Label ?? "More actions")">
         @if (Label is null)
         {
             <Icon Name="more" Size="18" />
@@ -18,4 +18,7 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string? Label { get; set; }
     [Parameter] public string? Class { get; set; }
+
+    /// <summary>What a screen reader (and the tooltip) calls the button, e.g. \"Actions for step Clone\".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
 }

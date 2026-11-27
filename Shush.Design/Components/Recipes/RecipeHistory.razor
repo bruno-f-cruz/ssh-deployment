@@ -1,47 +1,42 @@
 @inject ClientTime ClientTime
 
-@* A recipe's versions, newest first: compare any two, restore an older one (as a new version). *@
-<section class="panel panel--flush" aria-labelledby="versions-heading">
-    <div class="panel__head">
-        <h2 id="versions-heading">Versions</h2>
-        <span class="panel__sub">Every save is kept. Restoring an old version saves it again as the newest.</span>
-    </div>
+@* A recipe's versions, newest first. Picking a row shows what changed from it to the current version, with Restore. *@
+<section class="panel panel--flush" aria-label="Versions">
     <div class="table-wrap">
         <table class="table">
             <thead>
                 <tr>
                     <th scope="col">Version</th>
-                    <th scope="col">Source</th>
-                    <th scope="col">By</th>
+                    <th scope="col">Change</th>
                     <th scope="col">When</th>
-                    <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var version in Versions)
                 {
                     var current = version.Id == Versions[0].Id;
-                    <tr>
+                    var picked = Versions.Count > 1 && version.Id == _oldId && !current;
+                    <tr class="@(current ? "" : "is-link") @(picked ? "is-picked" : "")" @onclick="() => Pick(version)">
                         <td>
-                            <strong>v@(version.Number)</strong>
                             @if (current)
                             {
-                                <span class="badge badge--group">current</span>
+                                <strong>v@(version.Number)</strong>
+                                <span class="muted small">current</span>
                             }
-                        </td>
-                        <td>@SourceLabel(version.Source, CopiedFrom)</td>
-                        <td>@(version.CreatedBy ?? "—")</td>
-                        <td title="@version.CreatedAt.ToString("u")">@Ui.When(version.CreatedAt, ClientTime)</td>
-                        <td class="actions-cell">
-                            @if (!current)
+                            else
                             {
-                                <button type="button" class="btn btn--small btn--ghost" @onclick="() => CompareWithCurrent(version)">Compare with current</button>
-                                <ConfirmButton Class="btn btn--small" Question="@($"Restore v{version.Number} as a new version?")"
-                                               ConfirmLabel="@($"Restore v{version.Number}")" OnConfirm="() => OnRestore.InvokeAsync(version)">
-                                    <Icon Name="rollback" />Restore v@(version.Number)
-                                </ConfirmButton>
+                                <button type="button" class="link-btn row-btn" aria-pressed="@Ui.Aria(picked ? "true" : "false")"
+                                        title="Compare with the current version" @onclick="() => Pick(version)" @onclick:stopPropagation="true">v@(version.Number)</button>
                             }
                         </td>
+                        <td>
+                            @SourceLabel(version.Source, CopiedFrom)
+                            @if (!string.IsNullOrWhiteSpace(version.CreatedBy))
+                            {
+                                <span class="muted"> by @version.CreatedBy</span>
+                            }
+                        </td>
+                        <td title="@version.CreatedAt.ToString("u")">@Ui.When(version.CreatedAt, ClientTime)</td>
                     </tr>
                 }
             </tbody>
@@ -49,11 +44,11 @@
     </div>
 </section>
 
-<section class="panel" aria-labelledby="diff-heading">
-    <div class="panel__head">
-        <h2 id="diff-heading">Changes</h2>
-        @if (Versions.Count > 1)
-        {
+@if (Versions.Count > 1 && Find(_oldId) is { } older && Find(_newId) is { } newer)
+{
+    <section class="panel" aria-labelledby="diff-heading">
+        <div class="panel__head">
+            <h2 id="diff-heading">Changes</h2>
             <div class="row">
                 <label for="diff-old" class="small">From</label>
                 <select id="diff-old" class="compact" value="@_oldId" @onchange="e => _oldId = int.Parse(e.Value!.ToString()!)">
@@ -69,19 +64,19 @@
                         <option value="@v.Id">v@(v.Number)</option>
                     }
                 </select>
+                @if (older.Id != Versions[0].Id)
+                {
+                    <ConfirmButton Class="btn btn--small" Question="@($"Restore v{older.Number} as a new version?")"
+                                   ConfirmLabel="@($"Restore v{older.Number}")" OnConfirm="() => OnRestore.InvokeAsync(older)">
+                        <Icon Name="rollback" />Restore v@(older.Number)
+                    </ConfirmButton>
+                }
             </div>
-        }
-    </div>
-    @if (Versions.Count < 2)
-    {
-        <p class="muted">There's only one version, so there's nothing to compare yet.</p>
-    }
-    else if (Find(_oldId) is { } older && Find(_newId) is { } newer)
-    {
+        </div>
         <DiffView Old="@older.Yaml" New="@newer.Yaml" AriaLabel="@($"Changes from v{older.Number} to v{newer.Number}")"
                   NoChanges="@($"v{older.Number} and v{newer.Number} are the same.")" />
-    }
-</section>
+    </section>
+}
 
 @code {
     /// <summary>Newest first.</summary>
@@ -117,8 +112,11 @@
 
     private RecipeVersion? Find(int id) => Versions.FirstOrDefault(v => v.Id == id);
 
-    private void CompareWithCurrent(RecipeVersion version)
+    /// <summary>Compares an older version with the current one (the current version's own row does nothing).</summary>
+    private void Pick(RecipeVersion version)
     {
+        if (version.Id == Versions[0].Id)
+            return;
         _oldId = version.Id;
         _newId = Versions[0].Id;
     }

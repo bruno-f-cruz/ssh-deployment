@@ -31,37 +31,46 @@ else
     <PageHeader Title="@_recipe.Name">
         <Crumbs><a href="recipes">Recipes</a> / @_recipe.Name</Crumbs>
         <Facts>
-            <dl class="facts">
-                <div><dt>Version</dt><dd>v@(_current.Number)</dd></div>
-                <div><dt>Updated</dt><dd title="@_recipe.UpdatedAt.ToString("u")">@Ui.Ago(_recipe.UpdatedAt)</dd></div>
-                <div><dt>Used by</dt><dd>@Ui.Plural(_deployments.Count, "deployment")</dd></div>
+            <p class="meta">
+                <span>v@(_current.Number)</span>
+                <span title="@_recipe.UpdatedAt.ToString("u")">updated @Ui.Ago(_recipe.UpdatedAt)</span>
+                @if (_deployments.Count > 0)
+                {
+                    <span><button type="button" class="link-btn meta__link" @onclick="@(() => SelectTab("used-by"))">used by @Ui.Plural(_deployments.Count, "deployment")</button></span>
+                }
+                else
+                {
+                    <span>not used yet</span>
+                }
                 @if (_recipe.IsBuiltIn)
                 {
-                    <div><dt>Origin</dt><dd><span class="badge">ships with the app</span></dd></div>
+                    <span>built in</span>
                 }
                 else if (_recipe.CopiedFrom is not null)
                 {
-                    <div><dt>Origin</dt><dd>Copy of @_recipe.CopiedFrom</dd></div>
+                    <span>copy of @_recipe.CopiedFrom</span>
                 }
-            </dl>
+            </p>
         </Facts>
         <Actions>
-            <button type="button" class="btn" @onclick="Export"><Icon Name="download" />Export .yml</button>
-            <button type="button" class="btn" @onclick="StartDuplicate" disabled="@(_duplicating || _busy)"><Icon Name="copy" />Duplicate</button>
-            @if (_recipe.IsBuiltIn)
-            {
-                <ConfirmButton Class="btn" Question="@ResetQuestion" ConfirmLabel="Reset to default" OnConfirm="ResetToShipped"
-                               Disabled="@(!ShippedDiffers || _busy)" Title="@(ShippedDiffers ? null : "This is already the version that ships with the app.")">
-                    <Icon Name="rollback" />Reset to default
-                </ConfirmButton>
-            }
-            else
-            {
-                <button type="button" class="btn" @onclick="StartRename" disabled="@(_renaming || _busy)">Rename</button>
-                <ConfirmButton Question="@($"Delete {_recipe.Name}?")" ConfirmLabel="Delete recipe" OnConfirm="Delete" Disabled="@_busy">
-                    <Icon Name="trash" />Delete
-                </ConfirmButton>
-            }
+            <Menu>
+                <button type="button" class="menu__item" @onclick="Export"><Icon Name="download" />Export .yml</button>
+                <button type="button" class="menu__item" @onclick="StartDuplicate" disabled="@_busy"><Icon Name="copy" />Duplicate</button>
+                @if (!_recipe.IsBuiltIn)
+                {
+                    <button type="button" class="menu__item" @onclick="StartRename" disabled="@_busy"><Icon Name="log" />Rename</button>
+                }
+                @if (ShippedDiffers)
+                {
+                    <div class="menu__sep"></div>
+                    <button type="button" class="menu__item" @onclick="@(() => _confirm = "reset")" disabled="@_busy"><Icon Name="rollback" />Reset to default</button>
+                }
+                @if (!_recipe.IsBuiltIn)
+                {
+                    <div class="menu__sep"></div>
+                    <button type="button" class="menu__item menu__item--danger" @onclick="@(() => _confirm = "delete")" disabled="@_busy"><Icon Name="trash" />Delete</button>
+                }
+            </Menu>
         </Actions>
     </PageHeader>
 
@@ -69,12 +78,26 @@ else
     {
         <div class="alert alert--warn" role="alert">
             <Icon Name="warn" />
-            <div class="grow">
-                <strong>This recipe has unsaved changes.</strong>
-                <p class="small">Save them first, or leave and lose them.</p>
-            </div>
+            <div class="grow"><strong>Unsaved changes.</strong> Save them first, or leave and lose them.</div>
             <button type="button" class="btn btn--small btn--danger" @onclick="LeaveAnyway">Leave without saving</button>
             <button type="button" class="btn btn--small btn--ghost" @onclick="() => _pendingNavigation = null">Stay</button>
+        </div>
+    }
+
+    @if (_confirm is not null)
+    {
+        <div class="alert alert--warn" role="alert">
+            <Icon Name="warn" />
+            <div class="grow">@(_confirm == "delete" ? $"Delete {_recipe.Name}? This can't be undone." : ResetQuestion)</div>
+            @if (_confirm == "delete")
+            {
+                <button type="button" class="btn btn--small btn--danger" @onclick="Delete" disabled="@_busy">Delete</button>
+            }
+            else
+            {
+                <button type="button" class="btn btn--small btn--primary" @onclick="ResetToShipped" disabled="@_busy">Reset to default</button>
+            }
+            <button type="button" class="btn btn--small btn--ghost" @onclick="() => _confirm = null">Keep</button>
         </div>
     }
 
@@ -89,12 +112,7 @@ else
 
     @if (_renaming)
     {
-        <section class="panel" aria-labelledby="rename-heading">
-            <h2 id="rename-heading">Rename recipe</h2>
-            @if (Dirty)
-            {
-                <p class="muted">Save or discard your changes before renaming.</p>
-            }
+        <section class="panel" aria-label="Rename recipe">
             <form class="inline-form" @onsubmit="Rename" @onsubmit:preventDefault="true">
                 <div class="field">
                     <label for="rename-input">New name</label>
@@ -103,12 +121,16 @@ else
                     {
                         <span class="field__error">@_renameError</span>
                     }
+                    else if (Dirty)
+                    {
+                        <span class="field__hint t-warn">Save or discard your changes first.</span>
+                    }
                     else
                     {
-                        <span class="field__hint">Deployments keep using the recipe; the rename is saved as a new version.</span>
+                        <span class="field__hint">Deployments keep using it.</span>
                     }
                 </div>
-                <button type="submit" class="btn btn--primary" disabled="@(Dirty || _busy)">Rename recipe</button>
+                <button type="submit" class="btn btn--primary" disabled="@(Dirty || _busy)">Rename</button>
                 <button type="button" class="btn btn--ghost" @onclick="() => _renaming = false">Cancel</button>
             </form>
         </section>
@@ -116,77 +138,70 @@ else
 
     @if (_duplicating)
     {
-        <section class="panel" aria-labelledby="duplicate-heading">
-            <h2 id="duplicate-heading">Duplicate recipe</h2>
-            @if (Dirty)
-            {
-                <p class="muted">Save or discard your changes before duplicating; the copy is made from the saved version.</p>
-            }
+        <section class="panel" aria-label="Duplicate recipe">
             <DuplicateRecipeForm RecipeId="_recipe.Id" SourceName="@_recipe.Name" SourceVersion="_current.Number" Disabled="@(Dirty || _busy)"
+                                 Hint="@(Dirty ? "Save or discard your changes first; the copy is made from the saved version." : null)"
                                  OnCancel="() => _duplicating = false" />
         </section>
     }
 
-    @if (ShippedDiffers)
+    @if (ShippedDiffers && _confirm is null)
     {
         <div class="alert alert--info">
             <Icon Name="info" />
-            <div class="grow">
-                <strong>This recipe differs from the version that ships with the app.</strong>
-                <p class="small">The app may have been updated, or someone edited it here. Reset to default to use the shipped version; the current one stays in the history.</p>
+            <div class="grow" title="The app may have been updated, or someone edited it here. Resetting keeps the current version in the history.">
+                Differs from the version that ships with the app.
             </div>
-            <ConfirmButton Class="btn btn--small" Question="@ResetQuestion" ConfirmLabel="Reset to default" OnConfirm="ResetToShipped" Disabled="@_busy">
-                Reset to default
-            </ConfirmButton>
+            <button type="button" class="btn btn--small" @onclick="@(() => _confirm = "reset")" disabled="@_busy">Reset to default</button>
         </div>
     }
 
-    <div class="tabs" role="tablist" aria-label="Recipe">
-        @foreach (var (key, label) in Tabs)
+    <div class="recipe-tabs">
+        <div class="tabs" role="tablist" aria-label="Recipe">
+            @foreach (var (key, label) in Tabs)
+            {
+                <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@Ui.Aria(_tab == key ? "true" : "false")" aria-controls="panel-@key"
+                        @onclick="() => SelectTab(key)">
+                    @label
+                    @if (key == "editor" && Dirty)
+                    {
+                        <span class="dirty-dot" title="Unsaved changes" aria-label="unsaved changes"></span>
+                    }
+                </button>
+            }
+        </div>
+        @if (_tab == "editor")
         {
-            <button type="button" role="tab" id="tab-@key" class="tab" aria-selected="@Ui.Aria(_tab == key ? "true" : "false")" aria-controls="panel-@key"
-                    @onclick="() => SelectTab(key)">
-                @label
-                @if (key == "editor" && Dirty)
+            <div class="recipe-tabs__tools">
+                <div class="seg" role="group" aria-label="Editor view">
+                    <button type="button" class="seg__btn" aria-pressed="@Ui.Aria(!_raw ? "true" : "false")" @onclick="() => SetRaw(false)">Structured</button>
+                    <button type="button" class="seg__btn" aria-pressed="@Ui.Aria(_raw ? "true" : "false")" @onclick="() => SetRaw(true)">YAML</button>
+                </div>
+                @if (Dirty)
                 {
-                    <span class="dirty-dot" title="Unsaved changes" aria-label="unsaved changes"></span>
+                    <button type="button" class="btn btn--small btn--ghost" @onclick="Discard" disabled="@_busy">Discard</button>
+                    <button type="button" class="btn btn--small btn--primary" @onclick="Save" disabled="@(_errors.Count > 0 || _busy)"
+                            title="@(_errors.Count > 0 ? "Fix the problems listed below first." : null)">
+                        Save
+                    </button>
                 }
-            </button>
+                else
+                {
+                    <button type="button" class="btn btn--small" disabled title="No unsaved changes">Save</button>
+                }
+            </div>
         }
     </div>
 
     @if (_tab == "editor")
     {
         <div id="panel-editor" role="tabpanel" aria-labelledby="tab-editor" class="stack">
-            <div class="panel editor-bar">
-                <div class="row">
-                    <div class="toggles" role="group" aria-label="Editor view">
-                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(!_raw ? "true" : "false")" @onclick="() => SetRaw(false)">Structured</button>
-                        <button type="button" class="toggle" aria-pressed="@Ui.Aria(_raw ? "true" : "false")" @onclick="() => SetRaw(true)">Raw YAML</button>
-                    </div>
-                    <span class="spacer"></span>
-                    @if (Dirty)
-                    {
-                        <span class="status t-warn"><span class="dot dot--warn" aria-hidden="true"></span>Unsaved changes</span>
-                        <button type="button" class="btn btn--ghost" @onclick="Discard" disabled="@_busy">Discard changes</button>
-                    }
-                    else
-                    {
-                        <span class="muted small">Saved as v@(_current.Number)</span>
-                    }
-                    <button type="button" class="btn btn--primary" @onclick="Save" disabled="@(!Dirty || _errors.Count > 0 || _busy)"
-                            title="@(_errors.Count > 0 ? "Fix the problems listed below first." : null)">
-                        Save recipe
-                    </button>
-                </div>
-            </div>
-
             @if (_errors.Count > 0)
             {
                 <div class="alert alert--error" role="alert">
                     <Icon Name="warn" />
                     <div class="grow">
-                        <strong>@(_errors.Count == 1 ? "Fix this problem before saving:" : $"Fix these {_errors.Count} problems before saving:")</strong>
+                        <strong>@(_errors.Count == 1 ? "Fix this before saving:" : $"Fix these {_errors.Count} problems before saving:")</strong>
                         <ul>
                             @foreach (var error in _errors)
                             {
@@ -199,14 +214,11 @@ else
 
             @if (_raw)
             {
-                <section class="panel" aria-label="Raw YAML">
-                    <p class="small muted">Edits are checked as you type and show in the Structured view once they're valid. See docs/recipes.md for the recipe language.</p>
-                    <div class="yaml-editor">
-                        <pre id="recipe-yaml-pre" aria-hidden="true"></pre>
-                        <textarea id="recipe-yaml" spellcheck="false" aria-label="Recipe YAML"
-                                  @bind="_rawYaml" @bind:event="oninput" @bind:after="ValidateRaw"></textarea>
-                    </div>
-                </section>
+                <div class="yaml-editor" title="Checked as you type. The recipe language is described in docs/recipes.md.">
+                    <pre id="recipe-yaml-pre" aria-hidden="true"></pre>
+                    <textarea id="recipe-yaml" spellcheck="false" aria-label="Recipe YAML"
+                              @bind="_rawYaml" @bind:event="oninput" @bind:after="ValidateRaw"></textarea>
+                </div>
             }
             else
             {
@@ -214,7 +226,7 @@ else
                     <section class="panel wide" aria-label="Steps">
                         <StepEditor @ref="_stepEditor" Draft="_draft" Errors="_errors" OnChanged="OnDraftChanged" />
                     </section>
-                    <section class="panel narrow" aria-label="Parameters and vars">
+                    <section class="panel narrow" aria-label="Parameters">
                         <ParamEditor @ref="_paramEditor" Draft="_draft" OnChanged="OnDraftChanged" />
                     </section>
                 </div>
@@ -230,15 +242,11 @@ else
     else
     {
         <div id="panel-used-by" role="tabpanel" aria-labelledby="tab-used-by">
-            <section class="panel panel--flush">
-                <div class="panel__head">
-                    <h2>Deployments using this recipe</h2>
-                    <a class="btn btn--small" href="deployments/new?recipe=@Id"><Icon Name="plus" />New deployment</a>
-                </div>
+            <section class="panel panel--flush" aria-label="Deployments using this recipe">
                 @if (_deployments.Count == 0)
                 {
-                    <EmptyState Title="No deployments use this recipe yet">
-                        A deployment runs a recipe on a group of rigs.
+                    <EmptyState Title="No deployments use this recipe yet.">
+                        <Actions><a class="btn btn--small" href="deployments/new?recipe=@Id"><Icon Name="plus" />New deployment</a></Actions>
                     </EmptyState>
                 }
                 else
@@ -256,9 +264,9 @@ else
                             <tbody>
                                 @foreach (var d in _deployments)
                                 {
-                                    <tr>
+                                    <tr class="is-link">
                                         <td>
-                                            <a class="title" href="deployments/@d.Id">@d.Name</a>
+                                            <a class="row-link" href="deployments/@d.Id">@d.Name</a>
                                             @if (!string.IsNullOrWhiteSpace(d.Description))
                                             {
                                                 <div class="sub">@d.Description</div>
@@ -270,7 +278,7 @@ else
                                             @if (d.LastRun is { } run)
                                             {
                                                 <a href="runs/@run.RunId" class="status-link"><StatusText Tone="Ui.Of(run.Status)" /></a>
-                                                <div class="sub">@Ui.Kind(run.Kind), @Ui.Ago(run.StartedAt)</div>
+                                                <span class="muted small">@Ui.Kind(run.Kind), @Ui.Ago(run.StartedAt)</span>
                                             }
                                             else
                                             {
@@ -281,6 +289,9 @@ else
                                 }
                             </tbody>
                         </table>
+                    </div>
+                    <div class="recipe-usedby__foot">
+                        <a class="btn btn--small btn--ghost" href="deployments/new?recipe=@Id"><Icon Name="plus" />New deployment</a>
                     </div>
                 }
             </section>
@@ -326,6 +337,9 @@ else
 
     private bool _duplicating;
 
+    /// <summary>"delete" or "reset" while asking to confirm one picked from the ⋯ menu.</summary>
+    private string? _confirm;
+
     private string? _pendingNavigation;
     private bool _leaving;
 
@@ -347,6 +361,7 @@ else
         _loadedId = Id;
         _renaming = false;
         _duplicating = false;
+        _confirm = null;
         _actionError = null;
         _tab = Tabs.Any(t => t.Key == Tab) ? Tab! : "editor";
         _raw = string.Equals(Mode, "raw", StringComparison.OrdinalIgnoreCase);
@@ -529,6 +544,7 @@ else
 
     private Task ResetToShipped() => RunAction(async () =>
     {
+        _confirm = null;
         var version = await RecipeService.ResetToShippedAsync(Id, Credentials.Username);
         await LoadAsync(resetEditor: true);
         Notifier.Success($"Reset {_recipe!.Name} to the shipped version, saved as v{version.Number}.");
@@ -547,12 +563,14 @@ else
 
     private void StartDuplicate()
     {
+        _confirm = null;
         _renaming = false;
         _duplicating = true;
     }
 
     private void StartRename()
     {
+        _confirm = null;
         _duplicating = false;
         _renameName = _recipe!.Name;
         _renameError = null;
@@ -589,6 +607,7 @@ else
 
     private Task Delete() => RunAction(async () =>
     {
+        _confirm = null;
         var name = _recipe!.Name;
         await RecipeService.DeleteAsync(Id);
         Notifier.Success($"Deleted {name}.");

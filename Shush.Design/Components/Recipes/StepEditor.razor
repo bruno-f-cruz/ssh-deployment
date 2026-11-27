@@ -3,16 +3,15 @@
 @inject OptionSourceRegistry OptionSources
 @inject ILogger<StepEditor> Logger
 
-@* The recipe's steps as cards: reorder (drag, or up/down), enable/disable, remove, and edit each input by its shape. *@
-<div class="stack">
+@* The recipe's steps as rows: reorder (drag, or the ⋯ menu), enable/disable, remove, and edit each input by its shape. *@
+<div class="stack recipe-steps">
     <div class="row">
         <h2>Steps</h2>
-        <span class="muted small">@Ui.Plural(Steps.Count, "step")</span>
+        <span class="muted small">@Steps.Count</span>
         <span class="spacer"></span>
-        @if (Steps.Count > 0)
+        @if (Steps.Count > 5)
         {
-            <button type="button" class="btn btn--small btn--ghost" @onclick="ExpandAll">Expand all</button>
-            <button type="button" class="btn btn--small btn--ghost" @onclick="CollapseAll">Collapse all</button>
+            <button type="button" class="link-btn small" @onclick="ToggleAll">@(_open.Count > 0 ? "Collapse all" : "Expand all")</button>
         }
     </div>
 
@@ -20,26 +19,25 @@
     {
         <div class="alert alert--warn" role="status">
             <Icon Name="warn" />
-            <div class="grow">
-                <strong>That move would break a step reference.</strong>
-                <p class="small">@_reorderNote</p>
-            </div>
+            <div class="grow"><strong>That move would break a step reference.</strong> @_reorderNote</div>
             <button type="button" class="btn btn--icon" @onclick="() => _reorderNote = null" aria-label="Dismiss"><Icon Name="x" /></button>
         </div>
     }
 
     @if (Steps.Count == 0)
     {
-        <p class="muted">No steps yet. Add the first one below.</p>
+        <EmptyState Title="No steps yet." />
     }
 
+    <div class="step-list">
     @foreach (var (step, index) in Steps.Select((s, i) => (s, i)))
     {
         var open = _open.Contains(step);
         var known = Registry.TryGet(step.Type, out var descriptor);
         var prefix = $"step{index}";
+        var hasName = !string.IsNullOrWhiteSpace(step.Name);
         <div @key="step"
-             class="step-card @(step.IsEnabled ? "" : "step-card--off") @(_dragOverIndex == index ? "step-card--drag" : "")"
+             class="step-card @(step.IsEnabled ? "" : "step-card--off") @(_dragOverIndex == index ? "step-card--drag" : "") @(open ? "step-card--open" : "")"
              @ondragover:preventDefault="true"
              @ondrop:preventDefault="true"
              @ondrop="() => OnDrop(index)"
@@ -50,36 +48,39 @@
                 <button type="button" class="step-card__toggle" @onclick="() => Toggle(step)" aria-expanded="@(open ? "true" : "false")"
                         title="@(known ? descriptor!.Description : "Unknown step type")">
                     <span class="chev @(open ? "chev--open" : "")"><Icon Name="chevron" Size="16" /></span>
-                    <span class="step-card__type">@step.Type</span>
-                    @if (!string.IsNullOrWhiteSpace(step.Name))
+                    <span class="step-card__type">@(hasName ? step.Name : step.Type)</span>
+                    @if (hasName)
                     {
-                        <span class="step-card__label">@step.Name</span>
+                        <span class="step-card__label">@step.Type</span>
                     }
                 </button>
-                @if (!string.IsNullOrEmpty(step.Id))
-                {
-                    <span class="badge mono" title="Step id">@step.Id</span>
-                }
-                @if (!string.IsNullOrWhiteSpace(step.When))
-                {
-                    <span class="badge badge--kind" title="Runs only when this is true">when <span class="mono">@step.When</span></span>
-                }
-                @if (!known)
-                {
-                    <span class="badge t-fail">unknown type</span>
-                }
-                @if (!step.IsEnabled)
-                {
-                    <span class="badge">disabled</span>
-                }
-                <button type="button" class="btn btn--icon" @onclick="() => ToggleEnabled(step)" aria-pressed="@Ui.Aria(!step.IsEnabled ? "true" : "false")"
-                        aria-label="@(step.IsEnabled ? "Disable step" : "Enable step")"
-                        title="@(step.IsEnabled ? "Disable: skip this step without removing it" : "Enable this step")">
-                    <Icon Name="@(step.IsEnabled ? "eye" : "eye-off")" />
-                </button>
-                <button type="button" class="btn btn--icon" disabled="@(index == 0)" @onclick="() => Move(index, -1)" aria-label="Move step up"><Icon Name="up" /></button>
-                <button type="button" class="btn btn--icon" disabled="@(index == Steps.Count - 1)" @onclick="() => Move(index, 1)" aria-label="Move step down"><Icon Name="down" /></button>
-                <button type="button" class="btn btn--icon btn--danger" @onclick="() => Remove(index)" aria-label="Remove step"><Icon Name="trash" /></button>
+                <span class="step-card__tags">
+                    @if (!string.IsNullOrEmpty(step.Id))
+                    {
+                        <span class="mono" title="Step id">@step.Id</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(step.When))
+                    {
+                        <span title="Runs only when this is true: @step.When">conditional</span>
+                    }
+                    @if (!known)
+                    {
+                        <span class="t-fail">unknown type</span>
+                    }
+                    @if (!step.IsEnabled)
+                    {
+                        <span>off</span>
+                    }
+                </span>
+                <Menu AriaLabel="@($"Actions for step {index + 1}, {step.DisplayName}")">
+                    <button type="button" class="menu__item" @onclick="() => ToggleEnabled(step)">
+                        <Icon Name="@(step.IsEnabled ? "eye-off" : "eye")" />@(step.IsEnabled ? "Turn off" : "Turn on")
+                    </button>
+                    <button type="button" class="menu__item" disabled="@(index == 0)" @onclick="() => Move(index, -1)"><Icon Name="up" />Move up</button>
+                    <button type="button" class="menu__item" disabled="@(index == Steps.Count - 1)" @onclick="() => Move(index, 1)"><Icon Name="down" />Move down</button>
+                    <div class="menu__sep"></div>
+                    <button type="button" class="menu__item menu__item--danger" @onclick="() => Remove(index)"><Icon Name="trash" />Remove step</button>
+                </Menu>
             </div>
 
             @if (open)
@@ -103,7 +104,7 @@
                     {
                         <div class="alert alert--error wide-field">
                             <Icon Name="warn" />
-                            <div class="grow">There's no step type named '@step.Type'. Fix the type in Raw YAML, or remove this step.</div>
+                            <div class="grow">There's no step type named '@step.Type'. Fix it in YAML, or remove this step.</div>
                         </div>
                     }
 
@@ -111,19 +112,19 @@
                         <label for="@prefix-name">Name</label>
                         <input id="@prefix-name" value="@step.Name" placeholder="@(step.Id ?? step.Type)" autocomplete="off"
                                @onchange="e => SetName(step, e)" />
-                        <span class="field__hint">Optional label shown on the rig board and in logs.</span>
                     </div>
                     <div class="field">
                         <label for="@prefix-id">Id</label>
                         <input id="@prefix-id" class="mono" value="@step.Id" placeholder="none" autocomplete="off" spellcheck="false"
                                @onchange="e => SetId(step, e)" />
-                        <span class="field__hint">Optional. Later steps read this step's outputs as <code>${id.output}</code>.</span>
+                        <span class="field__hint">Later steps read its outputs as <code>${id.output}</code>.</span>
                     </div>
                     <div class="field">
                         <label for="@prefix-when">When</label>
                         <input id="@prefix-when" class="mono" value="@step.When" placeholder="always" autocomplete="off" spellcheck="false"
+                               title="Resolved per machine; the step is skipped when it's false."
                                @onchange="e => SetWhen(step, e)" />
-                        <span class="field__hint">Optional condition, resolved per machine, for example <code>${params.x} == dev</code>. The step is skipped when it's false.</span>
+                        <span class="field__hint">For example <code>${params.x} == dev</code>.</span>
                     </div>
 
                     @if (known)
@@ -159,12 +160,9 @@
                                                list="@ListId(input.OptionsFrom)" @onchange="e => SetScalar(step, input.Name, e)" />
                                         break;
                                 }
-                                @if (!string.IsNullOrWhiteSpace(input.Description) || input.Shape is InputShape.Collection or InputShape.Dictionary)
+                                @if (!string.IsNullOrWhiteSpace(input.Description))
                                 {
-                                    <span class="field__hint">
-                                        @input.Description
-                                        @(input.Shape switch { InputShape.Collection => " One value per line.", InputShape.Dictionary => " One key: value per line.", _ => "" })
-                                    </span>
+                                    <span class="field__hint">@input.Description</span>
                                 }
                             </div>
                         }
@@ -173,6 +171,7 @@
             }
         </div>
     }
+    </div>
 
     <div class="field add-step">
         <label for="add-step">Add step</label>
@@ -258,9 +257,13 @@
             _open.Add(step);
     }
 
-    private void ExpandAll() => _open.UnionWith(Steps);
-
-    private void CollapseAll() => _open.Clear();
+    private void ToggleAll()
+    {
+        if (_open.Count > 0)
+            _open.Clear();
+        else
+            _open.UnionWith(Steps);
+    }
 
     // ---- Reorder ----
 

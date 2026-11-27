@@ -530,3 +530,58 @@ a.plain-link { text-decoration: none; }
 
 .menu__item { white-space: nowrap; }
 .page-header .menu__list { left: 0; right: auto; }
+
+/* ---------- Recipe pages ---------- */
+
+/* The tab row also holds the editor's view switch and Save, so there's no separate toolbar. It stays in view while scrolling. */
+.recipe-tabs {
+    position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+    border-bottom: 1px solid var(--line); background: var(--bg);
+}
+.recipe-tabs > .tabs { border-bottom: 0; flex: 1 1 auto; }
+.recipe-tabs__tools { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+
+/* A two-way switch (Structured / YAML): one rounded frame, the picked half filled. */
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); }
+.seg__btn {
+    min-height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: none; color: var(--muted);
+    font: inherit; font-size: 14px; cursor: pointer;
+}
+.seg__btn:hover { color: var(--ink); }
+.seg__btn[aria-pressed="true"] { background: var(--ink); color: #fff; font-weight: 600; }
+
+.meta .meta__link { color: var(--ink-2); font-size: inherit; }
+
+/* Steps and parameters: plain rows divided by hairlines, not cards in a panel. */
+.step-list { display: flex; flex-direction: column; border-top: 1px solid var(--line-soft); }
+.step-list .step-card { border: 0; border-bottom: 1px solid var(--line-soft); border-radius: 0; background: none; }
+.step-list .step-card--off { opacity: 1; }
+.step-list .step-card--off .step-card__toggle, .step-list .step-card--off .step-card__grip { opacity: .5; }
+.step-list .step-card--drag { box-shadow: inset 0 2px 0 var(--blue); }
+.step-list .step-card__head { flex-wrap: nowrap; min-height: 48px; padding: 4px 0; gap: 6px; }
+.step-list .step-card__grip { padding: 0 2px; }
+.step-list .step-card__toggle { min-width: 0; overflow: hidden; gap: 8px; padding: 6px 4px; }
+.step-list .step-card__type, .step-list .step-card__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-list .step-card__type { flex: 0 1 auto; }
+.step-list .step-card__label { flex: 0 1000 auto; color: var(--muted); font-size: 14px; }
+.step-list .step-card__body { border-top: 0; padding: 4px 8px 20px 34px; }
+.recipe-params .step-list .step-card__body { padding-left: 28px; }
+.step-card__tags { display: flex; gap: 10px; flex: none; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.step-card__tags .mono { font-size: 12px; }
+.step-list .menu > summary { min-height: 34px; width: 34px; color: var(--muted); }
+.step-list .menu > summary:hover { color: var(--ink); }
+.recipe-steps .add-step { margin-top: 4px; }
+.recipe-vars-head { margin-top: 16px; }
+
+/* History: the picked older version (compared with the current one below). */
+.table tr.is-picked td { background: var(--lime-soft); }
+.table tr.is-picked td:first-child { box-shadow: inset 3px 0 0 var(--lime-edge); }
+.row-btn { font-weight: 600; text-decoration: none; }
+tr.is-link:hover .row-btn { text-decoration: underline; }
+
+.recipe-usedby__foot { padding: 8px 16px 12px; border-top: 1px solid var(--line-soft); }
+.step-list .step-card__grip { display: inline-flex; align-items: center; }
+.recipe-params .step-card__type { font-weight: 500; font-size: 14px; }
+.recipe-params .inline-form .field { flex: 1 1 140px; }
+.recipe-steps .empty, .recipe-params .empty { padding: 4px 0; }
+.menu__item:disabled { opacity: .4; cursor: not-allowed; background: none; }

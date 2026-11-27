@@ -9,7 +9,7 @@
 <PageTitle>Recipes · Shush</PageTitle>
 
 <PageHeader Title="Recipes">
-    <Lede>What a deployment runs on each rig, step by step. Every save is kept as a version.</Lede>
+    <Lede>What a deployment runs on each rig. Every save is kept as a version.</Lede>
     <Actions>
         <label class="btn import-btn">
             <Icon Name="upload" />Import
@@ -21,11 +21,10 @@
 
 @if (_creating)
 {
-    <section class="panel" aria-labelledby="new-recipe-heading">
-        <h2 id="new-recipe-heading">New recipe</h2>
+    <section class="panel" aria-label="New recipe">
         <form class="inline-form" @onsubmit="Create" @onsubmit:preventDefault="true">
             <div class="field">
-                <label for="new-recipe-name">Name</label>
+                <label for="new-recipe-name">Name of the new recipe</label>
                 <input id="new-recipe-name" @bind="_newName" autocomplete="off" placeholder="for example CopperheadRig" />
                 @if (_createError is not null)
                 {
@@ -33,10 +32,10 @@
                 }
                 else
                 {
-                    <span class="field__hint">It opens in Raw YAML with a commented example to start from.</span>
+                    <span class="field__hint">Opens in Raw YAML with an example to start from.</span>
                 }
             </div>
-            <button type="submit" class="btn btn--primary" disabled="@_busy">Create recipe</button>
+            <button type="submit" class="btn btn--primary" disabled="@_busy">Create</button>
             <button type="button" class="btn btn--ghost" @onclick="() => _creating = false">Cancel</button>
         </form>
     </section>
@@ -66,9 +65,7 @@
     }
     else if (_recipes.Count == 0)
     {
-        <EmptyState Title="No recipes yet">
-            Create one, or import a .yml file.
-        </EmptyState>
+        <EmptyState Title="No recipes yet.">Create one, or import a .yml file.</EmptyState>
     }
     else
     {
@@ -79,25 +76,24 @@
                         <th scope="col">Recipe</th>
                         <th scope="col">Version</th>
                         <th scope="col">Updated</th>
-                        <th scope="col" class="num">Deployments</th>
-                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                        <th scope="col" class="num">Used by</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var recipe in _recipes)
                     {
-                        <tr>
+                        <tr class="is-link">
                             <td>
-                                <div class="row">
-                                    <a class="title" href="recipes/@recipe.Id">@recipe.Name</a>
-                                    @if (recipe.IsBuiltIn)
-                                    {
-                                        <span class="badge">ships with the app</span>
-                                    }
-                                </div>
-                                @if (recipe.ShippedUpdateAvailable)
+                                <a class="row-link" href="recipes/@recipe.Id">@recipe.Name</a>
+                                @if (recipe.IsBuiltIn)
                                 {
-                                    <div class="sub t-warn">Differs from the version that ships with the app. Open it to reset.</div>
+                                    <div class="sub">
+                                        <span>Built in</span>
+                                        @if (recipe.ShippedUpdateAvailable)
+                                        {
+                                            <span class="t-warn" title="Differs from the version that ships with the app. Open it to reset.">· changed</span>
+                                        }
+                                    </div>
                                 }
                             </td>
                             <td>v@(recipe.Version)</td>
@@ -105,29 +101,14 @@
                             <td class="num">
                                 @if (recipe.DeploymentCount > 0)
                                 {
-                                    <a href="recipes/@(recipe.Id)?tab=used-by">@recipe.DeploymentCount</a>
+                                    @Ui.Plural(recipe.DeploymentCount, "deployment")
                                 }
                                 else
                                 {
-                                    <span class="muted">0</span>
+                                    <span class="muted">none</span>
                                 }
                             </td>
-                            <td class="actions-cell">
-                                <button type="button" class="btn btn--small btn--ghost" @onclick="() => StartDuplicate(recipe.Id)"
-                                        disabled="@(_duplicatingId == recipe.Id)" aria-label="@($"Duplicate {recipe.Name}")">
-                                    <Icon Name="copy" />Duplicate
-                                </button>
-                            </td>
                         </tr>
-                        @if (_duplicatingId == recipe.Id)
-                        {
-                            <tr class="table__form-row">
-                                <td colspan="5">
-                                    <DuplicateRecipeForm @key="recipe.Id" RecipeId="recipe.Id" SourceName="@recipe.Name" SourceVersion="recipe.Version"
-                                                         OnCancel="() => _duplicatingId = null" />
-                                </td>
-                            </tr>
-                        }
                     }
                 </tbody>
             </table>
@@ -142,7 +123,6 @@
     private string _newName = "";
     private string? _createError;
     private (string Title, IReadOnlyList<string> Errors)? _importErrors;
-    private int? _duplicatingId;
 
     protected override async Task OnInitializedAsync() => _recipes = await RecipeService.ListAsync();
 
@@ -150,14 +130,7 @@
     {
         _newName = "";
         _createError = null;
-        _duplicatingId = null;
         _creating = true;
-    }
-
-    private void StartDuplicate(int recipeId)
-    {
-        _creating = false;
-        _duplicatingId = recipeId;
     }
 
     private async Task Create()
