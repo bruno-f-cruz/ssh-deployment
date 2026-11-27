@@ -53,28 +53,17 @@ public class RecipeOverridesTests
     }
 
     [Fact]
-    public void An_input_override_replaces_the_recipe_value()
-    {
-        var document = YamlRecipeSerializer.Deserialize(Yaml);
-        var overrides = new RecipeOverrides();
-        overrides.SetInput("clone", "rootPath", "D:/dev");
-
-        var applied = overrides.Apply(document);
-
-        Assert.Equal("D:/dev", applied.Steps[0].With["rootPath"]);
-        Assert.Equal("C:/git", document.Steps[0].With["rootPath"]);
-    }
-
-    [Fact]
     public void Overrides_for_steps_the_recipe_no_longer_has_are_stale_and_ignored()
     {
         var document = YamlRecipeSerializer.Deserialize(Yaml);
         var overrides = new RecipeOverrides();
         overrides.SetDisabled("Gone", true);
-        overrides.SetInput("Also gone", "x", "y");
+        overrides.SetDisabled("Build", true);
 
-        Assert.Equal(2, overrides.Stale(document).Count);
-        Assert.All(Plan(overrides.Apply(document)), s => Assert.True(s.Enabled));
+        Assert.Equal(["Gone"], overrides.Stale(document));
+        Assert.Equal(1, Plan(overrides.Apply(document)).Count(s => !s.Enabled));
+        overrides.RemoveStale(document);
+        Assert.Equal(["Build"], overrides.DisabledSteps);
     }
 
     [Fact]
@@ -82,17 +71,15 @@ public class RecipeOverridesTests
     {
         var overrides = new RecipeOverrides();
         overrides.SetDisabled("Build", true);
-        overrides.SetInput("clone", "rootPath", "D:/dev");
 
         var copy = RecipeOverrides.FromJson(overrides.ToJson());
         Assert.True(copy.IsDisabled("Build"));
-        Assert.Equal("D:/dev", copy.InputOverride("clone", "rootPath"));
-        Assert.Equal(2, copy.Count);
+        Assert.Equal(1, copy.Count);
 
         copy.SetDisabled("Build", false);
-        copy.SetInput("clone", "rootPath", null);
         Assert.True(copy.IsEmpty);
-        Assert.Empty(copy.Inputs);
+        // Older saved overrides may carry input changes; they're ignored.
+        Assert.True(RecipeOverrides.FromJson("""{"disabledSteps":["Build"],"inputs":{"clone":{"rootPath":"D:/dev"}}}""").IsDisabled("Build"));
         Assert.True(RecipeOverrides.FromJson("not json").IsEmpty);
     }
 
@@ -132,7 +119,7 @@ public class DeploymentCopyTests : DataTestBase
     }
 
     [Fact]
-    public async Task Detaching_moves_the_deployment_to_its_own_recipe_and_clears_overrides()
+    public async Task Switching_to_a_duplicated_recipe_resets_turned_off_steps()
     {
         var recipe = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
         var group = await Groups.CreateAsync("Rigs", machines: ["RIG-1"]);

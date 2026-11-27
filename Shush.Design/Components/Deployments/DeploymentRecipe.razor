@@ -1,19 +1,17 @@
-@using System.Collections
-@inject StepRegistry Registry
-
-@* A deployment's view of its recipe: every step, which can be turned off, and inputs that can be changed, for this
-   deployment only. The recipe itself isn't changed, so its later versions still reach the deployment. *@
+@* A deployment's view of its recipe: every step, and a switch to turn a step off for this deployment only. The recipe
+   itself isn't changed, so its later versions still reach the deployment. Values that should differ between
+   deployments are recipe parameters (the Deploy tab), not edits here. *@
 <section class="panel panel--flush" aria-label="Recipe">
     <p class="dsteps__intro">
-        Follows <a href="recipes/@RecipeId">@RecipeName</a> (v@(VersionNumber)). Changes here apply to this deployment only.
+        Follows <a href="recipes/@RecipeId">@RecipeName</a> (v@(VersionNumber)). Turning a step off applies to this deployment only.
     </p>
 
     @if (Overrides.Stale(Document) is { Count: > 0 } stale)
     {
         <div class="alert alert--warn dsteps__alert">
             <Icon Name="warn" />
-            <span class="grow" title="@string.Join("; ", stale)">@Ui.Plural(stale.Count, "change") no longer match a step of the recipe and are ignored.</span>
-            <button type="button" class="btn btn--small" @onclick="RemoveStaleAsync">Remove</button>
+            <span class="grow" title="@string.Join(", ", stale)">@Ui.Plural(stale.Count, "turned-off step") no longer in the recipe.</span>
+            <button type="button" class="btn btn--small" @onclick="RemoveStaleAsync">Forget</button>
         </div>
     }
 
@@ -23,26 +21,18 @@
             var step = Document.Steps[i];
             var key = step.Key;
             var off = Overrides.IsDisabled(key) || !step.IsEnabled;
-            var changed = Overrides.Inputs.TryGetValue(key, out var stepInputs) ? stepInputs.Count : 0;
-            var expanded = _expanded.Contains(key);
-            Registry.TryGet(step.Type, out var descriptor);
             var number = i + 1;
 
-            <li class="dstep @(off ? "dstep--off" : "") @(expanded ? "dstep--open" : "")">
+            <li class="dstep @(off ? "dstep--off" : "")">
                 <div class="dstep__head">
                     <span class="dstep__num">@number</span>
-                    <button type="button" class="dstep__title" aria-expanded="@Ui.Aria(expanded)" title="@step.Type" @onclick="() => ToggleExpanded(key)">
+                    <span class="dstep__title" title="@step.Type">
                         <span class="dstep__name">@step.DisplayName</span>
-                        @if (changed > 0)
-                        {
-                            <span class="t-changed small">@Ui.Plural(changed, "change")</span>
-                        }
                         @if (!string.IsNullOrWhiteSpace(step.When))
                         {
                             <span class="small muted mono">when @step.When.Trim()</span>
                         }
-                        <Icon Name="chevron" Size="16" Class="dstep__chev" />
-                    </button>
+                    </span>
                     @if (!step.IsEnabled)
                     {
                         <span class="small muted">Off in the recipe</span>
@@ -56,70 +46,11 @@
                         </label>
                     }
                 </div>
-
-                @if (expanded)
-                {
-                    <div class="dstep__body">
-                        @if (descriptor is null)
-                        {
-                            <p class="small t-fail">Unknown step type '@step.Type'.</p>
-                        }
-                        else
-                        {
-                            <dl class="inputs">
-                                @foreach (var input in descriptor.Inputs.Where(n => step.With.ContainsKey(n.Name) || Overrides.InputOverride(key, n.Name) is not null))
-                                {
-                                    var recipeValue = step.With.TryGetValue(input.Name, out var raw) ? Format(raw) : null;
-                                    var mine = Overrides.InputOverride(key, input.Name);
-                                    var editable = input.Shape is InputShape.Scalar or InputShape.Text;
-                                    var editing = _editing == (key, input.Name);
-                                    <div class="inputs__row @(mine is not null ? "is-overridden" : "")">
-                                        <dt title="@input.Description"><code>@input.Name</code></dt>
-                                        <dd>
-                                            @if (editing)
-                                            {
-                                                <div class="inputs__edit">
-                                                    @if (input.Shape == InputShape.Text || (recipeValue?.Contains('\n') ?? false))
-                                                    {
-                                                        <textarea rows="6" @bind="_draft" @bind:event="oninput" aria-label="@($"{input.Name} for this deployment")"></textarea>
-                                                    }
-                                                    else
-                                                    {
-                                                        <input @bind="_draft" @bind:event="oninput" aria-label="@($"{input.Name} for this deployment")" />
-                                                    }
-                                                    <span class="row">
-                                                        <button type="button" class="btn btn--small btn--primary" @onclick="() => SaveInputAsync(key, input.Name)">Save</button>
-                                                        <button type="button" class="btn btn--small btn--ghost" @onclick="() => _editing = default">Cancel</button>
-                                                    </span>
-                                                </div>
-                                            }
-                                            else if (!editable)
-                                            {
-                                                <span class="inputs__value" title="Lists can only be changed in the recipe">@recipeValue</span>
-                                            }
-                                            else
-                                            {
-                                                <button type="button" class="inputs__value inputs__value--edit" title="Change for this deployment"
-                                                        @onclick="() => StartEditing(key, input.Name, mine ?? recipeValue ?? string.Empty)">@(mine ?? recipeValue)</button>
-                                                @if (mine is not null)
-                                                {
-                                                    <span class="inputs__was">
-                                                        recipe: <span class="mono">@recipeValue</span>
-                                                        <button type="button" class="link-btn" @onclick="() => ResetInputAsync(key, input.Name)">reset</button>
-                                                    </span>
-                                                }
-                                            }
-                                        </dd>
-                                    </div>
-                                }
-                            </dl>
-                        }
-                    </div>
-                }
             </li>
         }
     </ol>
 </section>
+
 @code {
     /// <summary>The recipe as written (overrides not applied).</summary>
     [Parameter, EditorRequired] public RecipeDocument Document { get; set; } = null!;
@@ -131,59 +62,15 @@
     /// <summary>Overrides changed (already applied to <see cref="Overrides"/>): save them.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
 
-    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
-    private (string Step, string Input) _editing;
-    private string _draft = "";
-
-    private void ToggleExpanded(string key)
-    {
-        if (!_expanded.Remove(key))
-            _expanded.Add(key);
-    }
-
     private async Task ToggleAsync(string key, bool runs)
     {
         Overrides.SetDisabled(key, !runs);
         await OnChanged.InvokeAsync();
     }
 
-    private void StartEditing(string key, string input, string value)
-    {
-        _editing = (key, input);
-        _draft = value;
-    }
-
-    private async Task SaveInputAsync(string key, string input)
-    {
-        var step = Document.Steps.First(s => s.Key == key);
-        var recipeValue = step.With.TryGetValue(input, out var raw) ? Format(raw) : null;
-        // Saving the recipe's own value is the same as not changing it.
-        Overrides.SetInput(key, input, _draft == recipeValue ? null : _draft);
-        _editing = default;
-        await OnChanged.InvokeAsync();
-    }
-
-    private async Task ResetInputAsync(string key, string input)
-    {
-        Overrides.SetInput(key, input, null);
-        await OnChanged.InvokeAsync();
-    }
-
     private async Task RemoveStaleAsync()
     {
-        var keys = Document.Steps.Select(s => s.Key).ToHashSet(StringComparer.Ordinal);
-        Overrides.DisabledSteps.RemoveAll(k => !keys.Contains(k));
-        foreach (var k in Overrides.Inputs.Keys.Where(k => !keys.Contains(k)).ToList())
-            Overrides.Inputs.Remove(k);
+        Overrides.RemoveStale(Document);
         await OnChanged.InvokeAsync();
     }
-
-    private static string? Format(object? value) => value switch
-    {
-        null => null,
-        string s => s.TrimEnd('\n'),
-        IDictionary map => string.Join("\n", map.Keys.Cast<object>().Select(k => $"{k}: {map[k]}")),
-        IEnumerable list => string.Join("\n", list.Cast<object?>().Select(v => v?.ToString())),
-        _ => value.ToString(),
-    };
 }

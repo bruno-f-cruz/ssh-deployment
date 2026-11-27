@@ -3,8 +3,9 @@ using System.Text.Json;
 namespace Shush.Recipe.Serialization;
 
 /// <summary>
-/// One deployment's changes to its recipe, kept apart from the recipe so the recipe's later versions still reach the
-/// deployment: steps turned off, and step inputs given another value. Steps are named by their <see cref="StepSpec.Key"/>.
+/// One deployment's changes to its recipe: the steps it turns off. Kept apart from the recipe so the recipe's later
+/// versions still reach the deployment. Steps are named by their <see cref="StepSpec.Key"/>. A value that should differ
+/// between deployments belongs in a recipe parameter, not here.
 /// </summary>
 public sealed class RecipeOverrides
 {
@@ -13,17 +14,11 @@ public sealed class RecipeOverrides
     /// <summary>Keys of the steps this deployment skips.</summary>
     public List<string> DisabledSteps { get; set; } = [];
 
-    /// <summary>Step key → input name → the value used instead of the recipe's (may hold <c>${...}</c> references).</summary>
-    public Dictionary<string, Dictionary<string, string>> Inputs { get; set; } = new();
+    public bool IsEmpty => DisabledSteps.Count == 0;
 
-    public bool IsEmpty => DisabledSteps.Count == 0 && Inputs.All(kv => kv.Value.Count == 0);
-
-    public int Count => DisabledSteps.Count + Inputs.Sum(kv => kv.Value.Count);
+    public int Count => DisabledSteps.Count;
 
     public bool IsDisabled(string stepKey) => DisabledSteps.Contains(stepKey, StringComparer.Ordinal);
-
-    public string? InputOverride(string stepKey, string input) =>
-        Inputs.TryGetValue(stepKey, out var inputs) && inputs.TryGetValue(input, out var value) ? value : null;
 
     public void SetDisabled(string stepKey, bool disabled)
     {
@@ -32,44 +27,27 @@ public sealed class RecipeOverrides
             DisabledSteps.Add(stepKey);
     }
 
-    /// <summary>Sets (or, with null, clears) an input's override.</summary>
-    public void SetInput(string stepKey, string input, string? value)
-    {
-        if (value is null)
-        {
-            if (Inputs.TryGetValue(stepKey, out var existing))
-            {
-                existing.Remove(input);
-                if (existing.Count == 0)
-                    Inputs.Remove(stepKey);
-            }
-            return;
-        }
-
-        if (!Inputs.TryGetValue(stepKey, out var inputs))
-            Inputs[stepKey] = inputs = new Dictionary<string, string>(StringComparer.Ordinal);
-        inputs[input] = value;
-    }
-
-    /// <summary>Overrides that no longer match a step (or, for inputs, a step that still exists) of <paramref name="document"/>.</summary>
+    /// <summary>Turned-off steps that no longer match a step of <paramref name="document"/> (renamed or removed).</summary>
     public IReadOnlyList<string> Stale(RecipeDocument document)
     {
         var keys = document.Steps.Select(s => s.Key).ToHashSet(StringComparer.Ordinal);
-        return DisabledSteps.Where(k => !keys.Contains(k)).Select(k => $"Turned-off step '{k}'")
-            .Concat(Inputs.Keys.Where(k => !keys.Contains(k)).Select(k => $"Changed inputs of step '{k}'"))
-            .ToList();
+        return DisabledSteps.Where(k => !keys.Contains(k)).ToList();
+    }
+
+    /// <summary>Forgets turned-off steps the recipe no longer has.</summary>
+    public void RemoveStale(RecipeDocument document)
+    {
+        var stale = Stale(document);
+        DisabledSteps.RemoveAll(stale.Contains);
     }
 
     /// <summary>
-    /// A copy of <paramref name="document"/> with these overrides applied. The original isn't changed. Overrides for
-    /// steps the document no longer has are ignored (see <see cref="Stale"/>).
+    /// A copy of <paramref name="document"/> with these steps turned off. The original isn't changed. Steps the document
+    /// no longer has are ignored (see <see cref="Stale"/>).
     /// </summary>
     public RecipeDocument Apply(RecipeDocument document)
     {
         var copy = YamlRecipeSerializer.Deserialize(YamlRecipeSerializer.Serialize(document));
-        if (IsEmpty)
-            return copy;
-
         foreach (var step in copy.Steps)
         {
             if (IsDisabled(step.Key) && step.IsEnabled)
@@ -77,12 +55,7 @@ public sealed class RecipeOverrides
                 step.Enabled = false;
                 step.DisabledReason = DisabledReason;
             }
-
-            if (Inputs.TryGetValue(step.Key, out var inputs))
-                foreach (var (name, value) in inputs)
-                    step.With[name] = value;
         }
-
         return copy;
     }
 

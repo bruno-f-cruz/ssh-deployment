@@ -6,7 +6,7 @@ namespace Shush.Data;
 public sealed record LastRunSummary(int RunId, RunKind Kind, RunStatus Status, DateTime StartedAt, DateTime? FinishedAt, int Machines, int Succeeded, int Failed, int Running);
 
 /// <param name="Fixed">The recipe's fixed params (label, value): what tells deployments of one recipe apart (install folder, shortcut).</param>
-/// <param name="OverrideCount">Steps turned off plus inputs changed for this deployment.</param>
+/// <param name="OverrideCount">Recipe steps this deployment turns off.</param>
 public sealed record DeploymentSummary(
     int Id, string Name, string? Description, int RecipeId, string RecipeName, int GroupId, string GroupName, int MachineCount,
     LastRunSummary? LastRun, IReadOnlyList<KeyValuePair<string, string>>? Fixed = null, int OverrideCount = 0, string? SshUser = null);
@@ -111,24 +111,20 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
         await db.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// A copy of deployment <paramref name="id"/>: same group, description, SSH account and overrides, with
-    /// <paramref name="paramValues"/> (a new deployment needs its own fixed values). With <paramref name="recipeId"/>
-    /// (a detached copy, deploying its own duplicate of the recipe) the overrides aren't copied: the new recipe has them built in.
-    /// </summary>
-    public async Task<Deployment> DuplicateAsync(int id, string name, IReadOnlyDictionary<string, string> paramValues, int? recipeId = null, int? groupId = null)
+    /// <summary>A copy of deployment <paramref name="id"/>: same recipe, description, SSH account and turned-off steps, with its own values and (optionally) another group.</summary>
+    public async Task<Deployment> DuplicateAsync(int id, string name, IReadOnlyDictionary<string, string> paramValues, int? groupId = null)
     {
         Deployment source;
         await using (var db = await factory.CreateDbContextAsync())
             source = await db.Deployments.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id)
                 ?? throw new ShushDataException("That deployment no longer exists.");
 
-        var copy = await CreateAsync(name, recipeId ?? source.RecipeId, groupId ?? source.GroupId, paramValues, source.Description);
+        var copy = await CreateAsync(name, source.RecipeId, groupId ?? source.GroupId, paramValues, source.Description);
         await using (var db = await factory.CreateDbContextAsync())
         {
             var created = await db.Deployments.FirstAsync(d => d.Id == copy.Id);
             created.SshUser = source.SshUser;
-            created.OverridesJson = recipeId is null ? source.OverridesJson : "{}";
+            created.OverridesJson = source.OverridesJson;
             await db.SaveChangesAsync();
             return created;
         }
@@ -146,7 +142,7 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Points the deployment at another recipe (e.g. its own detached copy) and clears its overrides.</summary>
+    /// <summary>Points the deployment at another recipe (e.g. a duplicate made for it) and resets its turned-off steps.</summary>
     public async Task SwitchRecipeAsync(int id, int recipeId)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -159,7 +155,7 @@ public sealed class DeploymentService(IDbContextFactory<ShushDbContext> factory)
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Saves the steps turned off and the inputs changed for this deployment.</summary>
+    /// <summary>Saves the steps this deployment turns off.</summary>
     public async Task SaveOverridesAsync(int id, RecipeOverrides overrides)
     {
         await using var db = await factory.CreateDbContextAsync();

@@ -41,7 +41,7 @@
                                     @d.RecipeName
                                     @if (d.OverrideCount > 0)
                                     {
-                                        <span class="t-changed" title="Steps turned off or inputs changed for this deployment only"> · @Ui.Plural(d.OverrideCount, "change")</span>
+                                        <span class="t-changed" title="Recipe steps this deployment skips"> · @Ui.Plural(d.OverrideCount, "step") off</span>
                                     }
                                 </div>
                                 @if (d.Fixed is { Count: > 0 } fixedValues)

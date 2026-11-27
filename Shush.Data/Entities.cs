@@ -133,10 +133,7 @@ public sealed class Deployment
     /// <summary>JSON object of param name → value.</summary>
     public string ParamValuesJson { get; set; } = "{}";
 
-    /// <summary>
-    /// JSON of the <see cref="Shush.Recipe.Serialization.RecipeOverrides"/>: steps turned off and inputs changed for this
-    /// deployment only, applied on top of the recipe's current version (so recipe edits still reach it).
-    /// </summary>
+    /// <summary>JSON of the <see cref="Shush.Recipe.Serialization.RecipeOverrides"/>: the recipe steps this deployment turns off (the recipe's later versions still reach it).</summary>
     public string OverridesJson { get; set; } = "{}";
 
     /// <summary>The SSH account this deployment connects as. Null: whoever is signed in.</summary>

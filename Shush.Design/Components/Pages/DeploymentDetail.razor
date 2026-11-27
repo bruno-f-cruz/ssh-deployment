@@ -30,7 +30,7 @@ else if (_deployment is not null && _document is not null)
                 <span><a href="recipes/@_deployment.RecipeId">@_deployment.Recipe.Name</a> v@(_version?.Number)</span>
                 @if (!_overrides.IsEmpty)
                 {
-                    <span><button type="button" class="link-btn t-changed" title="Steps turned off or inputs changed for this deployment only" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "change")</button></span>
+                    <span><button type="button" class="link-btn t-changed" title="Recipe steps this deployment skips" @onclick="@(() => _tab = "recipe")">@Ui.Plural(_overrides.Count, "step") off</button></span>
                 }
                 <span><a href="groups/@_deployment.GroupId">@_deployment.Group.Name</a>, @Ui.Plural(_deployment.Group.Members.Count, "rig")</span>
                 @if (_off.Count > 0)
@@ -54,7 +54,6 @@ else if (_deployment is not null && _document is not null)
             </button>
             <Menu>
                 <button type="button" class="menu__item" @onclick="ToggleDuplicate"><Icon Name="copy" Size="16" />Duplicate…</button>
-                <button type="button" class="menu__item" @onclick="AskDetach"><Icon Name="recipes" Size="16" />Detach into its own recipe…</button>
                 <div class="menu__sep"></div>
                 <button type="button" class="menu__item menu__item--danger" @onclick="AskDelete"><Icon Name="trash" Size="16" />Delete…</button>
             </Menu>
@@ -108,16 +107,6 @@ else if (_deployment is not null && _document is not null)
     {
         <form class="panel" aria-label="Duplicate deployment" @onsubmit="DuplicateAsync" @onsubmit:preventDefault="true">
             <h2>Duplicate</h2>
-            <div class="choice" role="radiogroup" aria-label="Recipe">
-                <label class="choice__option">
-                    <input type="radio" name="dup-mode" checked="@(!_dupDetach)" @onchange="() => _dupDetach = false" />
-                    <span><strong>Follow the recipe</strong><span class="small muted">Gets its updates.</span></span>
-                </label>
-                <label class="choice__option">
-                    <input type="radio" name="dup-mode" checked="@_dupDetach" @onchange="() => _dupDetach = true" />
-                    <span><strong>Own copy of the recipe</strong><span class="small muted">Edit it freely; no updates.</span></span>
-                </label>
-            </div>
             <div class="form-grid">
                 <div class="field">
                     <label for="dup-name">Name</label>
@@ -132,13 +121,6 @@ else if (_deployment is not null && _document is not null)
                         }
                     </select>
                 </div>
-                @if (_dupDetach)
-                {
-                    <div class="field">
-                        <label for="dup-recipe">Recipe name</label>
-                        <input id="dup-recipe" @bind="_dupRecipeName" @bind:event="oninput" />
-                    </div>
-                }
             </div>
             <ParamForm Document="_document" Values="_dupValues" EditFixed="true" Show="ParamSet.Fixed" IdPrefix="dup" />
             @if (DuplicateClash is { } clash)
@@ -293,6 +275,19 @@ else if (_deployment is not null && _document is not null)
                         <input id="dep-name" @bind="_name" />
                     </div>
                     <div class="field">
+                        <label for="dep-recipe">Recipe</label>
+                        <select id="dep-recipe" @bind="_recipeId">
+                            @foreach (var recipe in _recipes)
+                            {
+                                <option value="@recipe.Id">@recipe.Name</option>
+                            }
+                        </select>
+                        @if (_recipeId != _deployment.RecipeId && !_overrides.IsEmpty)
+                        {
+                            <span class="field__hint t-warn">Its turned-off steps are reset.</span>
+                        }
+                    </div>
+                    <div class="field">
                         <label for="dep-ssh">SSH account</label>
                         <input id="dep-ssh" @bind="_sshUser" list="dep-ssh-accounts" placeholder="The signed-in account" autocomplete="off" />
                         <datalist id="dep-ssh-accounts">
@@ -349,17 +344,17 @@ else if (_deployment is not null && _document is not null)
     private Confirmation? _confirm;
 
     private bool _duplicating;
-    private bool _dupDetach;
     private string _dupName = "";
-    private string _dupRecipeName = "";
+    private int _recipeId;
+    private List<RecipeSummary> _recipes = [];
     private Dictionary<string, string> _dupValues = new();
 
     private bool CanDuplicate => !_starting && _document is not null && _dupName.Trim().Length > 0
-                                 && (!_dupDetach || _dupRecipeName.Trim().Length > 0) && ParamForm.IsComplete(_document, _dupValues);
+                                 && ParamForm.IsComplete(_document, _dupValues);
 
     /// <summary>An attached copy with the same fixed values would install over this deployment.</summary>
     private string? DuplicateClash =>
-        !_dupDetach && _dupGroupId == _deployment?.GroupId && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
+        _dupGroupId == _deployment?.GroupId && _document is not null && _document.Params.Any(p => p.Value.IsFixed)
         && _document.Params.Where(p => p.Value.IsFixed).All(p => _dupValues.GetValueOrDefault(p.Key) == _values.GetValueOrDefault(p.Key))
             ? "The fixed values are the same as this deployment's, so the copy would install over it. Change at least one (e.g. the install folder)."
             : null;
@@ -402,6 +397,8 @@ else if (_deployment is not null && _document is not null)
         _name = _deployment.Name;
         _description = _deployment.Description;
         _groupId = _deployment.GroupId;
+        _recipeId = _deployment.RecipeId;
+        _recipes = await Recipes.ListAsync();
         _off.Clear();
         _sshUser = _deployment.SshUser;
         _overrides = RecipeOverrides.FromJson(_deployment.OverridesJson);
@@ -447,38 +444,6 @@ else if (_deployment is not null && _document is not null)
         {
             Notifier.Error($"Couldn't save the change: {ex.Message}");
         }
-    }
-
-    /// <summary>Gives the deployment its own copy of the recipe, with its overrides built in.</summary>
-    private async Task DetachAsync()
-    {
-        if (_deployment is null)
-            return;
-        try
-        {
-            var overrides = _overrides.Clone();
-            var recipe = await Recipes.DuplicateAsync(_deployment.RecipeId, $"{_deployment.Recipe.Name} ({_deployment.Name})", Credentials.Username,
-                doc => overrides.Apply(doc));
-            await Deployments.SwitchRecipeAsync(Id, recipe.Id);
-            Notifier.Success($"'{_deployment.Name}' now deploys its own recipe, '{recipe.Name}'.");
-            _loadedId = null;
-            await OnParametersSetAsync();
-            _tab = "recipe";
-        }
-        catch (ShushDataException ex)
-        {
-            Notifier.Error(ex.Message);
-        }
-    }
-
-    private void AskDetach()
-    {
-        if (_deployment is null)
-            return;
-        _duplicating = false;
-        _confirm = new Confirmation(
-            $"Give '{_deployment.Name}' its own copy of {_deployment.Recipe.Name}{(_overrides.IsEmpty ? "" : $", with its {Ui.Plural(_overrides.Count, "change")} built in")}? It stops getting the recipe's updates.",
-            "Detach", DetachAsync, Danger: false);
     }
 
     private void AskDelete()
@@ -536,9 +501,7 @@ else if (_deployment is not null && _document is not null)
         _duplicating = !_duplicating;
         if (!_duplicating || _deployment is null)
             return;
-        _dupDetach = false;
         _dupName = $"{_deployment.Name} copy";
-        _dupRecipeName = $"{_deployment.Recipe.Name} ({_dupName})";
         _dupValues = new Dictionary<string, string>(_values);
         _dupGroupId = _deployment.GroupId;
     }
@@ -550,15 +513,7 @@ else if (_deployment is not null && _document is not null)
         _starting = true;
         try
         {
-            int? recipeId = null;
-            if (_dupDetach)
-            {
-                var overrides = _overrides.Clone();
-                var recipe = await Recipes.DuplicateAsync(_deployment.RecipeId, _dupRecipeName.Trim(), Credentials.Username, doc => overrides.Apply(doc));
-                recipeId = recipe.Id;
-            }
-
-            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, recipeId, _dupGroupId);
+            var copy = await Deployments.DuplicateAsync(Id, _dupName, _dupValues, _dupGroupId);
             Notifier.Success($"Created '{copy.Name}'.");
             _duplicating = false;
             Nav.NavigateTo($"deployments/{copy.Id}");
@@ -649,6 +604,8 @@ else if (_deployment is not null && _document is not null)
         try
         {
             await Deployments.UpdateAsync(Id, _name, _description, _groupId);
+            if (_recipeId != _deployment?.RecipeId)
+                await Deployments.SwitchRecipeAsync(Id, _recipeId);
             await Deployments.SetSshUserAsync(Id, _sshUser);
             Notifier.Success("Settings saved.");
             await LoadAsync();
