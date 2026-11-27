@@ -33,6 +33,8 @@ params:
 vars:
   repoRoot: C:/git
   scheduleTime: ${random.time("17:50", "18:10")}
+  # The rig's OpenTelemetry collector: the experiments' runs (clabe.yml) and the clabe daemon send to it.
+  otelEndpoint: http://localhost:4317
 # Deploys Aind.Experiment.VrForaging to the behavior rigs (prod, or a dev install next to it: see the fixed params), and the clabe daemon that serves each rig's runs and enrolls
 # the rig with the hub. Runs as the SSH user: that must be the user logged on to the rig (the daemon runs in their
 # session).
@@ -94,7 +96,7 @@ steps:
 
       otel:
         enabled: true
-        endpoint: "http://localhost:4317"
+        endpoint: "${vars.otelEndpoint}"
         service_name: "aind-behavior-vr-foraging"
         software_name: "aind-behavior-vr-foraging"
 
@@ -120,6 +122,14 @@ steps:
         tenant_id: "32669cd6-737f-4b39-8bdd-d6951120d3fc"
         client_id: "df37356e-3316-484a-b732-319b6b4ad464"
         org: "org5d93e08d"
+# The daemon's own logs (service clabe-daemon) go to the rig's collector too. User scope: the daemon runs as the SSH
+# user, and the daemon reads the variable when it starts again (next step).
+- type: SetEnvironmentVariable
+  name: Send the daemon's logs to the collector
+  with:
+    name: DAEMON_CLABE_OTEL_ENDPOINT
+    value: ${vars.otelEndpoint}
+    scope: User
 # The daemon runs clabeVersion, enrolled with the hub, and starts again. Installed next to the clabe it ran before;
 # when it already runs that clabe with this hub, it only starts.
 - type: DeployClabeDaemon
