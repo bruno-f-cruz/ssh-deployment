@@ -437,3 +437,26 @@ public class EffectiveParamsTests
         Assert.False(values.ContainsKey("gone"));
     }
 }
+
+public class RunListForMachineTests : DataTestBase
+{
+    [Fact]
+    public async Task Lists_the_machine_s_own_status()
+    {
+        var recipe = await Recipes.CreateAsync(SimpleRecipe, VersionSource.Edit, null);
+        var group = await Groups.CreateAsync("G", machines: ["A", "B"]);
+        var deployment = await Deployments.CreateAsync("d", recipe.Id, group.Id, new Dictionary<string, string>());
+        var version = await Recipes.CurrentVersionAsync(recipe.Id);
+        var run = await Runs.CreateAsync(new NewRun(RunKind.Deploy, deployment.Id, "d", recipe.Id, version.Id, group.Id, "G",
+            new Dictionary<string, string>(), null, ["A", "B"], null));
+
+        IDeploymentProgress recorder = new RunRecorder(Factory, run.Machines.ToDictionary(m => m.MachineName, m => m.Id));
+        recorder.ReportSucceeded("A");
+        recorder.ReportFailure("B", new Exception("boom"));
+        await Runs.FinishAsync(run.Id, false);
+
+        Assert.Equal(MachineStatus.Succeeded, (await Runs.ListAsync(machine: "A")).Single().MachineStatus);
+        Assert.Equal(MachineStatus.Failed, (await Runs.ListAsync(machine: "b")).Single().MachineStatus);
+        Assert.Null((await Runs.ListAsync()).Single().MachineStatus);
+    }
+}

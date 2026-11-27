@@ -235,7 +235,7 @@
                                         @run.DeploymentName
                                         <div class="sub">@run.RecipeName v@(run.RecipeVersion)</div>
                                     </td>
-                                    <td><StatusText Tone="Ui.Of(run.Status)" /></td>
+                                    <td><StatusText Tone="@(run.MachineStatus is { } own ? Ui.Of(own) : Ui.Of(run.Status))" /></td>
                                     <td>
                                         <span title="@Ui.When(run.StartedAt, ClientTime)">@Ui.Ago(run.StartedAt)</span>
                                         @if (!string.IsNullOrEmpty(run.StartedBy))
@@ -248,7 +248,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="small muted machine-detail__note">The status is the whole run's, across all its machines. Open a run to see this machine's steps.</p>
+                <p class="small muted machine-detail__note">The status is this machine's in each run. Open a run to see its steps and log.</p>
             }
         </section>
     </div>

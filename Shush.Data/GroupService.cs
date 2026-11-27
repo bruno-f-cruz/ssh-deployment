@@ -223,7 +223,7 @@ public sealed class MachineService(IDbContextFactory<ShushDbContext> factory)
 }
 
 /// <summary>Sorts rig names naturally: FRG.4-A before FRG.12-A.</summary>
-public sealed class MachineNameComparer : IComparer<string>
+public sealed class MachineNameComparer : IComparer<string?>
 {
     public static MachineNameComparer Instance { get; } = new();
 
