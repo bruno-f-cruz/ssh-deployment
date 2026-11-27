@@ -136,7 +136,16 @@ else if (_run is not null)
                     @* The pre-flight list below already explains a pre-flight failure; don't repeat it. *@
                     @if (!string.IsNullOrEmpty(machine.Error) && preflight is not { HasErrors: true })
                     {
-                        <p class="small t-fail">@machine.Error</p>
+                        <div class="run-error" role="alert">
+                            <pre class="run-error__summary">@ErrorSummary.Summarize(machine.Error)</pre>
+                            @if (ErrorSummary.IsLong(machine.Error))
+                            {
+                                <details class="run-error__full">
+                                    <summary>Full error output</summary>
+                                    <pre>@machine.Error</pre>
+                                </details>
+                            }
+                        </div>
                     }
                     @if (!string.IsNullOrEmpty(machine.Commit))
                     {
