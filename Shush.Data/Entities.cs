@@ -2,7 +2,7 @@ namespace Shush.Data;
 
 // All times are UTC (see ShushDbContext's DateTime convention).
 
-public enum VersionSource { BuiltIn, Edit, Import, Reset, Legacy }
+public enum VersionSource { BuiltIn, Edit, Import, Reset, Legacy, Restore }
 
 /// <summary>A recipe. Its content lives in immutable <see cref="RecipeVersion"/>s; the newest is the current one.</summary>
 public sealed class Recipe

@@ -6,6 +6,10 @@ window.shushYaml = {
         const ta = document.getElementById(textareaId);
         const pre = document.getElementById(preId);
         if (!ta || !pre) return;
+        // Called again whenever the text is refilled: re-render, but attach the listeners once.
+        if (ta.dataset.shushYaml === '1') { pre.innerHTML = this.highlight(ta.value) + '
+'; return; }
+        ta.dataset.shushYaml = '1';
 
         const render = () => { pre.innerHTML = this.highlight(ta.value) + '\n'; };
         const sync = () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; };

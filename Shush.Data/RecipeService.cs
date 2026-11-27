@@ -151,7 +151,7 @@ public sealed class RecipeService(IDbContextFactory<ShushDbContext> factory, Ste
     public async Task<RecipeVersion> RestoreAsync(int versionId, string? user)
     {
         var version = await GetVersionAsync(versionId) ?? throw new ShushDataException("That version no longer exists.");
-        return await SaveAsync(version.RecipeId, version.Yaml, VersionSource.Edit, user);
+        return await SaveAsync(version.RecipeId, version.Yaml, VersionSource.Restore, user);
     }
 
     public async Task RenameAsync(int recipeId, string newName, string? user)
@@ -161,7 +161,8 @@ public sealed class RecipeService(IDbContextFactory<ShushDbContext> factory, Ste
             throw new ShushDataException("Enter a name.");
 
         await using var db = await factory.CreateDbContextAsync();
-        var recipe = await db.Recipes.FirstAsync(r => r.Id == recipeId);
+        var recipe = await db.Recipes.FirstOrDefaultAsync(r => r.Id == recipeId)
+            ?? throw new ShushDataException("That recipe no longer exists.");
         if (recipe.IsBuiltIn)
             throw new ShushDataException("A recipe that ships with the app keeps its name.");
         if (await db.Recipes.AnyAsync(r => r.Name == newName && r.Id != recipeId))
