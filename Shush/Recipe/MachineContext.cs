@@ -129,7 +129,7 @@ public class MachineContext : IAsyncDisposable
                     cmd.ExitStatus,
                     error);
 
-            throw new InvalidOperationException($"SSH command failed with exit code {cmd.ExitStatus}: {error}");
+            throw new RemoteCommandException(cmd.ExitStatus ?? -1, error);
         }
 
         _logger.LogDebug(

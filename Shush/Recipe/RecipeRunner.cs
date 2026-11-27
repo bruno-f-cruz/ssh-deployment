@@ -81,6 +81,7 @@ public class RecipeRunner
         await Parallel.ForEachAsync(_machines, options, async (kv, cancellationToken) =>
         {
             var (boxId, machineInfo) = (kv.Key, kv.Value);
+            var stepFailureLogged = false;
             var settings = _settingsFor(boxId);
             _display?.ReportPlan(boxId, PlannedStepNames(_recipe, settings));
 
@@ -133,7 +134,12 @@ public class RecipeRunner
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, stepName);
+                        stepFailureLogged = true;
+                        // A failed command's output is already in the log; say what failed in a few lines instead of repeating it.
+                        if (ex is RemoteCommandException)
+                            _logger.LogError("[{BoxId}] Step '{Step}' failed: {Reason}", boxId, stepName, ErrorSummary.Summarize(ex.Message).Replace("\n", " | "));
+                        else
+                            _logger.LogError(ex, "[{BoxId}] Step '{Step}' failed.", boxId, stepName);
                         _display?.ReportStep(boxId, success: false, stepName);
                         throw;
                     }
@@ -149,6 +155,8 @@ public class RecipeRunner
             catch (Exception ex)
             {
                 failures[boxId] = ex;
+                if (!stepFailureLogged)
+                    _logger.LogError(ex, "[{BoxId}] Failed.", boxId);
                 _display?.ReportFailure(boxId, ex);
             }
         });
@@ -157,10 +165,6 @@ public class RecipeRunner
         {
             var summary = string.Join(", ", failures.Keys);
             _logger.LogError("Recipe failed on {Count} machine(s): {Machines}", failures.Count, summary);
-            foreach (var (boxId, ex) in failures)
-            {
-                _logger.LogError(ex, "[{BoxId}] Failure details.", boxId);
-            }
             throw new AggregateException(
                 $"Recipe '{_recipe.Name}' failed on {failures.Count} machine(s): {summary}",
                 failures.Values);

@@ -225,6 +225,7 @@ else if (_run is not null)
                     <div class="row"><h3>Log</h3><span class="spacer"></span>
                         @if (!string.IsNullOrEmpty(_log))
                         {
+                            <button type="button" class="link-btn small" @onclick="CopyLogAsync">@(_copied ? "Copied" : "Copy")</button>
                             <button type="button" class="link-btn small" @onclick="DownloadLogAsync">Download</button>
                         }
                     </div>
@@ -468,6 +469,17 @@ else if (_run is not null)
         {
             _starting = false;
         }
+    }
+
+    private bool _copied;
+
+    private async Task CopyLogAsync()
+    {
+        await JS.InvokeVoidAsync("shushCopy", _log);
+        _copied = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _copied = false;
     }
 
     private async Task DownloadLogAsync() =>
