@@ -1,0 +1,4 @@
+.vars-head { margin-top: 12px; }
+.param-head { flex-wrap: nowrap; }
+.param-head .step-card__toggle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.param-body { grid-template-columns: minmax(0, 1fr); }
