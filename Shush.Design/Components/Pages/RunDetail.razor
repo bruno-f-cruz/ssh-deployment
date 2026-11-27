@@ -89,7 +89,7 @@ else if (_run is not null)
                 <Icon Name="lock" />
                 <div class="grow stack-sm">
                     <span>This deployment connects as <strong>@account</strong>. Sign that account in to retry or deploy.</span>
-                    <SignInForm Username="@account" IdPrefix="run-ssh" />
+                    <SignInForm Username="@account" IdPrefix="run-ssh" Inline="true" />
                 </div>
             </div>
         }
@@ -137,7 +137,14 @@ else if (_run is not null)
                     @if (!string.IsNullOrEmpty(machine.Error) && preflight is not { HasErrors: true })
                     {
                         <div class="run-error" role="alert">
-                            <pre class="run-error__summary">@ErrorSummary.Summarize(machine.Error)</pre>
+                            @if (ErrorSummary.Explain(machine.Error) is { } why)
+                            {
+                                @if (why.Hint is not null)
+                                {
+                                    <p class="run-error__hint">@why.Hint</p>
+                                }
+                                <pre class="run-error__summary">@string.Join("\n", why.Lines)@(why.ExitCode is null ? "" : $"\n(exit code {why.ExitCode})")</pre>
+                            }
                             @if (ErrorSummary.IsLong(machine.Error))
                             {
                                 <details class="run-error__full">

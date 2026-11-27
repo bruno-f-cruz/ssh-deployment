@@ -7,6 +7,10 @@ namespace Shush.Recipe;
 /// lines that say what went wrong, plus a plain-English hint for Windows errors we recognise. The full output stays in
 /// the run log.
 /// </summary>
+/// <param name="Hint">A plain-English explanation, when the error is one we recognise.</param>
+/// <param name="Lines">The lines of the output that say what failed.</param>
+public sealed record ErrorExplanation(string? Hint, IReadOnlyList<string> Lines, string? ExitCode);
+
 public static partial class ErrorSummary
 {
     private const int MaxLines = 3;
@@ -44,10 +48,14 @@ public static partial class ErrorSummary
         || line.StartsWith("Audited ", StringComparison.Ordinal);
 
     /// <summary>The lines worth reading, at most a few, plus a hint when one applies. Short messages come back as they are.</summary>
-    public static string Summarize(string? error)
+    public static string Summarize(string? error) =>
+        Explain(error) is { } e ? Compose(e.ExitCode, e.Lines.ToList(), e.Hint) : string.Empty;
+
+    /// <summary>The same as <see cref="Summarize"/>, in parts (for display).</summary>
+    public static ErrorExplanation? Explain(string? error)
     {
         if (string.IsNullOrWhiteSpace(error))
-            return string.Empty;
+            return null;
 
         var text = error.Trim();
         string? exitCode = null;
@@ -59,7 +67,7 @@ public static partial class ErrorSummary
 
         var lines = text.Split('\n').Select(l => l.Trim().TrimEnd('\r')).Where(l => l.Length > 0).ToList();
         if (lines.Count <= MaxLines && text.Length <= 300)
-            return Compose(exitCode, lines, Hint(text));
+            return new ErrorExplanation(Hint(text), lines, exitCode);
 
         var useful = lines.Where(l => !IsNoise(l)).ToList();
         var picked = useful.Where(l => Interesting().IsMatch(l)).Distinct().TakeLast(MaxLines).ToList();
@@ -68,7 +76,7 @@ public static partial class ErrorSummary
         if (picked.Count == 0)
             picked = lines.TakeLast(MaxLines).ToList();
 
-        return Compose(exitCode, picked.Select(l => l.Length > 240 ? l[..237] + "…" : l).ToList(), Hint(text));
+        return new ErrorExplanation(Hint(text), picked.Select(l => l.Length > 240 ? l[..237] + "…" : l).ToList(), exitCode);
     }
 
     /// <summary>True when <see cref="Summarize"/> drops something (so the full text is worth offering).</summary>
