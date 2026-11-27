@@ -527,3 +527,6 @@ tr.is-link:hover a.row-link { text-decoration: underline; text-underline-offset:
 a.plain-link { text-decoration: none; }
 .inputs code { background: none; border: 0; padding: 0; font-size: 13px; color: var(--ink); }
 .signin--inline .checkbox { white-space: nowrap; }
+
+.menu__item { white-space: nowrap; }
+.page-header .menu__list { left: 0; right: auto; }
