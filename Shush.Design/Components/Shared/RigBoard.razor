@@ -36,13 +36,12 @@
                     {
                         var tone = Ui.Of(machine.Status);
                         var segments = Segments(machine);
-                        var (_, shortName) = Ui.Room(machine.MachineName);
                         <button type="button" class="tile @(machine.Status == MachineStatus.Failed ? "tile--fail" : "")"
                                 aria-pressed="@Ui.Aria(string.Equals(Selected, machine.MachineName, StringComparison.OrdinalIgnoreCase))"
                                 aria-label="@($"{machine.MachineName}: {StatusLine(machine)}")"
                                 @onclick="() => OnSelect.InvokeAsync(machine.MachineName)">
                             <span class="tile__top">
-                                <RigName Name="@machine.MachineName" Label="@(room.Name == "Other" ? machine.MachineName : shortName)"
+                                <RigName Name="@machine.MachineName"
                                          Host="Hosts?.GetValueOrDefault(machine.MachineName)" Link="false" Class="tile__name" />
                                 @if (machine.StartedAt is not null)
                                 {
