@@ -141,7 +141,7 @@ else if (_run is not null)
                         @RigBoard.StatusLine(machine)
                     }
                 </p>
-                @if (machine.StartedAt is not null)
+                @if (machine.StartedAt is not null && machine.Status != MachineStatus.Succeeded)
                 {
                     <p class="rig-drawer__total" title="@(machine.FinishedAt is null ? "Time on this rig so far" : "Total time on this rig")">
                         <Icon Name="clock" Size="16" /> <Elapsed Since="machine.StartedAt" Until="machine.FinishedAt" />
