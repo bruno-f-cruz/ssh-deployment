@@ -32,46 +32,34 @@ else
                         }
                     </select>
                 }
-                else if (!locked && Suggestions(field) is { Count: > 0 } suggestions && !_typing.Contains(field.Name))
+                else if (!locked && Suggestions(field) is { Count: > 0 } suggestions)
                 {
-                    @* Suggestions (e.g. a repository's releases): a real list, plus "Other…" to type any value. *@
-                    <select id="@id" value="@value" @onchange="e => PickAsync(field.Name, e.Value?.ToString())">
-                        @if (!suggestions.Any(o => o.Value == value))
-                        {
-                            <option value="@value">@(string.IsNullOrEmpty(value) ? "Select…" : value)</option>
-                        }
-                        @foreach (var option in suggestions)
-                        {
-                            <option value="@option.Value">@option.Label</option>
-                        }
-                        <option value="@OtherValue">Other…</option>
-                    </select>
+                    @* Type anything (a commit, a branch…), or open the list of suggestions (e.g. the repository's releases). *@
+                    <div class="combo">
+                        <input id="@id" value="@value" autocomplete="off" spellcheck="false" @onchange="e => Set(field.Name, e.Value?.ToString())" />
+                        <details class="menu combo__menu">
+                            <summary class="combo__toggle" aria-label="@($"Choose a {field.Label}")" title="Choose from the list"><Icon Name="chevron" Size="16" /></summary>
+                            <div class="menu__list combo__list" role="listbox" aria-label="@($"{field.Label} suggestions")">
+                                @foreach (var option in suggestions)
+                                {
+                                    var current = option.Value == value;
+                                    <button type="button" class="menu__item @(current ? "is-current" : "")" role="option" aria-selected="@Ui.Aria(current)"
+                                            @onclick="() => Set(field.Name, option.Value)">@option.Label</button>
+                                }
+                            </div>
+                        </details>
+                    </div>
                 }
                 else
                 {
                     <input id="@id" value="@value" readonly="@locked" autocomplete="off" spellcheck="false"
-                           list="@(locked ? null : ListId(field.OptionsFrom))"
                            @onchange="e => Set(field.Name, e.Value?.ToString())" />
-                    @if (!locked && _typing.Contains(field.Name))
-                    {
-                        <button type="button" class="link-btn small field__switch" @onclick="() => _typing.Remove(field.Name)">Pick from the list</button>
-                    }
                 }
                 @if (field.Help is not null) { <span class="field__hint field__hint--clamp" title="@field.Help">@field.Help</span> }
                 @if (missing && !locked) { <span class="field__error">Required.</span> }
             </div>
         }
     </div>
-
-    @foreach (var (source, options) in _options)
-    {
-        <datalist id="@ListId(source)">
-            @foreach (var option in options)
-            {
-                <option value="@option.Value">@option.Label</option>
-            }
-        </datalist>
-    }
 }
 
 @code {
@@ -95,25 +83,10 @@ else
         _ => _fields,
     };
 
-    private const string OtherValue = "__shush_other__";
-
-    /// <summary>Fields the operator chose to type into instead of picking a suggestion.</summary>
-    private readonly HashSet<string> _typing = new(StringComparer.Ordinal);
-
     private List<RecipeField> _fields = [];
 
     private IReadOnlyList<InputOption>? Suggestions(RecipeField field) =>
         !string.IsNullOrWhiteSpace(field.OptionsFrom) && _options.TryGetValue(field.OptionsFrom, out var options) ? options : null;
-
-    private async Task PickAsync(string name, string? value)
-    {
-        if (value == OtherValue)
-        {
-            _typing.Add(name);
-            return;
-        }
-        await Set(name, value);
-    }
     private readonly Dictionary<string, IReadOnlyList<InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);
     private RecipeDocument? _loadedFor;
 
@@ -148,8 +121,6 @@ else
         }
     }
 
-    private static string? ListId(string? source) =>
-        string.IsNullOrWhiteSpace(source) ? null : "opts-" + string.Concat(source.Select(c => char.IsLetterOrDigit(c) ? c : '-'));
 
     private async Task Set(string name, string? value)
     {
