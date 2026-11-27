@@ -32,11 +32,30 @@ else
                         }
                     </select>
                 }
+                else if (!locked && Suggestions(field) is { Count: > 0 } suggestions && !_typing.Contains(field.Name))
+                {
+                    @* Suggestions (e.g. a repository's releases): a real list, plus "Other…" to type any value. *@
+                    <select id="@id" value="@value" @onchange="e => PickAsync(field.Name, e.Value?.ToString())">
+                        @if (!suggestions.Any(o => o.Value == value))
+                        {
+                            <option value="@value">@(string.IsNullOrEmpty(value) ? "Select…" : value)</option>
+                        }
+                        @foreach (var option in suggestions)
+                        {
+                            <option value="@option.Value">@option.Label</option>
+                        }
+                        <option value="@OtherValue">Other…</option>
+                    </select>
+                }
                 else
                 {
                     <input id="@id" value="@value" readonly="@locked" autocomplete="off" spellcheck="false"
                            list="@(locked ? null : ListId(field.OptionsFrom))"
                            @onchange="e => Set(field.Name, e.Value?.ToString())" />
+                    @if (!locked && _typing.Contains(field.Name))
+                    {
+                        <button type="button" class="link-btn small field__switch" @onclick="() => _typing.Remove(field.Name)">Pick from the list</button>
+                    }
                 }
                 @if (field.Help is not null) { <span class="field__hint field__hint--clamp" title="@field.Help">@field.Help</span> }
                 @if (missing && !locked) { <span class="field__error">Required.</span> }
@@ -76,7 +95,25 @@ else
         _ => _fields,
     };
 
+    private const string OtherValue = "__shush_other__";
+
+    /// <summary>Fields the operator chose to type into instead of picking a suggestion.</summary>
+    private readonly HashSet<string> _typing = new(StringComparer.Ordinal);
+
     private List<RecipeField> _fields = [];
+
+    private IReadOnlyList<InputOption>? Suggestions(RecipeField field) =>
+        !string.IsNullOrWhiteSpace(field.OptionsFrom) && _options.TryGetValue(field.OptionsFrom, out var options) ? options : null;
+
+    private async Task PickAsync(string name, string? value)
+    {
+        if (value == OtherValue)
+        {
+            _typing.Add(name);
+            return;
+        }
+        await Set(name, value);
+    }
     private readonly Dictionary<string, IReadOnlyList<InputOption>> _options = new(StringComparer.OrdinalIgnoreCase);
     private RecipeDocument? _loadedFor;
 
