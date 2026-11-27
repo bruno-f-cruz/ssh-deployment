@@ -14,10 +14,19 @@ function handleReconnectStateChanged(event) {
     } else if (event.detail.state === "hide") {
         reconnectModal.close();
     } else if (event.detail.state === "failed") {
+        // The server is down for longer than Blazor's own retries (e.g. it's being updated): keep trying, so the page
+        // reloads by itself once it's back instead of showing a stale page.
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
+        scheduleRetry();
     } else if (event.detail.state === "rejected") {
         location.reload();
     }
+}
+
+let retryTimer = null;
+function scheduleRetry() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(async () => { retryTimer = null; await retry(); }, 5000);
 }
 
 async function retry() {
@@ -42,6 +51,7 @@ async function retry() {
     } catch (err) {
         // We got an exception, server is currently unavailable
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
+        scheduleRetry();
     }
 }
 
