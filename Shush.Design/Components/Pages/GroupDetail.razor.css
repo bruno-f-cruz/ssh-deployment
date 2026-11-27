@@ -1,0 +1,11 @@
+.group-detail__add { flex: 3 1 320px; }
+.group-detail__file { position: relative; cursor: pointer; }
+.group-detail__file:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.group-detail__note { padding: 12px 24px 18px; margin: 0; }
+.group-detail__pad { padding: 0 24px 16px; }
+.group-detail__intro { gap: 4px; }
+.group-detail__select { max-width: 360px; }
+.group-detail__value { white-space: pre-wrap; word-break: break-word; }
+.group-detail__source { gap: 4px; }
+.group-detail__run { text-decoration: none; }
+code { font-size: 13px; }

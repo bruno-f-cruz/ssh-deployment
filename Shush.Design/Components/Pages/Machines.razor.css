@@ -1,0 +1,5 @@
+.machines__filters { flex: 1; }
+.machines__filters input[type=search] { flex: 0 1 360px; }
+.machines__groups { gap: 6px; }
+.machines__groups a { text-decoration: none; }
+.machines__pad { padding: 0 24px 18px; }
