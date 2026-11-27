@@ -16,11 +16,19 @@ public sealed record MachinePreview(string Machine, IReadOnlyList<PreviewStep> S
 /// </summary>
 public static class PlanPreview
 {
+    /// <summary>The preview's first entry when variables mark shared folders: what's prepared before any step.</summary>
+    public const string SharedFoldersStepName = "Shared folders";
+
     /// <param name="mask">Applied to every resolved value, e.g. to hide secrets.</param>
     public static MachinePreview For(string machine, IRecipe recipe, MachineRunSettings settings, Func<string, string>? mask = null)
     {
         mask ??= v => v;
         var steps = new List<PreviewStep>();
+
+        if (settings.SharedFolders.Count > 0)
+            steps.Add(new PreviewStep(
+                SharedFoldersStepName, Runs: true, SkipReason: null,
+                settings.SharedFolders.Select(g => new KeyValuePair<string, string>(g.Path, "created; local users can change it")).ToList()));
 
         if (settings.Environment.Count > 0)
             steps.Add(new PreviewStep(

@@ -114,6 +114,12 @@ public sealed class Variable
     /// <summary>Machine or User.</summary>
     public string EnvScope { get; set; } = "Machine";
 
+    /// <summary>
+    /// The value is a folder on the rig: before each deploy it's created and the rig's local users get modify access, so
+    /// every SSH account can use what another one put there (e.g. uv's tool folders).
+    /// </summary>
+    public bool IsSharedFolder { get; set; }
+
     public string? Description { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

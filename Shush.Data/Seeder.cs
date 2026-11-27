@@ -39,7 +39,8 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
     /// <summary>
     /// Global variables every rig gets as machine-wide environment variables, before any recipe step. uv's tool folders
     /// move out of the user profile (C:\Users\…), where the rigs' policy blocks running programs (Windows error 1260),
-    /// into C:\uv. Added once: edit or delete them in Settings and they stay that way.
+    /// into C:\uv; as shared folders, they're created and opened to every account. Added once: edit or delete them in
+    /// Settings and they stay that way.
     /// </summary>
     public static readonly IReadOnlyList<(string Name, string Value, string Description)> DefaultVariables =
     [
@@ -49,10 +50,24 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
 
     private async Task SeedDefaultVariablesAsync()
     {
-        if (!await ClaimOnceAsync("seed:default-variables:uv"))
-            return;
+        const string Seeded = "seed:default-variables:uv";
+        const string Shared = "seed:default-variables:uv-shared-folders";
 
         await using var db = await factory.CreateDbContextAsync();
+        if (await db.Meta.AnyAsync(m => m.Key == Seeded))
+        {
+            // Added before "shared folder" existed: mark them once, if their value is still the default.
+            if (!await ClaimOnceAsync(Shared))
+                return;
+            foreach (var (name, value, _) in DefaultVariables)
+                foreach (var variable in await db.Variables.Where(v => v.Scope == VariableScope.Global && v.Name == name && v.Value == value).ToListAsync())
+                    variable.IsSharedFolder = true;
+            await db.SaveChangesAsync();
+            return;
+        }
+
+        await ClaimOnceAsync(Seeded);
+        await ClaimOnceAsync(Shared);
         var now = Clock.UtcNow();
         foreach (var (name, value, description) in DefaultVariables)
         {
@@ -60,7 +75,7 @@ public sealed class Seeder(IDbContextFactory<ShushDbContext> factory, RecipeServ
                 continue;
             db.Variables.Add(new Variable
             {
-                Scope = VariableScope.Global, Name = name, Value = value, ApplyAsEnv = true, EnvScope = "Machine",
+                Scope = VariableScope.Global, Name = name, Value = value, ApplyAsEnv = true, EnvScope = "Machine", IsSharedFolder = true,
                 Description = description, UpdatedAt = now,
             });
         }

@@ -66,16 +66,22 @@ Settings come from environment variables, or from a `.env` file (`KEY=VALUE` lin
 | `BasePath` | *(root)* | Serves the app under a subpath (e.g. `/shush`) behind a reverse proxy that doesn't strip it. |
 | `HealthProbeMinutes` | `5` | How often every known machine is checked for answering on port 22. |
 | `MaxConcurrentMachines` | `16` | Machines deploying at the same time, per run. |
-| `SharedAccess__Paths__N` | `C:/uv` | Folders granted to local users on every rig before every recipe (see docs/recipes.md). Configured paths are added to `C:/uv`. |
+| `SharedAccess__Paths__N` | *(none)* | Folders granted to local users on every rig before every recipe (see docs/recipes.md). Usually a **shared folder** variable is simpler (below). |
 | `GITHUB_TOKEN` | *(none)* | Optional. Raises GitHub's rate limit for the clabe-release and git-ref suggestions. |
 
-### uv on the rigs
+### uv on the rigs, and shared folders
 
 The rigs' policy blocks programs in user profiles (Windows error 1260), which is where uv installs tools by default. So
-Shush adds two global variables on first start, set on every rig as machine-wide environment variables before any
-recipe step: `UV_TOOL_DIR=C:/uv/uv_tool_dir` and `UV_TOOL_BIN_DIR=C:/uv/uv_tool_bin_dir`. `C:/uv` is granted to the
-rigs' users so every SSH account can update them. Edit or delete them in Settings → Variables (they're added only once).
-Setting machine-wide variables needs the SSH account to be an administrator on the rig.
+Shush adds two global variables on first start: `UV_TOOL_DIR=C:/uv/uv_tool_dir` and `UV_TOOL_BIN_DIR=C:/uv/uv_tool_bin_dir`.
+They're ordinary variables (Settings → Variables: edit, override per group or rig, or delete them; they're added once)
+with two options ticked:
+
+- **Set as environment variable** (machine): set on the rig before any recipe step, and seen by every later command of
+  the same run.
+- **Shared folder**: the value is a folder; before each deploy it's created and the rig's local users get modify access,
+  so every SSH account can use and update what another put there. Any variable can be a shared folder.
+
+Setting machine-wide variables and folder access needs the SSH account to be an administrator on the rig.
 ### As a Windows Service
 
 ```powershell

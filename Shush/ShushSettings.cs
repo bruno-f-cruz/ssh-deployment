@@ -6,16 +6,11 @@ public sealed class ShushSettings
     public int MachineRegistryCacheSeconds { get; set; } = 60;
 
     /// <summary>
-    /// Machine-wide access granted on these roots before every recipe runs (env: SharedAccess__Paths__0=C:/git), after C:/uv.
+    /// Machine-wide access granted on these roots before every recipe runs (env: SharedAccess__Paths__0=C:/git).
     /// Recipes can add more roots with their own <c>sharedAccess</c> block. No paths means nothing is granted.
     /// </summary>
-    public Shush.Recipe.Serialization.SharedAccessSpec SharedAccess { get; set; } = new() { Paths = [DefaultUvRoot] };
+    public Shush.Recipe.Serialization.SharedAccessSpec SharedAccess { get; set; } = new();
 
-    /// <summary>
-    /// Granted to the rigs' local users by default: uv's tool folders live here (see the UV_TOOL_DIR / UV_TOOL_BIN_DIR
-    /// global variables), so every SSH account can install and update them. Paths set in configuration are added to it.
-    /// </summary>
-    public const string DefaultUvRoot = "C:/uv";
 
     /// <summary>Folder (next to the app) holding the database, logs and the data-protection keys.</summary>
     public string DataDirectoryName { get; set; } = ".shush";

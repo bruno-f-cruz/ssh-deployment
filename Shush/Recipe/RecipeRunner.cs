@@ -15,6 +15,9 @@ public sealed class MachineRunSettings
 
     public IReadOnlyDictionary<string, string> Variables { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<EnvironmentAssignment> Environment { get; init; } = [];
+
+    /// <summary>Folders (from variables marked as shared folders) created and granted to the rig's users before the steps.</summary>
+    public IReadOnlyList<SharedAccessGrant> SharedFolders { get; init; } = [];
 }
 
 public class RecipeRunner
@@ -94,7 +97,7 @@ public class RecipeRunner
                 var plan = _recipe.CreatePlan(new PlanContext(boxId, settings.Variables));
 
                 // Grant before any step creates files: new files inherit the ACL of their parent.
-                foreach (var grant in _machineWideAccess.Concat(plan.SharedAccess).Distinct())
+                foreach (var grant in _machineWideAccess.Concat(settings.SharedFolders).Concat(plan.SharedAccess).Distinct())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     _logger.LogInformation(

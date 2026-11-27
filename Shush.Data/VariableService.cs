@@ -7,7 +7,7 @@ namespace Shush.Data;
 /// <summary>A variable as the UI shows it. A secret's value is never included.</summary>
 public sealed record VariableView(
     int Id, VariableScope Scope, int? GroupId, string? MachineName, string Name, string? Value, bool IsSecret,
-    bool ApplyAsEnv, string EnvScope, string? Description, DateTime UpdatedAt)
+    bool ApplyAsEnv, string EnvScope, string? Description, DateTime UpdatedAt, bool IsSharedFolder = false)
 {
     public string Where => Scope switch
     {
@@ -20,12 +20,12 @@ public sealed record VariableView(
 /// <summary>A variable to create or update. A secret left with a null <see cref="Value"/> keeps its current value.</summary>
 public sealed record VariableInput(
     VariableScope Scope, int? GroupId, string? MachineName, string Name, string? Value, bool IsSecret,
-    bool ApplyAsEnv, string EnvScope = "Machine", string? Description = null);
+    bool ApplyAsEnv, string EnvScope = "Machine", string? Description = null, bool IsSharedFolder = false);
 
 /// <summary>The value a machine gets for one name, where it came from, and what it replaced.</summary>
 public sealed record ResolvedVariable(
     string Name, string Value, VariableScope Source, string SourceLabel, bool IsSecret, bool ApplyAsEnv, string EnvScope,
-    int VariableId, IReadOnlyList<(VariableScope Scope, string Label)> Overrides);
+    int VariableId, IReadOnlyList<(VariableScope Scope, string Label)> Overrides, bool IsSharedFolder = false);
 
 public sealed partial class VariableService(IDbContextFactory<ShushDbContext> factory, ISecretProtector protector)
 {
@@ -65,6 +65,10 @@ public sealed partial class VariableService(IDbContextFactory<ShushDbContext> fa
             throw new ShushDataException("A machine variable needs its machine.");
         if (input.EnvScope is not ("Machine" or "User"))
             throw new ShushDataException("An environment variable is set for the whole machine (Machine) or the SSH user (User).");
+        if (input.IsSharedFolder && input.IsSecret)
+            throw new ShushDataException("A shared folder can't be secret: its path is shown in the deploy log.");
+        if (input.IsSharedFolder && input.Value is { } folder && !FolderPattern().IsMatch(folder.Trim()))
+            throw new ShushDataException("A shared folder is a full path on the rig, e.g. C:/uv/uv_tool_dir.");
 
         await using var db = await factory.CreateDbContextAsync();
         var groupId = input.Scope == VariableScope.Group ? input.GroupId : null;
@@ -98,6 +102,7 @@ public sealed partial class VariableService(IDbContextFactory<ShushDbContext> fa
         variable.Name = name;
         variable.ApplyAsEnv = input.ApplyAsEnv;
         variable.EnvScope = input.EnvScope;
+        variable.IsSharedFolder = input.IsSharedFolder;
         variable.Description = string.IsNullOrWhiteSpace(input.Description) ? null : input.Description.Trim();
 
         if (input.IsSecret)
@@ -153,7 +158,7 @@ public sealed partial class VariableService(IDbContextFactory<ShushDbContext> fa
                 var winner = layers[0];
                 return new ResolvedVariable(
                     winner.Name, Plain(winner), winner.Scope, Label(winner), winner.IsSecret, winner.ApplyAsEnv, winner.EnvScope,
-                    winner.Id, layers.Skip(1).Select(v => (v.Scope, Label(v))).ToList());
+                    winner.Id, layers.Skip(1).Select(v => (v.Scope, Label(v))).ToList(), winner.IsSharedFolder);
             })
             .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -172,6 +177,10 @@ public sealed partial class VariableService(IDbContextFactory<ShushDbContext> fa
         Variables = resolved.ToDictionary(v => v.Name, v => v.Value, StringComparer.Ordinal),
         Environment = resolved.Where(v => v.ApplyAsEnv)
             .Select(v => new EnvironmentAssignment(v.Name, v.Value, v.EnvScope, v.IsSecret))
+            .ToList(),
+        SharedFolders = resolved.Where(v => v.IsSharedFolder && !string.IsNullOrWhiteSpace(v.Value))
+            .Select(v => new SharedAccessGrant(v.Value.Trim()))
+            .Distinct()
             .ToList(),
     };
 
@@ -193,8 +202,12 @@ public sealed partial class VariableService(IDbContextFactory<ShushDbContext> fa
 
     private static VariableView View(Variable v) =>
         new(v.Id, v.Scope, v.GroupId, v.MachineName, v.Name, v.IsSecret ? null : v.Value, v.IsSecret, v.ApplyAsEnv,
-            v.EnvScope, v.Description, v.UpdatedAt);
+            v.EnvScope, v.Description, v.UpdatedAt, v.IsSharedFolder);
 
     [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_\-]*$")]
     private static partial Regex NamePattern();
+
+    /// <summary>An absolute Windows path: C:/… or C:\….</summary>
+    [GeneratedRegex(@"^[A-Za-z]:[\\/]")]
+    private static partial Regex FolderPattern();
 }

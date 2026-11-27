@@ -429,6 +429,9 @@ namespace Shush.Data.Migrations
                     b.Property<bool>("IsSecret")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsSharedFolder")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("MachineName")
                         .HasColumnType("TEXT")
                         .UseCollation("NOCASE");

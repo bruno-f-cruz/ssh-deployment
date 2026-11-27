@@ -641,3 +641,4 @@ a.tab { text-decoration: none; display: inline-flex; align-items: center; }
 .combo .combo__list { top: calc(100% + 4px); left: 0; right: 0; width: auto; min-width: 100%; max-height: 320px; overflow-y: auto; }
 .combo .menu__item { white-space: normal; }
 .combo .menu__item.is-current { background: var(--lime-soft); font-weight: 600; }
+.badge--folder { background: var(--teal-soft); border-color: #9ED9D3; color: var(--teal-text); }

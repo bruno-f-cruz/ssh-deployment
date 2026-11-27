@@ -61,6 +61,10 @@
                         <option value="User">for the SSH user</option>
                     </select>
                 }
+                <label class="checkbox" title="The value is a folder on the rig: before each deploy it's created and every local user can change it (e.g. uv's tool folders, so any SSH account can update them)">
+                    <input type="checkbox" @bind="_isSharedFolder" />
+                    Shared folder
+                </label>
             </div>
 
             @if (_error is not null)
@@ -128,6 +132,10 @@
                                         <span class="mono variable-editor__value">@item.Value</span>
                                     }
                                     <OnTheRig ApplyAsEnv="item.ApplyAsEnv" EnvScope="@item.EnvScope" />
+                                    @if (item.IsSharedFolder)
+                                    {
+                                        <span class="badge badge--folder" title="Created before each deploy; every local user on the rig can change it">shared folder</span>
+                                    }
                                 </span>
                             </td>
                             <td class="actions-cell">
@@ -168,6 +176,7 @@
     private bool _isSecret;
     private bool _applyAsEnv;
     private string _envScope = "Machine";
+    private bool _isSharedFolder;
     private string _description = "";
     private string? _error;
 
@@ -209,6 +218,7 @@
         _isSecret = item.IsSecret;
         _applyAsEnv = item.ApplyAsEnv;
         _envScope = item.EnvScope;
+        _isSharedFolder = item.IsSharedFolder;
         _description = item.Description ?? "";
         _formOpen = true;
     }
@@ -229,6 +239,7 @@
         _isSecret = false;
         _applyAsEnv = false;
         _envScope = "Machine";
+        _isSharedFolder = false;
         _description = "";
         _error = null;
     }
@@ -241,7 +252,7 @@
         {
             // An existing secret saved with an empty value keeps its current value.
             string? value = _isSecret && _editingSecret && string.IsNullOrEmpty(_value) ? null : _value;
-            var input = new VariableInput(Scope, GroupId, MachineName, _name, value, _isSecret, _applyAsEnv, _envScope, _description);
+            var input = new VariableInput(Scope, GroupId, MachineName, _name, value, _isSecret, _applyAsEnv, _envScope, _description, _isSharedFolder);
             await Variables.SaveAsync(_editId, input);
             CloseForm();
             await LoadAsync();
