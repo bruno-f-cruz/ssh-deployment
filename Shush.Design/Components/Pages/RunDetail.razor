@@ -131,7 +131,22 @@ else if (_run is not null)
         <section class="rig-drawer" aria-labelledby="rig-h">
             <header class="rig-drawer__head">
                 <h2 id="rig-h"><RigName Name="@machine.MachineName" Host="_hosts.GetValueOrDefault(machine.MachineName)" /></h2>
-                <p class="@mTone.Text rig-drawer__status">@RigBoard.StatusLine(machine)</p>
+                <p class="@mTone.Text rig-drawer__status">
+                    @if (RigBoard.CurrentStep(machine) is { } current)
+                    {
+                        @current.Name<text> · </text><Elapsed Since="current.StartedAt" />
+                    }
+                    else
+                    {
+                        @RigBoard.StatusLine(machine)
+                    }
+                </p>
+                @if (machine.StartedAt is not null)
+                {
+                    <p class="rig-drawer__total" title="@(machine.FinishedAt is null ? "Time on this rig so far" : "Total time on this rig")">
+                        <Icon Name="clock" Size="16" /> <Elapsed Since="machine.StartedAt" Until="machine.FinishedAt" />
+                    </p>
+                }
                 <button type="button" class="btn btn--icon btn--ghost rig-drawer__close" aria-label="Close the rig's details" title="Close" @onclick="CloseDrawer"><Icon Name="x" /></button>
             </header>
             <div class="rig-drawer__body">
@@ -215,7 +230,16 @@ else if (_run is not null)
                                     <li>
                                         <span class="step-dot @Ui.Segment(step.Status)" aria-hidden="true"></span>
                                         <span class="grow @(step.Status is null ? "muted" : "")">@step.Name</span>
-                                        <span class="right">@step.Right</span>
+                                        <span class="right">
+                                            @if (step.Status == StepStatus.Running)
+                                            {
+                                                <Elapsed Since="step.StartedAt" />
+                                            }
+                                            else
+                                            {
+                                                @step.Right
+                                            }
+                                        </span>
                                     </li>
                                 }
                             </ol>
@@ -418,7 +442,7 @@ else if (_run is not null)
         return string.Join(", ", parts);
     }
 
-    private sealed record StepRow(string Name, StepStatus? Status, string Right);
+    private sealed record StepRow(string Name, StepStatus? Status, string Right, DateTime? StartedAt = null);
 
     private static IEnumerable<StepRow> StepRows(RunMachine machine)
     {
@@ -437,7 +461,7 @@ else if (_run is not null)
                     _ => step.SkipReason?.StartsWith("when") == true ? "skipped (when)"
                         : step.SkipReason == RecipeOverrides.DisabledReason ? "off for this deployment" : "skipped",
                 };
-                yield return new StepRow(step.Name, step.Status, right);
+                yield return new StepRow(step.Name, step.Status, right, step.StartedAt);
             }
             else
             {

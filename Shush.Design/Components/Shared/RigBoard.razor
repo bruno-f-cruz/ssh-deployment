@@ -44,6 +44,12 @@
                             <span class="tile__top">
                                 <RigName Name="@machine.MachineName" Label="@(room.Name == "Other" ? machine.MachineName : shortName)"
                                          Host="Hosts?.GetValueOrDefault(machine.MachineName)" Link="false" Class="tile__name" />
+                                @if (machine.StartedAt is not null)
+                                {
+                                    <span class="tile__time" title="@(machine.FinishedAt is null ? "Time on this rig so far" : "Total time on this rig")">
+                                        <Elapsed Since="machine.StartedAt" Until="machine.FinishedAt" />
+                                    </span>
+                                }
                                 @switch (machine.Status)
                                 {
                                     case MachineStatus.Succeeded: <Icon Name="check" Color="var(--teal-text)" Stroke="2.4" /> break;
@@ -62,7 +68,16 @@
                                     }
                                 </span>
                             }
-                            <span class="tile__status @tone.Text">@StatusLine(machine)</span>
+                            <span class="tile__status @tone.Text">
+                                @if (CurrentStep(machine) is { } current)
+                                {
+                                    @current.Name<text> · </text><Elapsed Since="current.StartedAt" />
+                                }
+                                else
+                                {
+                                    @StatusLine(machine)
+                                }
+                            </span>
                         </button>
                     }
                 </div>
@@ -108,9 +123,15 @@
         return Enumerable.Range(0, count).Select(i => Ui.Segment(byIndex.TryGetValue(i, out var s) ? s.Status : null)).ToList();
     }
 
+    /// <summary>The step a running rig is on, or null.</summary>
+    public static RunStep? CurrentStep(RunMachine machine) =>
+        machine.Status == MachineStatus.Running
+            ? machine.Steps.Where(s => s.Status == StepStatus.Running).OrderBy(s => s.Index).LastOrDefault()
+            : null;
+
     public static string StatusLine(RunMachine machine)
     {
-        var current = machine.Steps.Where(s => s.Status == StepStatus.Running).OrderBy(s => s.Index).LastOrDefault();
+        var current = CurrentStep(machine);
         var failed = machine.Steps.FirstOrDefault(s => s.Status == StepStatus.Failed);
 
         return machine.Status switch

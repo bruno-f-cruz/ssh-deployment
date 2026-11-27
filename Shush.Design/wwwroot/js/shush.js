@@ -56,3 +56,20 @@ document.addEventListener('click', e => {
     const link = row.querySelector('a.row-link');
     if (link) link.click();
 });
+
+// Live timers (<span data-since="ISO time">): tick every second, formatted like Ui.Duration (45s, 2m 05s, 1h 03m).
+(function () {
+    const format = ms => {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        if (s < 60) return `${s}s`;
+        if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+        return `${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
+    };
+    setInterval(() => {
+        const now = Date.now();
+        document.querySelectorAll('[data-since]').forEach(el => {
+            const since = Date.parse(el.dataset.since);
+            if (!isNaN(since)) el.textContent = format(now - since);
+        });
+    }, 1000);
+})();

@@ -688,3 +688,11 @@ a.tab { text-decoration: none; display: inline-flex; align-items: center; }
 /* Room at the bottom of the page so the drawer never hides content. */
 .main__inner:has(.rig-drawer) { padding-bottom: calc(min(52vh, 560px) + 24px); }
 @media (max-width: 900px) { .main__inner:has(.rig-drawer) { padding-bottom: calc(70vh + 24px); } }
+
+/* Timers: a rig's total on its tile and in the drawer, the running step's own time. */
+.tile__top { justify-content: flex-start; }
+.tile__time { margin-left: auto; font: 500 12px/1.6 var(--mono); color: var(--muted); white-space: nowrap; }
+.elapsed { font-variant-numeric: tabular-nums; }
+.elapsed--live { color: var(--blue-text); }
+.rig-drawer__total { margin: 0; display: inline-flex; align-items: center; gap: 6px; font: 500 14px/1 var(--mono); color: var(--ink-2); }
+.steps-list .right .elapsed--live { font-weight: 600; }
