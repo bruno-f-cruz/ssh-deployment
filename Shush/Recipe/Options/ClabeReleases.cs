@@ -1,20 +1,41 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Shush.Recipe.Options;
 
-/// <summary>A clabe release that has builds: a GitHub release of AllenNeuralDynamics/clabe with its wheel attached.</summary>
-public sealed record ClabeRelease(string Tag, string Version, bool Prerelease, DateTimeOffset? PublishedAt);
+/// <summary>
+/// A clabe release that has builds: a GitHub release of AllenNeuralDynamics/clabe with its wheel attached. Or, with a
+/// <see cref="Commit"/>, a build of a commit of clabe's main branch: <see cref="Version"/> is then its short commit, the
+/// value the daemon is deployed with (the installer's <c>-Commit</c>), and <see cref="Tag"/> the release it follows.
+/// </summary>
+public sealed record ClabeRelease(string Tag, string Version, bool Prerelease, DateTimeOffset? PublishedAt, string? Commit = null)
+{
+    public bool IsBuild => Commit is not null;
+}
 
 /// <summary>
 /// The clabe releases with builds, from GitHub (cached for <see cref="CacheFor"/>).
 ///
 /// clabe's CI publishes a release to PyPI and then attaches the same wheel to the GitHub release, in one job: a
-/// release with an <c>aind_clabe-*.whl</c> asset is one PyPI has, which is where the daemon installs it from.
+/// release with an <c>aind_clabe-*.whl</c> asset is one PyPI has, which is where the daemon installs it from. It also
+/// builds every commit pushed to main into one pre-release, <see cref="BuildsTag"/>: each wheel there
+/// (<c>aind_clabe-0.18.0+g&lt;commit&gt;-py3-none-any.whl</c>) is a build, deployed by its commit.
 /// </summary>
 public sealed class ClabeReleases(HttpClient http)
 {
     public const string Repository = "AllenNeuralDynamics/clabe";
+
+    /// <summary>The pre-release that holds a build of every commit pushed to clabe's main branch.</summary>
+    public const string BuildsTag = "builds";
+
+    private static readonly Regex BuildWheel = new(
+        @"^aind_clabe-(?<version>[^-+]+)\+g(?<commit>[0-9a-f]{7,40})-.*\.whl$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex CommitPattern = new("^[0-9a-f]{7,40}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>Whether <paramref name="value"/> names a commit (7 to 40 hex characters), i.e. a build of main.</summary>
+    public static bool IsCommit(string? value) => value is not null && CommitPattern.IsMatch(value.Trim());
 
     public static ClabeReleases Shared { get; } = new(CreateClient());
 
@@ -68,15 +89,24 @@ public sealed class ClabeReleases(HttpClient http)
         }
     }
 
-    /// <summary>The published (not draft) releases of GitHub's releases JSON that have the clabe wheel attached.</summary>
+    /// <summary>
+    /// The published (not draft) releases of GitHub's releases JSON that have the clabe wheel attached, newest first;
+    /// then the builds of main (the wheels of <see cref="BuildsTag"/>), newest first.
+    /// </summary>
     public static IReadOnlyList<ClabeRelease> Parse(string json)
     {
         using var document = JsonDocument.Parse(json);
         var releases = new List<ClabeRelease>();
+        var builds = new List<ClabeRelease>();
         foreach (var release in document.RootElement.EnumerateArray())
         {
             if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean())
                 continue;
+            if (release.GetProperty("tag_name").GetString() == BuildsTag)
+            {
+                builds.AddRange(ParseBuilds(release));
+                continue;
+            }
             var hasWheel = release.TryGetProperty("assets", out var assets) && assets.EnumerateArray().Any(a =>
                 a.GetProperty("name").GetString() is { } name
                 && name.StartsWith("aind_clabe-", StringComparison.OrdinalIgnoreCase)
@@ -90,7 +120,37 @@ public sealed class ClabeReleases(HttpClient http)
             var prerelease = release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean();
             releases.Add(new ClabeRelease(tag, tag.TrimStart('v', 'V'), prerelease, published));
         }
-        return releases.OrderByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue).ToList();
+        return
+        [
+            .. releases.OrderByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue),
+            .. builds.OrderByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue),
+        ];
+    }
+
+    /// <summary>The builds in the builds release: one per wheel whose version carries its commit.</summary>
+    private static IEnumerable<ClabeRelease> ParseBuilds(JsonElement release)
+    {
+        if (!release.TryGetProperty("assets", out var assets))
+            yield break;
+        foreach (var asset in assets.EnumerateArray())
+        {
+            var match = BuildWheel.Match(asset.GetProperty("name").GetString() ?? "");
+            if (!match.Success)
+                continue;
+            var commit = match.Groups["commit"].Value.ToLowerInvariant();
+            DateTimeOffset? created = asset.TryGetProperty("created_at", out var c) && c.ValueKind == JsonValueKind.String
+                ? c.GetDateTimeOffset()
+                : null;
+            yield return new ClabeRelease(match.Groups["version"].Value, commit[..7], true, created, commit);
+        }
+    }
+
+    /// <summary>The build of <paramref name="commit"/> in <paramref name="releases"/>, matched by prefix, if exactly one.</summary>
+    public static ClabeRelease? FindBuild(IEnumerable<ClabeRelease> releases, string commit)
+    {
+        var prefix = commit.Trim().ToLowerInvariant();
+        var found = releases.Where(r => r.Commit?.StartsWith(prefix, StringComparison.Ordinal) == true).Take(2).ToList();
+        return found.Count == 1 ? found[0] : null;
     }
 
     /// <summary>
@@ -141,9 +201,15 @@ public sealed class ClabeReleases(HttpClient http)
     }
 }
 
-/// <summary><c>clabe.versions</c>: what the daemon can run — <c>lock</c>, <c>latest</c>, then each release with builds.</summary>
+/// <summary>
+/// <c>clabe.versions</c>: what the daemon can run — <c>lock</c>, <c>latest</c>, each release with builds, then the most
+/// recent builds of main (by commit).
+/// </summary>
 public sealed class ClabeVersionOptions(ClabeReleases releases) : IOptionSource
 {
+    /// <summary>How many builds of main are offered (the newest).</summary>
+    public int Builds { get; init; } = 15;
+
     public string Name => "clabe.versions";
 
     public async Task<IReadOnlyList<InputOption>> GetOptionsAsync(CancellationToken cancellationToken = default)
@@ -151,14 +217,20 @@ public sealed class ClabeVersionOptions(ClabeReleases releases) : IOptionSource
         var found = await releases.GetAsync(cancellationToken);
         return
         [
-            new InputOption("lock", "lock — the release the repository's uv.lock pins"),
+            new InputOption("lock", "lock — the clabe the repository's uv.lock pins (a release or a build)"),
             new InputOption("latest", "latest — the newest release (not a pre-release)"),
-            .. found.Select(r => new InputOption(r.Version, Describe(r))),
+            .. found.Where(r => !r.IsBuild).Select(r => new InputOption(r.Version, Describe(r))),
+            .. found.Where(r => r.IsBuild).Take(Builds).Select(r => new InputOption(r.Version, Describe(r))),
         ];
     }
 
     internal static string Describe(ClabeRelease release)
     {
+        if (release.IsBuild)
+        {
+            var build = $"{release.Version} — build of main after {release.Tag}";
+            return release.PublishedAt is { } built ? $"{build} · {built:yyyy-MM-dd}" : build;
+        }
         var parts = new List<string> { release.Tag };
         if (release.Prerelease)
             parts.Add("pre-release");
@@ -178,7 +250,7 @@ public sealed class ClabeInstallerOptions(ClabeReleases releases) : IOptionSourc
 
     public async Task<IReadOnlyList<InputOption>> GetOptionsAsync(CancellationToken cancellationToken = default)
     {
-        var recent = (await releases.GetAsync(cancellationToken)).Take(Checked).ToList();
+        var recent = (await releases.GetAsync(cancellationToken)).Where(r => !r.IsBuild).Take(Checked).ToList();
         var checks = await Task.WhenAll(recent.Select(r => releases.InstallerDeploysAsync(r.Tag, cancellationToken)));
         return
         [
