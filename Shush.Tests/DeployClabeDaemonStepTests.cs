@@ -131,6 +131,66 @@ public class DeployClabeDaemonStepTests
         Assert.Equal(["lock", "latest"], options.Select(o => o.Value)); // the suggestions still offer the fixed values
     }
 
+    private const string Sha = "cf17fa8e0219739f3a1c91aed4040f1190c2778a";
+
+    /// <summary>The releases, plus clabe's builds release: two builds of main and a file that is not one.</summary>
+    private static readonly string WithBuilds = ReleasesJson.TrimEnd().TrimEnd(']') + $$"""
+          ,{"tag_name": "builds", "draft": false, "prerelease": true, "published_at": "2026-11-28T04:00:00Z",
+           "assets": [
+             {"name": "aind_clabe-0.18.0rc8+g0123456789abcdef0123456789abcdef01234567-py3-none-any.whl", "created_at": "2026-11-28T03:00:00Z"},
+             {"name": "aind_clabe-0.18.0rc8+g{{Sha}}-py3-none-any.whl", "created_at": "2026-11-28T04:25:00Z"},
+             {"name": "notes.txt", "created_at": "2026-11-28T04:25:00Z"}]}
+        ]
+        """;
+
+    [Fact]
+    public void Builds_are_listed_by_commit_after_the_releases_never_as_a_release_called_builds()
+    {
+        var releases = ClabeReleases.Parse(WithBuilds);
+        Assert.Equal(["0.19.0rc1", "0.18.0", "cf17fa8", "0123456"], releases.Select(r => r.Version));
+        Assert.Equal(Sha, releases[2].Commit);
+        Assert.Equal("0.18.0rc8", releases[2].Tag);
+        Assert.DoesNotContain(releases, r => r.Version == "builds");
+    }
+
+    [Fact]
+    public async Task Versions_offer_the_recent_builds_after_the_releases_and_installers_never_offer_a_build()
+    {
+        var options = await new ClabeVersionOptions(Releases(WithBuilds)) { Builds = 1 }.GetOptionsAsync();
+        Assert.Equal(["lock", "latest", "0.19.0rc1", "0.18.0", "cf17fa8"], options.Select(o => o.Value));
+        Assert.Equal("cf17fa8 — build of main after 0.18.0rc8 · 2026-11-28", options[4].Label);
+
+        var installers = await new ClabeInstallerOptions(Releases(WithBuilds, scripts: new() { ["v0.19.0rc1"] = "StopDaemon" })).GetOptionsAsync();
+        Assert.Equal(["main", "v0.19.0rc1"], installers.Select(o => o.Value));
+    }
+
+    [Fact]
+    public void A_commit_deploys_its_build_and_the_installer_installs_it_as_the_command_too()
+    {
+        var start = new DeployClabeDaemonStep { Version = "CF17FA8", CliVersion = "cf17fa8", Installer = "cf17fa8", Hubs = "http://h/" }.BuildCommands();
+        Assert.Contains("/clabe/cf17fa8/scripts/install.ps1", start[1]);
+        Assert.Equal("& $install -Commit 'cf17fa8' -Hubs 'http://h/' -Force:$false", start[2]);
+
+        var stop = new DeployClabeDaemonStep { StopOnly = true, CliVersion = "cf17fa8", Installer = "cf17fa8" }.BuildCommands();
+        Assert.Equal("& $install -StopDaemon -Commit 'cf17fa8' -Force:$false", stop[2]);
+
+        Assert.Throws<InvalidOperationException>(() => new DeployClabeDaemonStep { Version = "0.18.0", CliVersion = "cf17fa8" }.BuildCommands());
+    }
+
+    [Theory]
+    [InlineData("cf17fa8", true)]
+    [InlineData(Sha, true)]
+    [InlineData("0123456", true)]
+    [InlineData("fedcba9", false)] // no build of that commit
+    public async Task A_commit_without_a_build_is_refused_before_the_rig_is_touched(string commit, bool accepted)
+    {
+        var check = new DeployClabeDaemonStep { Version = commit }.CheckVersionAsync(Releases(WithBuilds));
+        if (accepted)
+            await check;
+        else
+            Assert.Contains("no build of commit", (await Assert.ThrowsAsync<InvalidOperationException>(() => check)).Message);
+    }
+
     [Fact]
     public void A_param_s_option_source_survives_a_save_and_reaches_the_form()
     {

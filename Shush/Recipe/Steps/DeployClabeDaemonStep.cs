@@ -9,10 +9,10 @@ namespace Shush.Recipe.Steps;
 /// session runs, unless <see cref="Force"/>. Runs as the SSH user, who must be the user logged on to the rig: the
 /// daemon runs in their session.
 /// </summary>
-[Step("DeployClabeDaemon", Description = "Deploy clabe-daemon: install, update or roll back the clabe daemon to a clabe release (from PyPI), enrolled with the hubs, and start it. With stopOnly, only stop it (e.g. before rebuilding an experiment's environment).")]
+[Step("DeployClabeDaemon", Description = "Deploy clabe-daemon: install, update or roll back the clabe daemon to a clabe release (from PyPI) or a build of a commit of clabe's main branch, enrolled with the hubs, and start it. With stopOnly, only stop it (e.g. before rebuilding an experiment's environment).")]
 public class DeployClabeDaemonStep : IRecipeStep
 {
-    [Input(OptionsFrom = "clabe.versions", Description = "The clabe release the daemon runs, e.g. 0.19.0. \"lock\": the release lockRepository's uv.lock pins. \"latest\" (or empty): the newest release.")]
+    [Input(OptionsFrom = "clabe.versions", Description = "The clabe the daemon runs: a release, e.g. 0.19.0, or a commit of clabe's main branch (its build), e.g. cf17fa8. \"lock\": the clabe lockRepository's uv.lock pins. \"latest\" (or empty): the newest release.")]
     public string Version { get; init; } = "latest";
 
     [Input(Description = "The experiment repository whose uv.lock \"lock\" follows, e.g. ${clone.clonedPath}.")]
@@ -27,10 +27,10 @@ public class DeployClabeDaemonStep : IRecipeStep
     [Input(Description = "Only install the clabe command and stop the daemon; a later DeployClabeDaemon starts it again.")]
     public bool StopOnly { get; init; }
 
-    [Input(OptionsFrom = "clabe.installers", Description = "The version of clabe's installer: a clabe release tag (e.g. v0.19.0), or main.")]
+    [Input(OptionsFrom = "clabe.installers", Description = "The version of clabe's installer: a clabe release tag (e.g. v0.19.0), a commit, or main. Builds (a commit as version or cliVersion, or a lock on one) need an installer from cf17fa8 on.")]
     public string Installer { get; init; } = "main";
 
-    [Input(OptionsFrom = "clabe.versions", Description = "The clabe release the `clabe` command is installed at, e.g. 0.19.0. Empty, \"lock\" or \"latest\": the installer's default (the newest it supports).")]
+    [Input(OptionsFrom = "clabe.versions", Description = "The clabe the `clabe` command is installed at: a release, e.g. 0.19.0, or a commit (its build). Empty, \"lock\" or \"latest\": the installer's default (the build -Lock or -Commit names, else the newest release).")]
     public string? CliVersion { get; init; }
 
     /// <summary>The extras the `clabe` command is installed with (the installer's own default).</summary>
@@ -59,6 +59,10 @@ public class DeployClabeDaemonStep : IRecipeStep
                     throw new InvalidOperationException("version \"lock\" needs lockRepository: the repository whose uv.lock pins clabe.");
                 arguments.Add($"-Lock {Quote(LockRepository)}");
             }
+            else if (ClabeReleases.IsCommit(version))
+            {
+                arguments.Add($"-Commit {Quote(version.ToLowerInvariant())}");
+            }
             else if (version.Length > 0 && !version.Equals("latest", StringComparison.OrdinalIgnoreCase))
             {
                 arguments.Add($"-Version {Quote(version)}");
@@ -66,9 +70,22 @@ public class DeployClabeDaemonStep : IRecipeStep
             if (!string.IsNullOrWhiteSpace(Hubs))
                 arguments.Add($"-Hubs {Quote(Hubs.Trim())}");
         }
-        var cli = (CliVersion ?? "").Trim().TrimStart('v', 'V');
-        if (cli.Length > 0 && !cli.Equals("lock", StringComparison.OrdinalIgnoreCase) && !cli.Equals("latest", StringComparison.OrdinalIgnoreCase))
-            arguments.Add($"-CliPackage {Quote($"aind-clabe[{CliExtras}]=={cli}")}");
+        var cli = (CliVersion ?? "").Trim();
+        if (ClabeReleases.IsCommit(cli))
+        {
+            // The installer installs a build as the `clabe` command from -Commit (a build has no PyPI version to pin).
+            var commit = $"-Commit {Quote(cli.ToLowerInvariant())}";
+            if (StopOnly)
+                arguments.Add(commit);
+            else if (!arguments.Contains(commit))
+                throw new InvalidOperationException($"cliVersion {cli} is a build: version must be the same commit (the installer installs one build for both).");
+        }
+        else
+        {
+            cli = cli.TrimStart('v', 'V');
+            if (cli.Length > 0 && !cli.Equals("lock", StringComparison.OrdinalIgnoreCase) && !cli.Equals("latest", StringComparison.OrdinalIgnoreCase))
+                arguments.Add($"-CliPackage {Quote($"aind-clabe[{CliExtras}]=={cli}")}");
+        }
         arguments.Add(Force ? "-Force" : "-Force:$false");
 
         var installer = string.IsNullOrWhiteSpace(Installer) ? "main" : Installer.Trim();
@@ -92,6 +109,11 @@ public class DeployClabeDaemonStep : IRecipeStep
             || version.Equals("lock", StringComparison.OrdinalIgnoreCase)
             || version.Equals("latest", StringComparison.OrdinalIgnoreCase))
             return;
+        if (ClabeReleases.IsCommit(version))
+        {
+            await CheckBuildAsync(releases, version, cancellationToken);
+            return;
+        }
         if ((await releases.GetAsync(cancellationToken)).Any(r => r.Version.Equals(version, StringComparison.OrdinalIgnoreCase)))
             return; // known: no need to ask GitHub again
         var known = await releases.GetFreshAsync(cancellationToken);
@@ -100,6 +122,18 @@ public class DeployClabeDaemonStep : IRecipeStep
         var recent = string.Join(", ", known.Take(5).Select(r => r.Version));
         throw new InvalidOperationException(
             $"clabe {version} is not a release with builds (https://github.com/{ClabeReleases.Repository}/releases). Recent ones: {recent}.");
+    }
+
+    /// <summary>Refuses a commit with no build, on a list just read from GitHub only (as for releases).</summary>
+    private static async Task CheckBuildAsync(ClabeReleases releases, string commit, CancellationToken cancellationToken)
+    {
+        if (ClabeReleases.FindBuild(await releases.GetAsync(cancellationToken), commit) is not null)
+            return;
+        var known = await releases.GetFreshAsync(cancellationToken);
+        if (known is null || known.Count == 0 || ClabeReleases.FindBuild(known, commit) is not null)
+            return;
+        throw new InvalidOperationException(
+            $"clabe has no build of commit {commit} (one per commit pushed to main, the newest 100): https://github.com/{ClabeReleases.Repository}/releases/tag/{ClabeReleases.BuildsTag}.");
     }
 
     private static string Quote(string value) => $"'{value.Replace("'", "''")}'";
